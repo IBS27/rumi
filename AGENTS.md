@@ -21,5 +21,5 @@ React + Vite + TypeScript + Tailwind, with Convex as the planned backend. The fr
 - Geometry uses meters and Y-up coordinates; money uses integer cents. Keep unknown dimensions explicit.
 - Keep sample data labeled. Do not present fixture behavior as a live integration.
 - Read [convex-workflow.md](convex-workflow.md) before configuring Convex or changing backend code. Check deployment ownership before running `bunx convex dev`; it pushes backend changes. Keep secrets out of Git and `VITE_` variables.
-- Use Bun. Run `bun run typecheck`, `bun run lint`, and `bun test`. Keep tests focused on behavior and use `bun:test`; check UI changes in the browser.
+- Use Bun. Run `bun run typecheck`, `bun run lint`, and `bun test`. `bun run typecheck` needs `convex/_generated`, so it fails until a deployment is configured; `bun run typecheck:shared` covers `shared/`, `tests/` and the Convex files that do not import generated bindings, and works with no deployment. Keep tests focused on behavior and use `bun:test`; check UI changes in the browser.
 - Do not run production builds or deploy unless asked.

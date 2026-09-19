@@ -220,9 +220,18 @@ Everything under `shared/search/` is pure, free of Convex imports, and tested of
 
 ## Testing
 
-No test reaches the network or a model provider. `tests/golden.test.ts` runs against
-snapshots captured from live retailer pages, including the parts that do not work yet, so
-a change in behaviour is visible.
+No test reaches the network or a model provider. The two model calls run against
+`MockLanguageModelV2`, so their schemas, their price conversion and the images they send
+are covered without an API key. `tests/golden.test.ts` runs against snapshots captured
+from live retailer pages, including the parts that do not work yet, so a change in
+behaviour is visible.
+
+`bun run typecheck:shared` typechecks this code without a Convex deployment.
+
+One provider note: an image is passed to the model as a URL. A provider that does not
+declare URL support makes the SDK download the file first, so a hotlink-protected or
+missing image throws. That is caught per candidate and degrades to unknown dimensions
+rather than failing the search.
 
 Known gaps, recorded as tests rather than hidden:
 
