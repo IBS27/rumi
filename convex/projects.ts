@@ -13,6 +13,46 @@ export const list = query({
       .collect(),
 });
 
+export const rename = mutation({
+  args: {
+    projectId: v.id("projects"),
+    ownerId: v.string(),
+    title: v.string(),
+  },
+  handler: async (ctx, { projectId, ownerId, title }) => {
+    const project = await ctx.db.get(projectId);
+    const nextTitle = title.trim();
+    if (!project || project.ownerId !== ownerId)
+      throw new Error("This project does not exist.");
+    if (!nextTitle) throw new Error("A chat title is required.");
+    await ctx.db.patch(projectId, { title: nextTitle.slice(0, 80) });
+  },
+});
+
+export const remove = mutation({
+  args: { projectId: v.id("projects"), ownerId: v.string() },
+  handler: async (ctx, { projectId, ownerId }) => {
+    const project = await ctx.db.get(projectId);
+    if (!project || project.ownerId !== ownerId)
+      throw new Error("This project does not exist.");
+    const messages = await ctx.db
+      .query("messages")
+      .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
+      .collect();
+    for (const message of messages) await ctx.db.delete(message._id);
+    const images = await ctx.db
+      .query("images")
+      .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
+      .collect();
+    for (const image of images) {
+      await ctx.storage.delete(image.storageId);
+      await ctx.db.delete(image._id);
+    }
+    await ctx.db.delete(project.roomId);
+    await ctx.db.delete(projectId);
+  },
+});
+
 export const get = internalQuery({
   args: { projectId: v.id("projects") },
   handler: async (ctx, { projectId }) => await ctx.db.get(projectId),

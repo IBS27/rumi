@@ -20,7 +20,12 @@ import { findPlacement, placementIssue } from "../shared/geometry";
 const SYSTEM_PROMPT = `You are the room designer for rumi. You build rooms from real web products.
 - Start with getRoomContext. Respect owned and locked objects.
 - Work in meters and USD cents. Never infer dimensions that were not given.
+- Inspiration-image messages include a visual analysis from a specialist model. Use its style, palette, material, lighting, and furniture cues, but never treat it as verified room geometry or exact dimensions.
 - Save style, budget, and restrictions with updateBrief as soon as the user states them.
+- Decide what information is most useful to ask for next. You may ask about any design detail, room constraint, preference, priority, tradeoff, or missing measurement.
+- When a useful question has 2-4 reasonable choices, call askOptions instead of writing the question as plain text. Create choices that fit the current room and conversation; do not use a fixed questionnaire. The user can also type a custom answer in the card.
+- Ask only one focused question per turn. After calling askOptions, do not call another tool and do not write a text reply. Wait for the user's option click or custom answer.
+- Use a normal text question only when useful answers cannot be represented by 2-4 choices.
 - Only propose products that searchProducts returned. Never invent ids, prices, or dimensions.
 - If searchProducts reports that web search is not configured, say so and keep refining the brief instead of proposing products.
 - Check the budget with checkBudget before proposeDesign.
@@ -37,8 +42,34 @@ function buildAgentTools(
   state: State<RoomSnapshot>,
   roomId: Id<"rooms">,
   brief: State<DesignBrief>,
+  projectId: Id<"projects"> | null,
 ): ToolSet {
   return {
+    ...(projectId
+      ? {
+          askOptions: tool({
+            description:
+              "Present the user 2-4 concrete options to pick from, for example a style direction, budget range, or palette. The conversation pauses until they answer; end your turn after calling this.",
+            inputSchema: z.object({
+              question: z.string(),
+              options: z.array(z.string()).min(2).max(4),
+              multiSelect: z.boolean().default(false),
+            }),
+            execute: async ({ question, options, multiSelect }) => {
+              await ctx.runMutation(internal.messages.ask, {
+                projectId,
+                question,
+                options,
+                multiSelect,
+              });
+              return {
+                presented: true,
+                note: "Options shown to the user. End your turn and wait for their selection.",
+              };
+            },
+          }),
+        }
+      : {}),
     getRoomContext: tool({
       description:
         "Return the room snapshot (dimensions, openings, placed objects) and the design brief.",
@@ -178,6 +209,7 @@ async function runAgent(
   ctx: ActionCtx,
   roomId: Id<"rooms">,
   prompt: string,
+  projectId: Id<"projects"> | null = null,
 ): Promise<{ text: string; room: RoomSnapshot }> {
   const doc = await ctx.runQuery(internal.rooms.getRoom, { roomId });
   if (!doc) throw new Error("This room does not exist.");
@@ -188,6 +220,7 @@ async function runAgent(
     { get: () => currentRoom, set: (room) => (currentRoom = room) },
     roomId,
     { get: () => brief, set: (next) => (brief = next) },
+    projectId,
   );
   const result = await generateText({
     model: openai(process.env.RUMI_AGENT_MODEL ?? "gpt-4o"),
@@ -235,8 +268,9 @@ export const runForProject = internalAction({
         ctx,
         project.roomId,
         `Conversation so far:\n${transcript}\n\nRespond to the user's latest message.`,
+        projectId,
       );
-      await complete(text || "I could not produce a reply.", "done");
+      await complete(text, "done");
     } catch (error) {
       await complete(
         `Something went wrong: ${error instanceof Error ? error.message : "unknown error"}.`,
