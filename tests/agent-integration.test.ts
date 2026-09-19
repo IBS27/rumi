@@ -46,7 +46,7 @@ describe("agent integration with the capture workspace", () => {
       (await other.query(api.projects.list, { paginationOpts })).page,
     ).toEqual([]);
     const room = await t.query(internal.rooms.getRoom, {
-      roomId: projects.page[0].roomId,
+      roomId: projects.page[0].roomId!,
     });
     expect(room?.snapshot).toEqual(sampleRoom);
   });
@@ -61,7 +61,7 @@ describe("agent integration with the capture workspace", () => {
     });
     expect(
       await other.query(api.messages.list, { projectId, paginationOpts }),
-    ).toBeNull();
+    ).toEqual({ page: [], isDone: true, continueCursor: "" });
     await expect(
       other.mutation(api.projects.rename, { projectId, title: "Hijacked" }),
     ).rejects.toThrow();
@@ -126,7 +126,7 @@ describe("agent integration with the capture workspace", () => {
     await owner.mutation(api.projects.remove, { projectId });
     expect(
       await owner.query(api.messages.list, { projectId, paginationOpts }),
-    ).toBeNull();
+    ).toEqual({ page: [], isDone: true, continueCursor: "" });
     await t.mutation(internal.projects.cleanup, { projectId });
     await t.mutation(internal.projects.cleanup, { projectId });
     await t.mutation(internal.messages.complete, {
@@ -154,7 +154,7 @@ describe("agent integration with the capture workspace", () => {
     });
     const project = await t.query(internal.projects.get, { projectId });
     expect(
-      (await t.query(internal.rooms.getRoom, { roomId: project!.roomId }))
+      (await t.query(internal.rooms.getRoom, { roomId: project!.roomId! }))
         ?.snapshot,
     ).toEqual(room);
     await t.mutation(internal.products.upsertProducts, {
@@ -162,7 +162,7 @@ describe("agent integration with the capture workspace", () => {
     });
     await expect(
       t.mutation(internal.rooms.applyDesignProposal, {
-        roomId: project!.roomId,
+        roomId: project!.roomId!,
         proposal: {
           ...sampleProposal,
           roomId: room.id,
@@ -171,7 +171,7 @@ describe("agent integration with the capture workspace", () => {
       }),
     ).rejects.toThrow();
     expect(
-      (await t.query(internal.rooms.getRoom, { roomId: project!.roomId }))
+      (await t.query(internal.rooms.getRoom, { roomId: project!.roomId! }))
         ?.snapshot,
     ).toEqual(room);
   });
@@ -183,11 +183,11 @@ describe("agent integration with the capture workspace", () => {
       products: sampleProducts,
     });
     await t.mutation(internal.rooms.patchBrief, {
-      roomId: project!.roomId,
+      roomId: project!.roomId!,
       budgetCents: sampleBrief.budgetCents,
     });
     const args = {
-      roomId: project!.roomId,
+      roomId: project!.roomId!,
       proposal: sampleProposal,
     };
     const updated = await t.mutation(internal.rooms.applyDesignProposal, args);

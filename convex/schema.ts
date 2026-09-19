@@ -32,7 +32,9 @@ export default defineSchema({
   projects: defineTable({
     ownerId: v.string(),
     title: v.string(),
-    roomId: v.id("rooms"),
+    roomId: v.optional(v.id("rooms")),
+    brief: v.optional(zodToConvex(briefSchema)),
+    activeMessageId: v.optional(v.id("messages")),
     createdAt: v.number(),
   }).index("by_ownerId", ["ownerId"]),
   messages: defineTable({
@@ -66,6 +68,14 @@ export default defineSchema({
     ),
     analysis: v.optional(v.string()),
     createdAt: v.number(),
+  }).index("by_projectId", ["projectId"]),
+  imageUploads: defineTable({
+    projectId: v.id("projects"),
+    ownerId: v.string(),
+    tokenHash: v.string(),
+    contentType: v.string(),
+    size: v.number(),
+    expiresAt: v.number(),
   }).index("by_projectId", ["projectId"]),
   captures: defineTable({
     ownerId: v.string(),
