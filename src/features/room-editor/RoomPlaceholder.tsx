@@ -1,7 +1,7 @@
 export function RoomPlaceholder() {
   return (
     <section
-      className="grid place-items-center bg-neutral-950 p-6"
+      className="grid h-full place-items-center bg-neutral-950 p-6"
       aria-labelledby="room-heading"
     >
       <div className="grid h-full w-full place-items-center rounded-2xl border border-dashed border-neutral-700 bg-neutral-900/40">
