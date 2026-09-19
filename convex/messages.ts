@@ -23,22 +23,19 @@ const listedMessage = v.object({
 });
 
 export const list = query({
-  returns: v.union(
-    v.null(),
-    v.object({
-      page: v.array(listedMessage),
-      isDone: v.boolean(),
-      continueCursor: v.string(),
-      splitCursor: v.optional(v.union(v.string(), v.null())),
-      pageStatus: v.optional(
-        v.union(
-          v.literal("SplitRecommended"),
-          v.literal("SplitRequired"),
-          v.null(),
-        ),
+  returns: v.object({
+    page: v.array(listedMessage),
+    isDone: v.boolean(),
+    continueCursor: v.string(),
+    splitCursor: v.optional(v.union(v.string(), v.null())),
+    pageStatus: v.optional(
+      v.union(
+        v.literal("SplitRecommended"),
+        v.literal("SplitRequired"),
+        v.null(),
       ),
-    }),
-  ),
+    ),
+  }),
   args: {
     projectId: v.id("projects"),
     paginationOpts: paginationOptsValidator,
@@ -46,7 +43,8 @@ export const list = query({
   handler: async (ctx, { projectId, paginationOpts }) => {
     const ownerId = await requireOwner(ctx);
     const project = await ctx.db.get(projectId);
-    if (!project || project.ownerId !== ownerId) return null;
+    if (!project || project.ownerId !== ownerId)
+      return { page: [], isDone: true, continueCursor: "" };
     const messages = await ctx.db
       .query("messages")
       .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
@@ -66,7 +64,7 @@ export const list = query({
   },
 });
 
-async function postUserTurn(
+export async function postUserTurn(
   ctx: MutationCtx,
   projectId: Id<"projects">,
   ownerId: string,
@@ -78,6 +76,8 @@ async function postUserTurn(
   content = content.trim();
   if (!content || content.length > 16000)
     throw new Error("Message must contain 1–16000 characters.");
+  if (project.activeMessageId)
+    throw new Error("Please wait for the current reply.");
   const now = Date.now();
   await ctx.db.insert("messages", {
     projectId,
@@ -93,6 +93,8 @@ async function postUserTurn(
     status: "pending",
     createdAt: now + 1,
   });
+  await ctx.db.patch(projectId, { activeMessageId: messageId });
+  await ctx.scheduler.runAfter(180000, internal.messages.expire, { messageId });
   await ctx.scheduler.runAfter(0, internal.agent.runForProject, {
     projectId,
     messageId,
@@ -168,8 +170,12 @@ export const complete = internalMutation({
     status: v.union(v.literal("done"), v.literal("error")),
   },
   handler: async (ctx, { messageId, content, status }) => {
-    if (await ctx.db.get(messageId))
-      await ctx.db.patch(messageId, { content, status });
+    const message = await ctx.db.get(messageId);
+    if (!message || message.status !== "pending") return;
+    await ctx.db.patch(messageId, { content, status });
+    const project = await ctx.db.get(message.projectId);
+    if (project?.activeMessageId === messageId)
+      await ctx.db.patch(project._id, { activeMessageId: undefined });
   },
 });
 
@@ -184,4 +190,71 @@ export const history = internalQuery({
         .order("desc")
         .take(100)
     ).reverse(),
+});
+
+export const expire = internalMutation({
+  args: { messageId: v.id("messages") },
+  returns: v.null(),
+  handler: async (ctx, { messageId }) => {
+    const message = await ctx.db.get(messageId);
+    if (!message || message.status !== "pending") return;
+    await ctx.runMutation(internal.messages.complete, {
+      messageId,
+      status: "error",
+      content: "The reply took too long. Please try again.",
+    });
+  },
+});
+
+export const retry = mutation({
+  args: { messageId: v.id("messages") },
+  returns: v.null(),
+  handler: async (ctx, { messageId }) => {
+    const ownerId = await requireOwner(ctx);
+    const message = await ctx.db.get(messageId);
+    if (!message || message.role !== "assistant" || message.status !== "error")
+      throw new Error("This reply cannot be retried.");
+    const project = await ctx.db.get(message.projectId);
+    if (!project || project.ownerId !== ownerId)
+      throw new Error("This project does not exist.");
+    if (project.activeMessageId)
+      throw new Error("Please wait for the current reply.");
+    const latest = await ctx.db
+      .query("messages")
+      .withIndex("by_projectId", (q) => q.eq("projectId", project._id))
+      .order("desc")
+      .first();
+    if (latest?._id !== messageId)
+      throw new Error("Send a new message to continue this conversation.");
+    const replyId = await ctx.db.insert("messages", {
+      projectId: project._id,
+      role: "assistant",
+      content: "",
+      status: "pending",
+      createdAt: Date.now(),
+    });
+    await ctx.db.patch(project._id, { activeMessageId: replyId });
+    await ctx.scheduler.runAfter(180000, internal.messages.expire, {
+      messageId: replyId,
+    });
+    const recent = await ctx.db
+      .query("messages")
+      .withIndex("by_projectId", (q) => q.eq("projectId", project._id))
+      .order("desc")
+      .take(100);
+    const previous = recent.find((item) => item.role === "user");
+    const image = previous?.imageId ? await ctx.db.get(previous.imageId) : null;
+    if (image && previous && image.status !== "analyzed") {
+      await ctx.scheduler.runAfter(0, internal.images.analyze, {
+        imageId: image._id,
+        userMessageId: previous._id,
+        assistantMessageId: replyId,
+      });
+    } else {
+      await ctx.scheduler.runAfter(0, internal.agent.runForProject, {
+        projectId: project._id,
+        messageId: replyId,
+      });
+    }
+  },
 });

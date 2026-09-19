@@ -1,3 +1,4 @@
+import { ChatPanel, ChatUnavailable } from "./features/chat/ChatPanel";
 import { RoomWorkspace } from "./features/room-editor/RoomWorkspace";
 import { SignInButton, UserButton, useUser } from "@clerk/react";
 import { useConvexAuth } from "convex/react";
@@ -15,6 +16,27 @@ function SignedInWorkspace() {
     <RoomWorkspace
       key={user?.id ?? "local"}
       identity={user?.id ?? "local"}
+      chat={(context) =>
+        isAuthenticated && user ? (
+          <ChatPanel {...context} identity={user.id} />
+        ) : (
+          <ChatUnavailable
+            {...context}
+            connecting={Boolean(user) && isLoading}
+            signIn={
+              user ? (
+                <p>
+                  We couldn’t connect your account. Please reload and try again.
+                </p>
+              ) : (
+                <SignInButton mode="modal">
+                  <button className="primary">Sign in to chat</button>
+                </SignInButton>
+              )
+            }
+          />
+        )
+      }
       account={
         user ? (
           <UserButton />
@@ -51,6 +73,6 @@ export function App() {
     import.meta.env.VITE_CONVEX_URL?.trim() ? (
     <SignedInWorkspace />
   ) : (
-    <RoomWorkspace />
+    <RoomWorkspace chat={(context) => <ChatUnavailable {...context} />} />
   );
 }

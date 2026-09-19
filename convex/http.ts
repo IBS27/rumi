@@ -10,7 +10,11 @@ import {
 } from "../shared/capture/pairing";
 import { importRoomPlan } from "../shared/capture/roomplan";
 
+import { upload, uploadOptions } from "./images";
+
 const http = httpRouter();
+http.route({ path: "/chat/image", method: "POST", handler: upload });
+http.route({ path: "/chat/image", method: "OPTIONS", handler: uploadOptions });
 class RequestError extends Error {
   constructor(
     public code: string,

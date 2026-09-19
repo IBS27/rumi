@@ -1,5 +1,5 @@
 import { openai } from "@ai-sdk/openai";
-import { generateText, stepCountIs, tool, type ToolSet } from "ai";
+import { generateText, stepCountIs, hasToolCall, tool, type ToolSet } from "ai";
 import { z } from "zod";
 import { v } from "convex/values";
 import { zodToConvex } from "convex-helpers/server/zod4";
@@ -16,11 +16,14 @@ import {
   type RoomSnapshot,
   type SearchTaskResult,
 } from "../shared/contracts";
+import { emptyBrief } from "./projects";
 import { selectionTotal } from "../shared/budget";
 import { findPlacement, placementIssue } from "../shared/geometry";
 
 const SYSTEM_PROMPT = `You are the room designer for rumi. You build rooms from real web products.
 - Start with getRoomContext. Respect owned and locked objects.
+- A null room means no scan has been attached. Help establish the brief without inventing measurements, and invite the user to import a room when geometry is needed.
+- Polygon rooms are real irregular scans. You can discuss them and search products, but automatic placement is not supported. Do not promise to place or move furniture in them.
 - Work in meters and USD cents. Never infer dimensions that were not given.
 - Inspiration-image messages include a visual analysis from a specialist model. Use its style, palette, material, lighting, and furniture cues, but never treat it as verified room geometry or exact dimensions.
 - Save style, budget, and restrictions with updateBrief as soon as the user states them.
@@ -41,8 +44,8 @@ interface State<T> {
 
 function buildAgentTools(
   ctx: ActionCtx,
-  state: State<RoomSnapshot>,
-  roomId: Id<"rooms">,
+  state: State<RoomSnapshot | null>,
+  roomId: Id<"rooms"> | null,
   brief: State<DesignBrief>,
   projectId: Id<"projects"> | null,
 ): ToolSet {
@@ -88,10 +91,17 @@ function buildAgentTools(
         restrictions: z.array(z.string()).optional(),
       }),
       execute: async (patch) => {
-        const next = await ctx.runMutation(internal.rooms.patchBrief, {
-          roomId,
-          ...patch,
-        });
+        const next = projectId
+          ? await ctx.runMutation(internal.projects.updateBrief, {
+              projectId,
+              ...patch,
+            })
+          : roomId
+            ? await ctx.runMutation(internal.rooms.patchBrief, {
+                roomId,
+                ...patch,
+              })
+            : brief.get();
         brief.set(next);
         return next;
       },
@@ -106,7 +116,9 @@ function buildAgentTools(
         } catch (error) {
           return {
             products: [],
-            explanation: "Web search is not configured in this deployment yet.",
+            explanation: process.env.EXA_API_KEY
+              ? "Product search is unavailable right now. Please try again later."
+              : "Web search is not configured in this deployment yet.",
             failures: [
               {
                 stage: "search",
@@ -129,15 +141,15 @@ function buildAgentTools(
         "Return the budget, the priced total of the current selection, and the remaining amount in cents.",
       inputSchema: z.object({}),
       execute: async () => {
-        const ids = state
-          .get()
-          .objects.map((object) => object.productId)
+        const room = state.get();
+        const ids = (room?.objects ?? [])
+          .map((object) => object.productId)
           .filter((id): id is string => id !== null);
         const products = await ctx.runQuery(internal.products.getByIds, {
           ids,
         });
         try {
-          const totalCents = selectionTotal(state.get(), products);
+          const totalCents = room ? selectionTotal(room, products) : 0;
           return {
             budgetCents: brief.get().budgetCents,
             totalCents,
@@ -158,15 +170,16 @@ function buildAgentTools(
         "Check whether a proposed room object fits the room, avoids collisions, and keeps doorway clearance. Returns an issue string or null, plus a suggested placement when available.",
       inputSchema: z.object({ object: roomObjectSchema }),
       execute: async ({ object }) => {
-        const issue = placementIssue(state.get(), object);
+        const room = state.get();
+        if (!room)
+          return { issue: "Import a room scan before checking placement." };
+        const issue = placementIssue(room, object);
         if (!issue) return { issue: null };
         if (!object.productId) return { issue };
         const products = await ctx.runQuery(internal.products.getByIds, {
           ids: [object.productId],
         });
-        const suggested = products[0]
-          ? findPlacement(state.get(), products[0])
-          : null;
+        const suggested = products[0] ? findPlacement(room, products[0]) : null;
         return { issue, suggested };
       },
     }),
@@ -178,10 +191,13 @@ function buildAgentTools(
         additions: z.array(roomObjectSchema),
       }),
       execute: async ({ summary, additions }) => {
+        const room = state.get();
+        if (!room || !roomId)
+          return { ok: false as const, error: "Import a room scan first." };
         const proposal: DesignProposal = {
           id: crypto.randomUUID(),
-          roomId: state.get().id,
-          baseRevision: state.get().revision,
+          roomId: room.id,
+          baseRevision: room.revision,
           summary,
           additions,
         };
@@ -208,14 +224,19 @@ function buildAgentTools(
 
 async function runAgent(
   ctx: ActionCtx,
-  roomId: Id<"rooms">,
+  roomId: Id<"rooms"> | null,
   prompt: string,
   projectId: Id<"projects"> | null = null,
-): Promise<{ text: string; room: RoomSnapshot }> {
-  const doc = await ctx.runQuery(internal.rooms.getRoom, { roomId });
-  if (!doc) throw new Error("This room does not exist.");
-  let brief = doc.brief;
-  let currentRoom = doc.snapshot;
+): Promise<{ text: string; room: RoomSnapshot | null }> {
+  const doc = roomId
+    ? await ctx.runQuery(internal.rooms.getRoom, { roomId })
+    : null;
+  const project = projectId
+    ? await ctx.runQuery(internal.projects.get, { projectId })
+    : null;
+  if (!doc && !project) throw new Error("This project does not exist.");
+  let brief = doc?.brief ?? project?.brief ?? emptyBrief();
+  let currentRoom: RoomSnapshot | null = doc?.snapshot ?? null;
   const tools = buildAgentTools(
     ctx,
     { get: () => currentRoom, set: (room) => (currentRoom = room) },
@@ -228,13 +249,17 @@ async function runAgent(
     system: SYSTEM_PROMPT,
     prompt,
     tools,
-    stopWhen: stepCountIs(10),
+    stopWhen: [stepCountIs(10), hasToolCall("askOptions")],
+    abortSignal: AbortSignal.timeout(110000),
   });
   return { text: result.text, room: currentRoom };
 }
 
 export const designRoom = internalAction({
-  returns: v.object({ text: v.string(), room: zodToConvex(roomSchema) }),
+  returns: v.object({
+    text: v.string(),
+    room: v.union(zodToConvex(roomSchema), v.null()),
+  }),
   args: { roomId: v.id("rooms"), instruction: v.string() },
   handler: async (ctx, { roomId, instruction }) =>
     await runAgent(ctx, roomId, instruction),
@@ -255,7 +280,11 @@ export const runForProject = internalAction({
         internal.projects.get,
         { projectId },
       );
-      if (!project) throw new Error("This project does not exist.");
+      if (!project || project.activeMessageId !== messageId) return;
+      if (!process.env.OPENAI_API_KEY)
+        throw new Error(
+          "Chat is not configured yet. Add the OpenAI API key to the development deployment.",
+        );
       const messages = await ctx.runQuery(internal.messages.history, {
         projectId,
       });
@@ -269,14 +298,18 @@ export const runForProject = internalAction({
         .join("\n");
       const { text } = await runAgent(
         ctx,
-        project.roomId,
+        project.roomId ?? null,
         `Conversation so far:\n${transcript}\n\nRespond to the user's latest message.`,
         projectId,
       );
       await complete(text, "done");
     } catch (error) {
+      console.error(
+        "Chat reply failed:",
+        error instanceof Error ? error.message : "unknown error",
+      );
       await complete(
-        `Something went wrong: ${error instanceof Error ? error.message : "unknown error"}.`,
+        "I couldn’t finish that reply. Please try again.",
         "error",
       );
     }
