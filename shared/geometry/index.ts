@@ -26,6 +26,8 @@ export function placementIssue(
   room: RoomSnapshot,
   object: RoomObject,
 ): string | null {
+  if (room.shape !== "rectangle")
+    return "Furniture fit checks for scanned polygon rooms are not available yet.";
   if (object.rotation.x !== 0 || object.rotation.z !== 0)
     return "Only floor-aligned objects are supported by this placement validator.";
   const a = bounds(object);
@@ -116,6 +118,7 @@ export function findPlacement(
   room: RoomSnapshot,
   product: ProductCandidate,
 ): RoomObject | null {
+  if (room.shape !== "rectangle") return null;
   if (!product.measurement.dimensions) return null;
   const object: RoomObject = {
     id: `placed-${product.id}`,

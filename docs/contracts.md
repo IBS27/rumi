@@ -4,8 +4,9 @@
 
 `shared/contracts/index.ts` is the authority. All runtime inputs pass through its Zod schemas; TypeScript types are inferred from those schemas.
 
-- Meters; right-handed, Y-up coordinates. Origin is the floor's northwest corner. +X runs east, +Z runs south. Object position is the center of its footprint at its base, not its geometric center.
-- Width is X, height is Y, depth is Z. Rotation is radians. The initial placement validator supports yaw around Y; pitch/roll are reserved and must remain zero.
+- Meters; right-handed, Y-up coordinates. Rectangular fixtures use a northwest floor origin, +X east and +Z south. Captures preserve the scan's axis orientation and translate the minimum X/Z bounds and lowest floor elevation to zero. Object position is its local base center, not its geometric center; for tilted objects this point includes the full object rotation.
+- Width is X, height is Y, depth is Z. Rotation is radians. The rectangular placement validator supports yaw around Y and rejects pitch/roll. Captured furniture retains all three rotation axes for rendering.
+- Polygon captures retain surface polygons and column-major local-to-room matrices. Their room dimensions are overall bounds; floors may be absent. Original scan JSON is retained independently of user corrections. Polygon furniture-fit validation is not available yet.
 - Rectangular room dimensions are authoritative; openings reference a wall and an offset along +X for north/south or +Z for east/west.
 - USD prices use integer cents. Product price is per instance; owned furniture costs zero in the new selection.
 - Product IDs identify one purchasable variant in the normalized catalog. Object IDs identify instances, allowing future multiple quantities. Asset IDs are independent.
@@ -41,4 +42,4 @@ The fixture adapter is synchronous. A live search implementation may return a pr
 
 `shared/fixtures/index.ts` exports a 4.8 × 4.2 × 2.7 m bedroom, two owned pieces, a $500 brief, four synthetic products, placeholder asset records, a valid proposal, and oversized/unknown/unaffordable/unavailable product cases. Merchant URLs use `example.com` and are not real listings.
 
-`shared/fixtures/search.ts` provides a deterministic search adapter for independent team development and tests. The frontend contains static sidebar and room-area descriptions only. When adding persistence, use authenticated Convex mutations and reject stale revisions on the server; keep transient camera/selection state local.
+`shared/fixtures/search.ts` provides a deterministic search adapter for independent team development and tests. The room workspace imports captured rooms and stores edits locally. `shared/fixtures/roomplan.ts` supplies an independently authored, explicitly synthetic L-shaped room. When adding cloud room persistence, use authenticated Convex mutations and reject stale revisions on the server; keep transient camera/selection state local.
