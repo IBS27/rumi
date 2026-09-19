@@ -225,6 +225,9 @@ export async function runSearch(
       pageText,
       images,
     });
+    // Why a size could not be read is worth telling the caller even for a candidate
+    // that never reaches the drawing stage.
+    failures.push(...resolved.failures);
     const { product, issue } = buildCandidate({
       sourceUrl: page.url,
       category: task.category,
@@ -300,13 +303,20 @@ export async function runSearch(
   if (deps.persist && finalists.length > 0)
     await deps.persist(finalists.map((candidate) => candidate.product));
 
+  const seen = new Set<string>();
+  const distinct = failures.filter((failure) => {
+    const key = `${failure.stage}:${failure.detail}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
   const measured = finalists.filter(
     (candidate) => candidate.product.measurement.dimensions !== null,
   ).length;
   return taskResult(
     task,
     finalists,
-    failures,
+    distinct,
     `Searched ${hits.length} ${task.category} listing(s) in the ${tierFor(task.maxPriceCents)} tier and kept ${finalists.length}, ${measured} of which have dimensions. Sizes are read from merchant pages and are estimates until confirmed.`,
   );
 }

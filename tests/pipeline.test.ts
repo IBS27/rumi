@@ -277,3 +277,35 @@ describe("searching several categories at once", () => {
     );
   });
 });
+
+describe("explaining a silent page", () => {
+  it("tells the caller why a size could not be read", async () => {
+    const silent: PageContent = {
+      url: "https://f.test/products/unordered-shelf",
+      title: "Unordered shelf",
+      html: "<html><body>Unordered shelf</body></html>",
+      text: 'Unordered shelf. Minimalist natural oak. $199.00. 31 1/2x11x41 3/4"',
+      images: [],
+    };
+    const context = deps(pagesFrom([silent]));
+    const result = await runSearch(makeTask(), context.deps, {
+      minTierHits: 1,
+    });
+    expect(result.candidates[0].product.measurement.dimensions).toBeNull();
+    expect(result.failures.some((f) => f.detail.includes("order"))).toBe(true);
+  });
+
+  it("reports each distinct reason once", async () => {
+    const context = deps(
+      pagesFrom([
+        diagramPage("https://d.test/products/mystery-cabinet"),
+        diagramPage("https://e.test/products/second-mystery-cabinet"),
+      ]),
+    );
+    const result = await runSearch(makeTask(), context.deps, {
+      minTierHits: 1,
+    });
+    const details = result.failures.map((f) => `${f.stage}:${f.detail}`);
+    expect(new Set(details).size).toBe(details.length);
+  });
+});

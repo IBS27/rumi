@@ -88,10 +88,13 @@ export async function resolveDimensions(
   const partial = hasAny(structured) ? structured : text;
 
   if (!sources.readDiagram || sources.images.length === 0) {
-    failures.push({
-      stage: "dimensions",
-      detail: "No dimensions in the page text and no image to read.",
-    });
+    // Without a reader this is the cheap pass, which defers to the drawing stage; with
+    // one, there is genuinely nothing left to look at.
+    if (sources.images.length === 0)
+      failures.push({
+        stage: "dimensions",
+        detail: "The page states no dimensions and has no image to read.",
+      });
     return { measurement: unknown(), failures, usedVision: false };
   }
 
