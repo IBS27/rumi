@@ -4,6 +4,7 @@ import { internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import {
   searchTaskSchema,
+  searchTaskResultSchema,
   type ProductCandidate,
   type SearchFailure,
   type SearchTaskResult,
@@ -21,6 +22,7 @@ import { extractProduct } from "./extract";
 const RESULTS_PER_TASK = 8;
 
 export const searchProducts = internalAction({
+  returns: zodToConvex(searchTaskResultSchema),
   args: { task: zodToConvex(searchTaskSchema) },
   handler: async (ctx, args): Promise<SearchTaskResult> => {
     const task = searchTaskSchema.parse(args.task);

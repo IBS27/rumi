@@ -2,12 +2,14 @@ import { openai } from "@ai-sdk/openai";
 import { generateText, stepCountIs, tool, type ToolSet } from "ai";
 import { z } from "zod";
 import { v } from "convex/values";
+import { zodToConvex } from "convex-helpers/server/zod4";
 import type { ActionCtx } from "./_generated/server";
 import { internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
   roomObjectSchema,
+  roomSchema,
   searchTaskSchema,
   type DesignBrief,
   type DesignProposal,
@@ -104,8 +106,7 @@ function buildAgentTools(
         } catch (error) {
           return {
             products: [],
-            explanation:
-              "Web search is not configured in this deployment yet.",
+            explanation: "Web search is not configured in this deployment yet.",
             failures: [
               {
                 stage: "search",
@@ -187,7 +188,7 @@ function buildAgentTools(
         try {
           const next = await ctx.runMutation(
             internal.rooms.applyDesignProposal,
-            { roomId, proposal, brief: brief.get() },
+            { roomId, proposal },
           );
           state.set(next);
           return { ok: true as const, revision: next.revision };
@@ -233,12 +234,14 @@ async function runAgent(
 }
 
 export const designRoom = internalAction({
+  returns: v.object({ text: v.string(), room: zodToConvex(roomSchema) }),
   args: { roomId: v.id("rooms"), instruction: v.string() },
   handler: async (ctx, { roomId, instruction }) =>
     await runAgent(ctx, roomId, instruction),
 });
 
 export const runForProject = internalAction({
+  returns: v.null(),
   args: { projectId: v.id("projects"), messageId: v.id("messages") },
   handler: async (ctx, { projectId, messageId }): Promise<void> => {
     const complete = (content: string, status: "done" | "error") =>

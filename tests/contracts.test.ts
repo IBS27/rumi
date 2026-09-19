@@ -31,6 +31,7 @@ describe("team handoff", () => {
       "projects",
       "messages",
       "images",
+      "captures",
     ]);
   });
   it("keeps unknown measurements and pending models explicit", () => {

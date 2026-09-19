@@ -27,6 +27,20 @@ export const categorySchema = z.enum([
   "rug",
   "storage",
   "art",
+  "sofa",
+  "chair",
+  "table",
+  "refrigerator",
+  "oven",
+  "sink",
+  "toilet",
+  "bathtub",
+  "dishwasher",
+  "washerDryer",
+  "television",
+  "fireplace",
+  "stairs",
+  "unknown",
 ]);
 export const assetSchema = z
   .object({
@@ -70,6 +84,23 @@ export const roomObjectSchema = z.object({
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
   owned: z.boolean(),
   locked: z.boolean(),
+  measurementSource: z.enum(["confirmed", "estimated"]).optional(),
+  detectionConfidence: z.enum(["high", "medium", "low", "unknown"]).optional(),
+  sourceCategory: z.string().optional(),
+});
+export const capturedSurfaceSchema = z.object({
+  id: idSchema,
+  kind: z.enum(["wall", "floor", "door", "window", "opening"]),
+  parentId: idSchema.nullable(),
+  dimensions: z.object({
+    width: z.number().positive(),
+    height: z.number().positive(),
+    depth: z.number().nonnegative(),
+  }),
+  // Column-major local-to-room affine transform, retaining the scan orientation.
+  transform: z.array(z.number().finite()).length(16),
+  polygonCorners: z.array(vectorSchema).max(512),
+  confidence: z.enum(["high", "medium", "low", "unknown"]),
 });
 export const openingSchema = z.object({
   id: idSchema,
@@ -80,17 +111,36 @@ export const openingSchema = z.object({
   height: z.number().positive(),
   sill: z.number().nonnegative(),
 });
+const roomFields = {
+  id: idSchema,
+  name: z.string(),
+  revision: z.number().int().nonnegative(),
+  dimensions: dimensionsSchema,
+  measurementSource: z.enum(["confirmed", "estimated"]),
+  objects: z.array(roomObjectSchema),
+};
 export const roomSchema = z
-  .object({
-    id: idSchema,
-    name: z.string(),
-    revision: z.number().int().nonnegative(),
-    shape: z.literal("rectangle"),
-    dimensions: dimensionsSchema,
-    measurementSource: z.enum(["confirmed", "estimated"]),
-    openings: z.array(openingSchema),
-    objects: z.array(roomObjectSchema),
-  })
+  .discriminatedUnion("shape", [
+    z.object({
+      ...roomFields,
+      shape: z.literal("rectangle"),
+      openings: z.array(openingSchema),
+    }),
+    z.object({
+      ...roomFields,
+      shape: z.literal("polygon"),
+      walls: z.array(capturedSurfaceSchema).min(1).max(200),
+      floors: z.array(capturedSurfaceSchema).max(30),
+      openings: z.array(capturedSurfaceSchema).max(200),
+      capture: z.object({
+        provider: z.literal("roomplan"),
+        version: z.number().nullable(),
+        synthetic: z.boolean(),
+        origin: vectorSchema,
+        warnings: z.array(z.string()),
+      }),
+    }),
+  ])
   .refine(
     (room) =>
       new Set(room.objects.map((object) => object.id)).size ===
@@ -141,6 +191,8 @@ export const searchTaskResultSchema = searchResultSchema.extend({
 });
 export type RoomSnapshot = z.infer<typeof roomSchema>;
 export type RoomObject = z.infer<typeof roomObjectSchema>;
+export type CapturedSurface = z.infer<typeof capturedSurfaceSchema>;
+export type CapturedRoom = Extract<RoomSnapshot, { shape: "polygon" }>;
 export type ProductCandidate = z.infer<typeof productSchema>;
 export type DesignBrief = z.infer<typeof briefSchema>;
 export type DesignProposal = z.infer<typeof proposalSchema>;

@@ -1,16 +1,17 @@
 import { openai } from "@ai-sdk/openai";
 import { generateText } from "ai";
 import { v } from "convex/values";
+import schema from "./schema";
 import {
   internalAction,
   internalMutation,
   internalQuery,
-  mutation,
 } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 
-export const generateUploadUrl = mutation({
+export const generateUploadUrl = internalMutation({
+  returns: v.string(),
   args: { projectId: v.id("projects"), ownerId: v.string() },
   handler: async (ctx, { projectId, ownerId }) => {
     const project = await ctx.db.get(projectId);
@@ -20,7 +21,8 @@ export const generateUploadUrl = mutation({
   },
 });
 
-export const save = mutation({
+export const save = internalMutation({
+  returns: v.id("images"),
   args: {
     projectId: v.id("projects"),
     ownerId: v.string(),
@@ -49,16 +51,13 @@ export const save = mutation({
       status: "done",
       createdAt: now,
     });
-    const assistantMessageId: Id<"messages"> = await ctx.db.insert(
-      "messages",
-      {
-        projectId,
-        role: "assistant",
-        content: "",
-        status: "pending",
-        createdAt: now + 1,
-      },
-    );
+    const assistantMessageId: Id<"messages"> = await ctx.db.insert("messages", {
+      projectId,
+      role: "assistant",
+      content: "",
+      status: "pending",
+      createdAt: now + 1,
+    });
     await ctx.scheduler.runAfter(0, internal.images.analyze, {
       imageId,
       userMessageId,
@@ -69,6 +68,15 @@ export const save = mutation({
 });
 
 export const get = internalQuery({
+  returns: v.union(
+    v.null(),
+    v.object({
+      ...schema.tables.images.validator.fields,
+      _id: v.id("images"),
+      _creationTime: v.number(),
+      url: v.union(v.string(), v.null()),
+    }),
+  ),
   args: { imageId: v.id("images") },
   handler: async (ctx, { imageId }) => {
     const image = await ctx.db.get(imageId);
@@ -78,6 +86,7 @@ export const get = internalQuery({
 });
 
 export const complete = internalMutation({
+  returns: v.null(),
   args: {
     imageId: v.id("images"),
     userMessageId: v.id("messages"),
@@ -85,6 +94,8 @@ export const complete = internalMutation({
     analysis: v.string(),
   },
   handler: async (ctx, { imageId, userMessageId, status, analysis }) => {
+    if (!(await ctx.db.get(imageId)) || !(await ctx.db.get(userMessageId)))
+      return;
     await ctx.db.patch(imageId, { status, analysis });
     await ctx.db.patch(userMessageId, {
       content:
@@ -96,6 +107,7 @@ export const complete = internalMutation({
 });
 
 export const analyze = internalAction({
+  returns: v.null(),
   args: {
     imageId: v.id("images"),
     userMessageId: v.id("messages"),
@@ -110,7 +122,9 @@ export const analyze = internalAction({
       if (!image?.url) throw new Error("The uploaded image is unavailable.");
       const response = await fetch(image.url);
       if (!response.ok)
-        throw new Error(`Image download failed with status ${response.status}.`);
+        throw new Error(
+          `Image download failed with status ${response.status}.`,
+        );
       const bytes = new Uint8Array(await response.arrayBuffer());
       const result = await generateText({
         model: openai(

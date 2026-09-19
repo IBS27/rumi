@@ -1,6 +1,6 @@
 # Working in rumi
 
-React + Vite + TypeScript + Tailwind, with Convex as the planned backend. The frontend currently contains static placeholders. Live search, room capture, auth, and backend functions are not implemented. Payments are paused.
+React + Vite + TypeScript + Tailwind, with Convex and Clerk. The frontend is a room capture/import and editing workspace with browser-local persistence. The agent/search backend is present but not connected to the visible UI; see `docs/agent-integration.md`. Payments are paused.
 
 ## Where things live
 

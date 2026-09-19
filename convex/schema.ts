@@ -1,7 +1,7 @@
 import { defineSchema, defineTable } from "convex/server";
-import { v } from "convex/values";
 import { zodToConvex } from "convex-helpers/server/zod4";
 import { z } from "zod";
+import { v } from "convex/values";
 import {
   assetSchema,
   briefSchema,
@@ -11,7 +11,6 @@ import {
 } from "../shared/contracts";
 
 // Zod refinements must also run at function boundaries; Convex validates storage shapes.
-// No public functions are exposed until authentication and deployment ownership are set.
 export default defineSchema({
   rooms: defineTable(
     zodToConvex(
@@ -29,7 +28,7 @@ export default defineSchema({
   proposals: defineTable(
     zodToConvex(z.object({ ownerId: z.string(), proposal: proposalSchema })),
   ).index("by_ownerId", ["ownerId"]),
-  // ownerId is a device-generated id until real authentication lands.
+  // ownerId is the authenticated identity tokenIdentifier.
   projects: defineTable({
     ownerId: v.string(),
     title: v.string(),
@@ -68,4 +67,22 @@ export default defineSchema({
     analysis: v.optional(v.string()),
     createdAt: v.number(),
   }).index("by_projectId", ["projectId"]),
+  captures: defineTable({
+    ownerId: v.string(),
+    state: v.union(
+      v.literal("waiting"),
+      v.literal("paired"),
+      v.literal("uploaded"),
+      v.literal("canceled"),
+    ),
+    pairingHash: v.string(),
+    pairingExpiresAt: v.number(),
+    expiresAt: v.number(),
+    claimId: v.optional(v.string()),
+    uploadHash: v.optional(v.string()),
+    storageId: v.optional(v.id("_storage")),
+    digest: v.optional(v.string()),
+    idempotencyKey: v.optional(v.string()),
+    uploadAttempts: v.number(),
+  }).index("by_ownerId", ["ownerId"]),
 });

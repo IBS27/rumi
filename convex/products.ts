@@ -4,6 +4,7 @@ import { internalMutation, internalQuery } from "./_generated/server";
 import { productSchema, type ProductCandidate } from "../shared/contracts";
 
 export const upsertProducts = internalMutation({
+  returns: v.array(v.string()),
   args: { products: v.array(zodToConvex(productSchema)) },
   handler: async (ctx, args): Promise<string[]> => {
     const inserted: string[] = [];
@@ -22,6 +23,7 @@ export const upsertProducts = internalMutation({
 });
 
 export const getByIds = internalQuery({
+  returns: v.array(zodToConvex(productSchema)),
   args: { ids: v.array(v.string()) },
   handler: async (ctx, { ids }): Promise<ProductCandidate[]> => {
     const found: ProductCandidate[] = [];
@@ -30,7 +32,7 @@ export const getByIds = internalQuery({
         .query("products")
         .withIndex("by_catalog_id", (q) => q.eq("id", id))
         .unique();
-      if (doc) found.push(doc);
+      if (doc) found.push(productSchema.parse(doc));
     }
     return found;
   },

@@ -1,44 +1,56 @@
-import { useState } from "react";
-import { PanelLeftOpen } from "lucide-react";
-import { ChatLanding } from "./features/chat/ChatLanding";
-import { ChatMenu } from "./features/chat/ChatMenu";
-import { ChatPanel } from "./features/chat/ChatPanel";
-import { RoomPlaceholder } from "./features/room-editor/RoomPlaceholder";
-import { useWorkspace } from "./lib/store";
+import { RoomWorkspace } from "./features/room-editor/RoomWorkspace";
+import { SignInButton, UserButton, useUser } from "@clerk/react";
+import { useConvexAuth } from "convex/react";
+import { ScanLine } from "lucide-react";
+import { PhoneCapture } from "./features/room-import/PhoneCapture";
 
-export function App({ connected }: { connected: boolean }) {
-  const activeProjectId = useWorkspace((state) => state.activeProjectId);
-  const [collapsedProjectId, setCollapsedProjectId] = useState<
-    typeof activeProjectId
-  >(null);
-  const chatCollapsed = collapsedProjectId === activeProjectId;
-  if (!connected || !activeProjectId)
-    return <ChatLanding connected={connected} />;
-  if (chatCollapsed)
-    return (
-      <main className="relative h-dvh bg-neutral-950 text-neutral-100">
-        <RoomPlaceholder />
-        <div className="absolute left-4 top-4 flex items-center gap-1 rounded-xl border border-neutral-800 bg-neutral-900/90 p-1 shadow-xl backdrop-blur-md">
-          <ChatMenu />
-          <div className="h-5 w-px bg-neutral-800" />
-          <button
-            onClick={() => setCollapsedProjectId(null)}
-            aria-label="Expand chat"
-            title="Expand chat"
-            className="grid size-8 place-items-center rounded-lg text-neutral-400 transition-colors hover:bg-neutral-800 hover:text-neutral-100"
-          >
-            <PanelLeftOpen className="size-[17px]" />
-          </button>
-        </div>
-      </main>
-    );
+function SignedInWorkspace() {
+  const { user, isLoaded } = useUser();
+  const { isAuthenticated, isLoading } = useConvexAuth();
+  const pairingEnabled =
+    import.meta.env.VITE_CAPTURE_PAIRING_ENABLED === "true";
+  if (!isLoaded)
+    return <div className="viewer-fallback">Loading your account…</div>;
   return (
-    <main className="grid h-dvh grid-cols-[420px_minmax(0,1fr)] bg-neutral-950 text-neutral-100">
-      <ChatPanel
-        projectId={activeProjectId}
-        onCollapse={() => setCollapsedProjectId(activeProjectId)}
-      />
-      <RoomPlaceholder />
-    </main>
+    <RoomWorkspace
+      key={user?.id ?? "local"}
+      identity={user?.id ?? "local"}
+      account={
+        user ? (
+          <UserButton />
+        ) : (
+          <SignInButton mode="modal">
+            <button>Sign in</button>
+          </SignInButton>
+        )
+      }
+      phone={
+        pairingEnabled
+          ? (receive) =>
+              !user ? (
+                <SignInButton mode="modal">
+                  <button>
+                    <ScanLine size={16} /> Scan with iPhone
+                  </button>
+                </SignInButton>
+              ) : isAuthenticated ? (
+                <PhoneCapture onReceive={receive} />
+              ) : (
+                <button disabled>
+                  {isLoading ? "Connecting…" : "Capture connection unavailable"}
+                </button>
+              )
+          : undefined
+      }
+    />
+  );
+}
+
+export function App() {
+  return import.meta.env.VITE_CLERK_PUBLISHABLE_KEY?.trim() &&
+    import.meta.env.VITE_CONVEX_URL?.trim() ? (
+    <SignedInWorkspace />
+  ) : (
+    <RoomWorkspace />
   );
 }
