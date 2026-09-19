@@ -1,4 +1,5 @@
 import { defineSchema, defineTable } from "convex/server";
+import { v } from "convex/values";
 import { zodToConvex } from "convex-helpers/server/zod4";
 import { z } from "zod";
 import {
@@ -28,4 +29,26 @@ export default defineSchema({
   proposals: defineTable(
     zodToConvex(z.object({ ownerId: z.string(), proposal: proposalSchema })),
   ).index("by_ownerId", ["ownerId"]),
+  // ownerId is a device-generated id until real authentication lands.
+  projects: defineTable({
+    ownerId: v.string(),
+    title: v.string(),
+    roomId: v.id("rooms"),
+    createdAt: v.number(),
+  }).index("by_ownerId", ["ownerId"]),
+  messages: defineTable({
+    projectId: v.id("projects"),
+    role: v.union(
+      v.literal("user"),
+      v.literal("assistant"),
+      v.literal("system"),
+    ),
+    content: v.string(),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("done"),
+      v.literal("error"),
+    ),
+    createdAt: v.number(),
+  }).index("by_projectId", ["projectId"]),
 });

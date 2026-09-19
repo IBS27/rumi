@@ -14,6 +14,28 @@ export const getRoom = internalQuery({
   handler: async (ctx, { roomId }) => await ctx.db.get(roomId),
 });
 
+export const patchBrief = internalMutation({
+  args: {
+    roomId: v.id("rooms"),
+    prompt: v.optional(v.string()),
+    styles: v.optional(v.array(v.string())),
+    budgetCents: v.optional(v.number()),
+    restrictions: v.optional(v.array(v.string())),
+  },
+  handler: async (ctx, { roomId, ...patch }) => {
+    const doc = await ctx.db.get(roomId);
+    if (!doc) throw new Error("This room does not exist.");
+    const brief = briefSchema.parse({
+      ...doc.brief,
+      ...Object.fromEntries(
+        Object.entries(patch).filter(([, value]) => value !== undefined),
+      ),
+    });
+    await ctx.db.patch(roomId, { brief });
+    return brief;
+  },
+});
+
 export const applyDesignProposal = internalMutation({
   args: {
     roomId: v.id("rooms"),

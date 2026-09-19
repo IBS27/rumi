@@ -28,6 +28,8 @@ describe("team handoff", () => {
       "products",
       "assets",
       "proposals",
+      "projects",
+      "messages",
     ]);
   });
   it("keeps unknown measurements and pending models explicit", () => {
