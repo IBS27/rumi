@@ -159,8 +159,13 @@ describe("diagram image shortlist", () => {
       { url: "https://x.test/product-dimensions.jpg", alt: null },
       { url: "https://x.test/closeup.jpg", alt: "size guide" },
     ]);
-    expect(shortlist[0].url).toContain("dimensions");
-    expect(shortlist[1].alt).toBe("size guide");
+    // Both named images come before the unnamed ones.
+    expect(shortlist.slice(0, 2).map((image) => image.alt ?? image.url)).toEqual(
+      expect.arrayContaining([
+        "size guide",
+        "https://x.test/product-dimensions.jpg",
+      ]),
+    );
   });
 
   it("caps the shortlist and keeps gallery order for ties", () => {
@@ -170,7 +175,9 @@ describe("diagram image shortlist", () => {
     }));
     const shortlist = shortlistDiagramImages(images);
     expect(shortlist).toHaveLength(4);
-    expect(shortlist[0].url).toContain("1.jpg");
+    // Last of the gallery first, then the ones just after the hero shot.
+    expect(shortlist[0].url).toContain("8.jpg");
+    expect(shortlist[1].url).toContain("1.jpg");
   });
 
   it("returns nothing for a product without images", () => {

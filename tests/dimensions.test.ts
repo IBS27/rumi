@@ -204,3 +204,37 @@ describe("merging a text reading with a diagram", () => {
     expect(merged.values.depth).toBeNull();
   });
 });
+
+describe("printed fractions and page furniture", () => {
+  it("reads fractional inches", () => {
+    const reading = parseDimensionText(
+      'Width: 31 1/2" Depth: 11" Height: 41 3/4"',
+      "storage",
+    );
+    near(reading.values.width, 0.8);
+    near(reading.values.depth, 0.279);
+    near(reading.values.height, 1.061);
+  });
+
+  it("reads a lone fraction", () => {
+    near(
+      parseDimensionText('Height: 1/2" Width: 30" Depth: 36"', "rug").values
+        .height,
+      0.013,
+    );
+  });
+
+  it("ignores filter menus that advertise ranges and counts", () => {
+    const reading = parseDimensionText(
+      'Width 72" to 86" (88)\nOrientation (14)',
+      "storage",
+    );
+    expect(reading.values.width).toBeNull();
+  });
+
+  it("still refuses an unordered fractional triple", () => {
+    const reading = parseDimensionText('31 1/2x11x41 3/4 "', "storage");
+    expect(completeDimensions(reading.values)).toBeNull();
+    expect(reading.issue).toContain("order");
+  });
+});

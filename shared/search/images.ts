@@ -12,12 +12,21 @@ const DIAGRAM_WORDS =
 
 const SHORTLIST = 4;
 
-export function diagramScore(image: ImageRef, index: number): number {
-  const haystack = `${image.url} ${image.alt ?? ""}`;
+export function namesADiagram(image: ImageRef): boolean {
+  return DIAGRAM_WORDS.test(`${image.url} ${image.alt ?? ""}`);
+}
+
+export function diagramScore(
+  image: ImageRef,
+  index: number,
+  total: number,
+): number {
   let score = 0;
-  if (DIAGRAM_WORDS.test(haystack)) score += 3;
-  // Retailers put the drawing after the hero shot, rarely first.
+  if (namesADiagram(image)) score += 3;
+  // Retailers put the drawing after the hero shot, rarely first...
   if (index >= 1 && index <= 4) score += 1;
+  // ...and often last of all, which is the best guess when nothing is named.
+  if (total > 2 && index === total - 1) score += 2;
   return score;
 }
 
@@ -26,7 +35,11 @@ export function shortlistDiagramImages(
   limit = SHORTLIST,
 ): ImageRef[] {
   return images
-    .map((image, index) => ({ image, index, score: diagramScore(image, index) }))
+    .map((image, index) => ({
+      image,
+      index,
+      score: diagramScore(image, index, images.length),
+    }))
     .sort((a, b) => b.score - a.score || a.index - b.index)
     .slice(0, limit)
     .map((entry) => entry.image);
@@ -37,7 +50,7 @@ export function shortlistDiagramImages(
 export function diagramReadTargets(images: ImageRef[], limit = 2): ImageRef[] {
   const shortlist = shortlistDiagramImages(images);
   if (shortlist.length === 0) return [];
-  return diagramScore(shortlist[0], 0) >= 3
+  return namesADiagram(shortlist[0])
     ? [shortlist[0]]
     : shortlist.slice(0, limit);
 }
@@ -47,7 +60,8 @@ export function diagramReadTargets(images: ImageRef[], limit = 2): ImageRef[] {
 // the cheapest way to tell the gallery from the furniture of the page itself.
 export function slugTokens(pageUrl: string): string[] {
   try {
-    const last = new URL(pageUrl).pathname.split("/").filter(Boolean).pop() ?? "";
+    const last =
+      new URL(pageUrl).pathname.split("/").filter(Boolean).pop() ?? "";
     return last
       .split(/[-_]+/)
       .map((token) => token.toLowerCase())
@@ -57,6 +71,15 @@ export function slugTokens(pageUrl: string): string[] {
   }
 }
 
+function words(text: string): Set<string> {
+  return new Set(
+    text
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter(Boolean),
+  );
+}
+
 export function relevantImages(
   images: ImageRef[],
   pageUrl: string,
@@ -64,7 +87,9 @@ export function relevantImages(
   const tokens = slugTokens(pageUrl);
   if (tokens.length === 0) return [];
   return images.filter((image) => {
-    const haystack = `${image.url} ${image.alt ?? ""}`.toLowerCase();
-    return tokens.some((token) => haystack.includes(token));
+    // Whole words only: a page about a table must not adopt the site's own
+    // "Tables_And_Benches" banner.
+    const found = words(`${image.url} ${image.alt ?? ""}`);
+    return tokens.some((token) => found.has(token));
   });
 }

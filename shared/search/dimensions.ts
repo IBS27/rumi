@@ -111,17 +111,38 @@ const UNIT_PATTERN =
   `(?:inches|inch|in\\.|in|feet|foot|ft\\.|ft|cm|mm|m|''|"|')` as const;
 const NUMBER = String.raw`\d+(?:\.\d+)?`;
 
-// Packaging is larger than the product, so a shipping line poisons a reading.
-const EXCLUDED_LINE = /(package|packag|shipping|carton|box dimensions|freight)/i;
+// Packaging is larger than the product, so a shipping line poisons a reading. Filter
+// menus advertise ranges and result counts, which read like measurements and are not.
+const EXCLUDED_LINE =
+  /(package|packag|shipping|carton|box dimensions|freight|\(\d+\)|\bto\b\s*\d+\s*(?:"|in\b|cm\b))/i;
 
 function toUnit(raw: string | undefined): Unit | null {
   if (!raw) return null;
   return UNIT_WORDS[raw.toLowerCase().trim()] ?? null;
 }
 
+// US retail prints fractions: 31 1/2" is one number, and 1/2" is another.
+function normalizeFractions(text: string): string {
+  return text
+    .replace(
+      /(\d+)\s+(\d+)\/(\d+)/g,
+      (match, whole: string, numerator: string, denominator: string) =>
+        Number(denominator) === 0
+          ? match
+          : String(Number(whole) + Number(numerator) / Number(denominator)),
+    )
+    .replace(
+      /(?<![\d.])(\d+)\/(\d+)(?![\d.])/g,
+      (match, numerator: string, denominator: string) =>
+        Number(denominator) === 0 || Number(denominator) > 64
+          ? match
+          : String(Number(numerator) / Number(denominator)),
+    );
+}
+
 // "5'3"" is one measurement, not two. Rewrite it before anything else looks.
 function normalizeFeetInches(text: string): string {
-  return text.replace(
+  return normalizeFractions(text).replace(
     new RegExp(String.raw`(\d+)\s*'\s*(${NUMBER})\s*"`, "g"),
     (_match, feet: string, inches: string) =>
       `${Number(feet) * 12 + Number(inches)} in`,

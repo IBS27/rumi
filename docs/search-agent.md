@@ -3,106 +3,84 @@
 ## Position in the pipeline
 
 ```
-Main agent ---- style + color palette ----+
-                                          v
-Planner agent -- planned item ------> Search agent ---> ranked candidates
-                                          |
-                                   Exa -> page -> dimensions
+Main agent (plans the room, owns the conversation)
+     |  one SearchTask per category: query, ceiling, footprint, style, palette
+     v
+Search agent ──> Exa ──> pages ──> dimensions ──> ranked candidates
 ```
 
-The planner decides *what* the room needs and how much it may cost. The search agent
-finds real, purchasable listings for one planned item and returns them ranked. It does
-not talk to the user, does not place objects, and does not decide whether a proposal is
-applied.
-
-One call handles one category. The main agent calls it once per planned item.
+The main agent decides what the room needs and what each item may cost. The search agent
+finds real, purchasable listings for one category and returns them ranked. It does not
+talk to the user, does not place objects, and does not decide whether a proposal is
+applied. There is no separate planner: the main agent owns that.
 
 ## What it guarantees
 
 Every returned candidate has a real merchant URL, a real price, and either dimensions
-with recorded evidence or an explicit `unknown`. The agent never invents a number, and
-never derives dimensions from an unscaled photo. A candidate whose dimensions are
-unknown is still returned, ranked last, and flagged; the main agent decides what to do
-with it.
+with recorded evidence or an explicit `unknown`. The agent never invents a number and
+never derives dimensions from an unscaled photograph. A candidate whose dimensions are
+unknown is still returned, ranked below every sized candidate, and flagged.
 
 ## Input
 
-`SearchTask`, as it exists today, plus one field:
+`SearchTask`:
 
 ```ts
-palette: z.array(z.string().regex(/^#[0-9a-fA-F]{6}$/))
+{ query, category, maxPriceCents, maxFootprint: {width, depth} | null,
+  maxHeight: number | null, styleTerms: string[], palette: string[], excludeTags: string[] }
 ```
 
-The palette comes from the main agent, not the planner, so the planner contract is
-unaffected. `maxPriceCents` stays the only price field: there is no floor and no target.
+`maxPriceCents` is the only price field: no floor, no target. `palette` is a list of hex
+values from the main agent; colour is scored against it, never filtered by it.
 
 ## Output
 
 ```ts
-export const rankedCandidateSchema = z.object({
-  product: productSchema,
-  score: z.number().min(0).max(1),
-  breakdown: z.object({
-    fit: z.number(),
-    style: z.number(),
-    color: z.number(),
-    price: z.number(),
-    completeness: z.number(),
-  }),
-});
-export const searchTaskResultSchema = z.object({
-  category: categorySchema,
-  query: z.string(),
-  candidates: z.array(rankedCandidateSchema),
-  explanation: z.string(),
-  failures: z.array(searchFailureSchema),
-});
+{ category, query, candidates: RankedCandidate[], explanation, failures: SearchFailure[] }
+
+RankedCandidate = { product: ProductCandidate, score: 0..1,
+                    breakdown: { fit, style, color, price, completeness } }
 ```
 
-`breakdown` is returned so the agent can explain a pick and so a bad ranking can be
-debugged without re-running the search. `failures` already reports, per stage, why
-candidates were dropped.
+`breakdown` lets the main agent explain a pick and lets a bad ranking be debugged without
+re-running the search. `failures` records, per stage, why candidates were dropped.
 
 ## Pipeline
 
-Cheap filters first. The only expensive stage is dimension resolution, so it runs last
-and only on candidates that already passed everything else.
+Cheap signals filter first. The one expensive stage — reading a dimension drawing — runs
+last, on ranked survivors, and only until enough candidates fit.
 
 | # | Stage | Cost | Notes |
 | --- | --- | --- | --- |
-| 1 | Build the query and pick the retailer tier | free | `[styleTerms] [category]`, plus Exa `includeDomains` for the tier |
-| 2 | Exa `/search`, 12 results | 1 call | Over-fetch: later stages discard a lot |
-| 3 | Exa `/contents` | 1 call | Raise `maxCharacters`; request dimension-focused highlights |
-| 4 | Extract price, variants, availability, images, color | 1 cheap model call per page, or free on Shopify | See *Merchant data* |
-| 5 | Filter: availability, `maxPriceCents`, `excludeTags` | free | Existing `filterCandidates` |
-| 6 | Score style, color, price; dedupe; sort | free | See *Ranking* |
-| 7 | Resolve dimensions in rank order until K fit | up to 1 vision call each | See *Dimensions* and *Fill to K* |
+| 1 | Query and retailer tier | free | `[styleTerms] [query] under $X`, with the tier's domains as `includeDomains` |
+| 2 | Exa `/search`, 12 results | 1 call | Under 6 hits inside the tier, the open web is searched too and the fallback is recorded |
+| 3 | Rendered contents, plus a direct fetch of the markup | 1 call + N cheap GETs | See *Reading a page* |
+| 4 | Merchant data: Shopify JSON, then JSON-LD | free | Replaces a model for price, variants and stock |
+| 5 | Model extraction, only for what merchant data left missing | ≤ 1 cheap call per page | Skipped entirely when the merchant answered |
+| 6 | Cheap dimension stages | free | Structured data, then the page specification |
+| 7 | Filters, dedupe, ranking | free | Availability, price, excluded tags, size |
+| 8 | Read drawings in rank order until K fit | ≤ 3 vision calls | `resolveToFit` |
 
-### Retailer tiers
+### Reading a page
 
-`maxPriceCents` selects the domain list passed to Exa as `includeDomains`, so a $60
-ceiling and a $2,000 ceiling do not search the same shops:
+Retail pages are rendered in the browser. A raw fetch of a live IKEA, Article or Floyd
+product page returns navigation, promotions and footer badges: the gallery and the
+specification are not in the markup, and one of those pages published only an
+`Organization` JSON-LD block. Wayfair and CB2 refused the request outright.
 
-| Tier | Ceiling per item | Domains |
-| --- | --- | --- |
-| value | under ~$150 | IKEA, Target, Wayfair, Amazon |
-| mid | ~$150–800 | Article, West Elm, CB2, Burrow, Floyd, Room & Board |
-| luxury | above ~$800 | Design Within Reach, RH, Lumens, Hay, Muuto, Herman Miller |
-
-Keep the lists in `shared/search/retailers.ts` with the ceilings, so they are data and not
-prose. Verify each domain against Exa once before trusting it. When a tier returns fewer
-than 6 hits, retry without `includeDomains` and record a `search` failure noting the
-fallback.
+So **rendered content is the primary source**, and the raw markup is kept only for what
+rendering strips: JSON-LD blocks and the storefront fingerprint. Images scraped from raw
+markup are filtered to those whose URL or alt text carries a whole word from the product
+slug, which is what separates a gallery photograph from the site's own banner.
 
 ### Merchant data
 
-When the host is Shopify — a 200 from `/products.json`, or `cdn.shopify.com` in the HTML —
-take price, every variant, stock, SKU and image URLs from that JSON. These are the
-merchant's own values, so they replace the model's reading of the page and remove the
-worst error class: a sale price, a "from" price, or the wrong variant. Shopify does not
-expose dimensions, so the dimension cascade still runs.
-
-Otherwise extract those fields from the page text as today.
+When the host is Shopify — `cdn.shopify.com` in the markup, or a 200 from
+`/products.json` — price, every variant, stock and image URLs come from that JSON. These
+are the merchant's own values, so they replace a model reading a page and remove the
+worst error class: a sale price, a "from" price, or the wrong variant. The variant chosen
+is the cheapest in-stock one within the ceiling whose finish name sits closest to the
+palette. Shopify does not publish dimensions, so the cascade still runs.
 
 ## Dimensions
 
@@ -110,67 +88,66 @@ Otherwise extract those fields from the page text as today.
 
 | Page has | What runs | `evidence.kind` |
 | --- | --- | --- |
-| Full W/H/D in a spec field or JSON-LD | text parse only, no vision | `structured` or `spec-text` |
-| Partial, e.g. width and height only | vision fills **only** the missing axis, and must agree within 10% on the known axes; disagreement discards the whole read | `mixed` |
-| Nothing in text, a diagram image exists | vision only | `image` |
+| Full W/H/D in structured merchant data | text parse only, no vision | `structured` |
+| A specification printed in the page text | text parse only, no vision | `spec-text` |
+| Part of a specification | vision fills only the missing axes, and must agree within 10% on the known ones; disagreement discards the whole diagram | `mixed` |
+| Nothing in text, a drawing in the gallery | vision only | `image` |
 | Nothing anywhere | `dimensions: null`, `source: "unknown"` | `none` |
 
-The partial case is also a free correctness test: a vision read that matches the page on
-the axes we already know is trustworthy on the axis we do not.
+The partial case doubles as a correctness test: a diagram that matches the page on the
+axes we already know is trustworthy on the axis we do not.
 
-### Units
+### Reading text
 
-Parse `"`, `in`, `ft`, `5'3"`, `cm`, `mm`, `m`. Require labeled axes; never trust the
-order of `30 x 20 x 40`, because `W x D x H` and `W x H x D` are both common.
+- Units: `"`, `in`, `ft`, `cm`, `mm`, `m`, `5'3"`, and printed fractions such as
+  `31 1/2"`, which US retailers use everywhere.
+- Axes must be labelled. `30 x 20 x 40` is refused unless the page states its own order,
+  as in `(W x D x H)`, because `W x D x H` and `W x H x D` are both common. IKEA's static
+  markup prints exactly this unordered form, and the agent declines it rather than
+  guessing: the drawing stage is what rescues that page.
+- A line stating all three axes is preferred over measurements scattered through a page,
+  which are usually parts.
+- Lines mentioning packaging, shipping or cartons are dropped: the box is bigger than the
+  product. So are filter menus, which advertise ranges and result counts
+  (`Width 72" to 86" (88)`) that read exactly like measurements.
+- A measurement with no printed unit is resolved by asking which unit puts every axis
+  inside the category's plausible range. Exactly one answer means the unit is known; two
+  answers mean it stays unknown.
 
-When no unit is printed, resolve it with the plausible-range table below: a 63-wide
-wardrobe is plausible in inches and absurd in centimetres. If more than one unit lands
-inside the range, record `unknown` rather than guessing. The merchant's country is a weak
-tiebreaker only.
+### Reading a drawing
 
-### Reading a dimension diagram
+A product photograph carries no scale and is never a source. A dimension drawing is
+different: it is an image containing printed numbers.
 
-A product photo carries no scale and is never a source. A dimension diagram is different:
-it is an image containing printed text. Only that second kind is read.
+**Choosing the image.** Images are scored on a name match
+(`dimension|spec|measure|size|schematic|drawing`), a bonus for sitting just after the hero
+shot, and a larger bonus for being last in the gallery, which is where drawings usually
+sit when nothing is named. A named drawing is read alone; otherwise the best two are sent
+together.
 
-**Finding it.** Score images by filename and alt text against
-`/dim|spec|measure|size|schematic|drawing/i`, with a bonus for gallery positions 2–5.
-Send the top four as low-detail thumbnails in one classification call asking which show
-printed measurements, then read the winner once at full detail. Do not downscale the
-read: the annotations are small.
-
-**Reading it.** A real diagram carries many measurements and only three are wanted. A
-wardrobe diagram may print fifteen: shelf openings, drawer fronts, a hanging section, and
-a detached drawer shown separately. So do not ask the model for the answer. Ask for every
-measurement:
+**Reading it.** A real drawing carries many measurements and only three are the product:
+a wardrobe drawing prints fifteen — shelf openings, drawer fronts, a hanging section, and
+a detached drawer beside the cabinet. So the model is never asked for the answer. It
+enumerates every measurement it can see:
 
 ```ts
-measurements: z.array(z.object({
-  value: z.number().positive(),
-  unit: z.enum(["in", "cm", "mm", "m", "ft"]),
-  axis: z.enum(["width", "height", "depth", "unknown"]),
-  subject: z.enum(["overall", "component", "unknown"]),
-  label: z.string(),          // verbatim, e.g. '63"'
-})),
-hasPrintedMeasurements: z.boolean(),
+{ value, unit, axis: width|height|depth|unknown,
+  subject: overall|component|unknown, label /* verbatim, e.g. 63" */ }
 ```
 
-Then select in code: **the overall dimension on each axis is the largest value on that
-axis.** A component cannot exceed the whole product, so this holds even when the model
-mislabels `subject`, and it correctly ignores a detached drawer drawn beside the cabinet.
-
-Reject the read unless `hasPrintedMeasurements` is true and every measurement carries a
-verbatim `label`. That rule is what stops a model from eyeballing a photo.
+and code selects: **the overall size on an axis is the largest value on that axis**. A
+part cannot exceed the whole, so this holds even when the model mislabels `subject`, and
+it ignores a drawer drawn separately. The reading is refused unless the model reports
+printed measurements and every entry carries a verbatim label.
 
 ### Validation
 
-A reading is discarded, not repaired, when any check fails:
+A reading is discarded, never repaired, when:
 
-- **Component sum.** Components along an axis should sum to slightly under the maximum.
-  A sum that exceeds it means the axes were mixed up.
-- **Variant ambiguity.** Two `overall` values on the same axis differing by more than 15%
-  suggest two product sizes in one image. Fall back to text, or record `unknown`.
-- **Plausible range**, in meters:
+- Two `overall` values on one axis differ by more than 15%, which means the image shows
+  two product sizes.
+- An axis is missing.
+- The triple falls outside the category's plausible range, in meters:
 
   | Category | Width | Height | Depth |
   | --- | --- | --- | --- |
@@ -181,125 +158,104 @@ A reading is discarded, not repaired, when any check fails:
   | storage | 0.30–3.00 | 0.20–2.60 | 0.20–0.80 |
   | art | 0.10–2.50 | 0.10–2.50 | 0.01–0.15 |
 
-- **Room bound.** A dimension larger than the room's matching axis is a bad read, not a
-  large product.
-- **Footprint.** `maxFootprint` is checked after resolution, allowing a 90° rotation, as
-  `fitsFootprint` already does.
+- It contradicts what the page text already said.
 
-Resolved dimensions and their evidence are written to the `products` table, so the same
-page is never paid for twice.
+A sum check over the component measurements was tried and dropped: parts overlap, so they
+double-count and a valid reading fails it. The largest-per-axis rule does not need it.
 
-## Color
+`maxFootprint` and `maxHeight` are applied after resolution, allowing a quarter turn.
 
-Exa cannot filter by color, so color is a score, not a filter, and an exact match is not
-the goal: a piece only has to belong to the palette.
+## Colour
 
-Resolve the product's color in this order, recording which was used:
-
-1. **Variant name through a lexicon** — `Walnut`, `Cherry`, `Charcoal`, `Natural Oak` map
-   to hex from a table in `shared/search/color.ts`. Free, deterministic, and it is what
-   the merchant itself calls the finish.
-2. **Vision fallback** on the main product photo for a dominant hex.
-
-Score with OKLab, which is perceptually even and needs no dependency:
-`color = 1 - normalize(min ΔE over palette entries)`. Minimum distance to *any* palette
-entry, because a palette is a set.
+Exa cannot filter by colour, so colour is a score and an exact match is not the goal: a
+piece only has to belong to the palette. Colour is resolved from the variant or finish
+name through a lexicon — `Walnut`, `Cherry`, `Natural Oak`, `Brushed Brass` — which is
+free, deterministic, and what the merchant itself calls the finish. Distance is measured
+in OKLab, which is perceptually even, against the closest palette entry. A colour that
+could not be read stays a neutral grey rather than a guess.
 
 ## Ranking
 
-Deterministic, in `shared/search/rank.ts`. Dedupe first — the same product listed by three
-merchants must not fill the top three — by normalized title plus price proximity.
+Deterministic. The same product listed by several merchants is folded together first, by
+normalised title and price proximity, so it cannot fill the whole result.
 
 | Signal | Weight | Definition |
 | --- | --- | --- |
-| Fit | 0.30 | How well the footprint uses the allowed space. Near the target scores best; far below it is penalized; above the maximum was already eliminated. |
-| Style | 0.25 | Overlap of `styleTerms` with title, tags, and product type. |
-| Color | 0.20 | OKLab proximity, above. |
-| Price | 0.15 | Rewards sensible use of the ceiling. Below ~20% of it, penalize: that is usually an accessory, not a bargain. |
-| Completeness | 0.10 | `structured` dimensions beat `image` ones; known availability and real photos beat unknowns. |
+| Fit | 0.30 | How much of the allowed footprint the piece uses. Far below it is penalised; above it was already eliminated. |
+| Style | 0.25 | Overlap of `styleTerms` with title, tags and variant. |
+| Colour | 0.20 | OKLab proximity to the palette. |
+| Price | 0.15 | Rewards sensible use of the ceiling; below a fifth of it, penalised as an accessory. |
+| Completeness | 0.10 | `structured` dimensions beat `image` ones; known stock and real photographs beat unknowns. |
 
-Candidates with unknown dimensions rank below every candidate that has them.
-
-An optional final pass hands the top five to the model for an aesthetic re-rank. Code
-does the arithmetic; the model does the taste. The deterministic order is what ships if
-that pass is cut.
+Candidates without dimensions rank below every candidate that has them.
 
 ## Fill to K
 
-Filtering to three candidates and then discovering that none of them publish dimensions
-leaves the room with a hole. So keep roughly 10–12 candidates after the cheap filters and
-resolve dimensions in rank order, stopping once **K = 3** candidates fit. Skipping a
-candidate costs nothing; resolving one costs at most a single vision read.
-
-Per task: at most 3 vision-resolved products, at most 1 classification call plus 1
-full-detail read each, and results cached by image URL.
+Filtering to three candidates and then finding that none of them publish dimensions
+leaves the room with a hole. So the ranked list is walked, paying for a drawing only
+until **K = 3** candidates fit, with at most 3 vision reads per task. Skipping a candidate
+costs nothing.
 
 ## Modules
 
+Everything under `shared/search/` is pure, free of Convex imports, and tested offline.
+
 | Path | Contents |
 | --- | --- |
-| `shared/search/index.ts` | Exa client, query building, existing filters |
-| `shared/search/retailers.ts` | Budget tiers to domain lists |
-| `shared/search/jsonld.ts` | `parseProductJsonLd(html)` |
-| `shared/search/shopify.ts` | `isShopify`, `mapShopifyProduct` |
-| `shared/search/dimensions.ts` | Text parsing, units, plausible ranges, max-per-axis selection, reconciliation |
-| `shared/search/images.ts` | Diagram-image shortlisting |
-| `shared/search/color.ts` | Finish lexicon, sRGB to OKLab, palette proximity |
-| `shared/search/rank.ts` | Dedupe, scoring, ordering |
-| `convex/extract.ts` | Orchestrates the cascade and owns the model calls |
-| `convex/search.ts` | The action: pipeline, fill-to-K loop, persistence |
+| `index.ts` | Exa client, query building, hard filters, `resolveToFit`, result building |
+| `pipeline.ts` | `runSearch`: the whole flow, with its dependencies injected |
+| `page.ts` | Direct page fetch, HTML to text, image extraction |
+| `jsonld.ts` | schema.org Product parsing |
+| `shopify.ts` | Storefront detection and product JSON mapping |
+| `listing.ts` | Merchant data to listing facts, variant choice |
+| `candidate.ts` | Layering facts by trust, colour resolution, building a `ProductCandidate` |
+| `cascade.ts` | Dimension resolution, cheapest stage first |
+| `dimensions.ts` | Units, fractions, plausible ranges, largest-per-axis selection, merging |
+| `images.ts` | Drawing shortlist, read targets, slug relevance |
+| `color.ts` | Finish lexicon, sRGB to OKLab, palette proximity |
+| `rank.ts` | Dedupe, scoring, ordering |
+| `retailers.ts` | Price tiers to domain lists |
+| `convex/search.ts` | Keys, models, persistence. Thin. |
+| `convex/extract.ts` | The only two model calls: listing facts, and reading a drawing |
 
-Everything under `shared/search/` is pure and free of Convex imports, matching the split
-already used there.
+## Testing
+
+No test reaches the network or a model provider. `tests/golden.test.ts` runs against
+snapshots captured from live retailer pages, including the parts that do not work yet, so
+a change in behaviour is visible.
+
+Known gaps, recorded as tests rather than hidden:
+
+- A page whose only printed dimensions are an unordered triple yields nothing from text.
+- A storefront that publishes no size yields nothing until a drawing is read.
+
+## Configuration
+
+`EXA_API_KEY` is required. `OPENAI_API_KEY` is required for the two model calls.
+`RUMI_EXTRACTION_MODEL` and `RUMI_VISION_MODEL` override the defaults. All of these are
+deployment environment variables, never `VITE_` variables.
 
 ## Contract changes to agree with the main agent's owner
 
 1. `measurementSchema` gains
-   `evidence: { kind: "structured" | "spec-text" | "image" | "mixed" | "none", detail: string | null }`,
-   where `detail` is the verbatim string or the image URL.
-2. `searchTaskSchema` gains `palette: string[]`.
+   `evidence: { kind: "structured" | "spec-text" | "image" | "mixed" | "none", detail: string | null }`.
+2. `searchTaskSchema` gains `maxHeight` and `palette`.
 3. `searchTaskResultSchema` returns `candidates: RankedCandidate[]` in place of
-   `products`, and adds `category` and `query`.
-
-Update contracts, producers, consumers, fixtures, and tests together, per
-[docs/contracts.md](contracts.md).
-
-## Testing
-
-No test may reach the network or a model provider.
-
-- **Unit tests** cover the pure modules: unit parsing and the ambiguous-unit rule, the
-  max-per-axis selection against a saved multi-measurement diagram, each validation
-  check, OKLab distances, dedupe, and score ordering.
-- **Recorded responses.** Vision and extraction responses are saved as JSON fixtures and
-  replayed, so the cascade is testable end to end offline.
-- **Golden set.** 15–20 real product pages saved as HTML, JSON and images, with
-  hand-labeled dimensions. Report dimension hit rate, wrong-axis rate, and median error.
-  Include at least three diagram-only listings and one page with a partial spec field.
-
-### Acceptance criteria
-
-- A page with a full spec table resolves dimensions with **zero** model calls.
-- A diagram carrying 15 measurements resolves to the overall triple, not a component.
-- A vision response with `hasPrintedMeasurements: false` yields `unknown`, never a guess.
-- An unlabeled `63 x 70.9 x 18.9` resolves to inches for a `storage` item, and to
-  `unknown` when both inch and centimetre readings are plausible.
-- A product over `maxFootprint` is eliminated; the same product rotated 90° is kept when
-  it then fits.
-- The same product from three merchants appears once.
-- A task whose first two candidates lack dimensions still returns K fitting candidates.
-- `bun run typecheck`, `bun run lint`, and `bun test` pass.
+   `products`, and adds `category` and `query`. **This one is breaking**: a caller reading
+   `.products` must move to `.candidates[].product`.
 
 ## Out of scope
 
-- Price floors, target prices, shipping, and tax.
+- Price floors, target prices, shipping and tax.
 - Mounting type and installation constraints, beyond `excludeTags`.
-- 3D asset acquisition; `assetId` stays `null` here.
+- 3D assets: `assetId` stays `null` here.
 - Placement. The agent reports what fits, never where it goes.
 
 ## Open questions
 
-- Should the aesthetic re-rank live here, or should the main agent do it with the
-  `breakdown` values it already receives?
-- When a tier falls back to the open web, should the result be marked so the UI can show
-  that the price tier was not honored?
+- Should an aesthetic re-rank of the top five live here, or in the main agent, which
+  already receives the `breakdown` values?
+- Should a fallback to the open web be marked on the result so the interface can say the
+  price tier was not honoured?
+- Should a page that yielded no drawing be remembered, so a repeated search does not pay
+  for the same silence twice?

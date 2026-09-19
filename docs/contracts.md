@@ -19,6 +19,7 @@
 | `RoomSnapshot`                   | Capture/editor | Search, renderer, validation  |
 | `DesignBrief`                    | Conversation   | Search and budget checks      |
 | `SearchRequest` → `SearchResult` | Search adapter | Assistant/product panel       |
+| `SearchTask` → `SearchTaskResult` | Search agent  | Main agent `searchProducts` tool |
 | `ProductCandidate`               | Search/catalog | Product cards, assets, budget |
 | `DesignProposal`                 | Agent/planner  | Validated editor commands     |
 | `AssetRecord`                    | Asset pipeline | Renderer                      |
@@ -26,6 +27,8 @@
 The first proposal operation is additions only. Define explicit move/remove operations when the agent supports them; never silently replace a complete room snapshot. `baseRevision` must match the current room revision, and accepted edits increment it.
 
 The fixture adapter is synchronous. A live search implementation may return a promise of the same validated result and report progress separately. The renderer must not depend on a model provider or search API response format.
+
+The live path is two levels. The main agent plans the room and calls `convex/search.ts` (`searchProducts`) with a `SearchTask` carrying hard constraints: `maxPriceCents`, `maxFootprint`, `maxHeight`, `styleTerms`, `palette`, and `excludeTags`. The search agent reads product pages, normalizes them into `ProductCandidate` records, enforces those constraints in code, and returns a `SearchTaskResult` of `RankedCandidate` entries, each with a score breakdown, plus `failures` explaining why the rest were dropped. Extracted dimensions are always `estimated`, never `confirmed`, and `measurement.evidence` records where each one came from: structured merchant data, a printed specification, a dimension drawing, or nothing. All functions stay internal until authentication is configured. See [the search agent](search-agent.md).
 
 ## Applying a result
 
