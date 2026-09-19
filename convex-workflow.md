@@ -2,8 +2,10 @@
 
 ## Shared project, personal deployments
 
-We use the `rumi` project in the `srinivas-i-b` Convex team:
-[project dashboard](https://dashboard.convex.dev/t/srinivas-i-b/rumi).
+We use the `rumi` project in the dedicated `rumi` Convex team, whose URL and CLI slug is `rumi-4592b`:
+[project dashboard](https://dashboard.convex.dev/t/rumi-4592b/rumi).
+
+Invite teammates through this team's **Team Settings → Team Members**, using the **Developer** role for normal development. Team membership grants access to projects within that team, so keep unrelated projects in other teams. Teammates do not need access to Srinivas's personal team.
 
 Each teammate uses their own Convex account and personal development deployment within this project. Git shares the schema and functions; each deployment has its own running code and database. Do not share a dev deployment between people or run watchers from different branches against the same deployment: they can overwrite each other's backend code.
 
@@ -11,7 +13,7 @@ The project and Srinivas's `dev/srinivas` deployment have been created. Other te
 
 ## First-time setup
 
-1. Ask the project owner to invite your Convex account to the `srinivas-i-b` team, then accept the invitation.
+1. Ask the project owner to invite your Convex account to the `rumi` team at `rumi-4592b`, then accept the invitation.
 2. Clone the repository and install dependencies:
 
    ```sh
@@ -21,7 +23,7 @@ The project and Srinivas's `dev/srinivas` deployment have been created. Other te
 3. Configure the existing project and a personal cloud dev deployment:
 
    ```sh
-   bunx convex dev --configure existing --team srinivas-i-b --project rumi --dev-deployment cloud
+   bunx convex dev --configure existing --team rumi-4592b --project rumi --dev-deployment cloud
    ```
 
    Sign in with your own account if prompted. Verify the team, project, and personal deployment before syncing. Do not create another `rumi` project or select someone else's deployment. This command pushes the checked-out backend code and stays running to watch for changes.
@@ -35,6 +37,16 @@ The project and Srinivas's `dev/srinivas` deployment have been created. Other te
 The CLI writes `CONVEX_DEPLOYMENT` and `VITE_CONVEX_URL` to `.env.local`. This file is ignored by Git and belongs to your checkout. Do not copy another teammate's file. Restart Vite after changing its environment variables.
 
 Keep provider secrets in the backend deployment's environment variables. Never put secrets in `VITE_` variables, which are exposed to the browser. Each deployment needs its own service configuration.
+
+### Existing checkouts after the team transfer
+
+The existing project and its deployments moved to the dedicated team; the deployment URLs are unchanged. If your checkout was configured before the move, select your existing deployment under the new team to refresh `.env.local`. For Srinivas's checkout:
+
+```sh
+bunx convex deployment select rumi-4592b:rumi:dev/srinivas
+```
+
+Other teammates must use their own deployment reference. Selecting a deployment updates the local connection settings without pushing backend code. New teammates should follow the first-time setup above.
 
 ## Daily development
 

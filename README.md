@@ -35,11 +35,11 @@ Agree on contract changes before merging them. Both pairs can use the shared fix
 
 ## Convex setup
 
-The schema and dependency are ready. `src/main.tsx` optionally provides a Convex client when `VITE_CONVEX_URL` is set. No backend has been created or deployed, and no live queries, mutations, or authentication are implemented.
+The schema and dependency are ready. `src/main.tsx` optionally provides a Convex client when `VITE_CONVEX_URL` is set. The [shared Convex project](https://dashboard.convex.dev/t/rumi-4592b/rumi) belongs to the dedicated `rumi` team, CLI slug `rumi-4592b`. A personal dev deployment exists; no live queries, mutations, or authentication are implemented.
 
 Assign deployment ownership before running a watcher. Each developer should use their own development deployment within the shared project; deploy merged code to the shared production backend.
 
-Once ownership is settled, run `bunx convex dev` interactively to configure the assigned development deployment. Put its client URL in `.env.local`, using `.env.example` as a guide. Run `bun run convex:codegen` once configured. Generated files are ignored; no hand-written generated stubs are included.
+Follow [convex-workflow.md](convex-workflow.md) for team invitations, personal deployment setup, and syncing changes after a pull. The CLI writes your connection settings to Git-ignored `.env.local`. Generated files are ignored; no hand-written generated stubs are included.
 
 Before adding public functions, configure authentication and enforce ownership. Parse inputs with the shared Zod schemas: converted Convex storage validators do not enforce Zod refinements. Use the Convex Agent component for live conversation persistence and Workflow for durable asset jobs.
 
@@ -57,7 +57,7 @@ No payment, checkout, or order code is present. See [the handoff contract](docs/
 Both pairs can begin locally with the shared contracts and fixtures. For live integration:
 
 - Share the scaffold through Git and give all teammates repository access.
-- Create or select the shared Convex project, invite teammates, and configure each developer's development deployment.
+- Invite teammates to the dedicated `rumi` team and configure each developer's development deployment in the existing project.
 - Assign ownership of backend functions and schema changes; deploy merged code to the shared production backend.
 - Choose the live model/search and 3D asset providers, then configure their credentials on the backend. Never put provider secrets in `VITE_` variables.
 - Add authentication and authenticated room persistence before storing real user data.

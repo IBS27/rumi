@@ -8,7 +8,7 @@ React + Vite + TypeScript + Tailwind, with Convex as the planned backend. The fr
 - `shared/contracts/`: Zod schemas and inferred types shared by both teams.
 - `shared/fixtures/`: synthetic room/product data and deterministic search.
 - `shared/geometry/` and `shared/budget/`: placement checks and price calculations.
-- `convex/schema.ts`: backend storage schema; personal dev deployments use the shared `rumi` Convex project.
+- `convex/schema.ts`: backend storage schema; personal dev deployments use project `rumi` in the dedicated `rumi` team, CLI slug `rumi-4592b`.
 - `convex-workflow.md`: teammate setup, deployment ownership, syncing changes, and schema migrations.
 - `docs/spec.md`: product scope; `docs/contracts.md`: units, coordinates, and team handoff.
 - `tests/`: contract and validation tests.
