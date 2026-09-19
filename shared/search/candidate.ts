@@ -18,6 +18,7 @@ export interface ListingFacts {
   colorHex: string | null;
   tags: string[];
   imageUrl: string | null;
+  images: string[];
 }
 
 export const NO_FACTS: ListingFacts = {
@@ -29,6 +30,7 @@ export const NO_FACTS: ListingFacts = {
   colorHex: null,
   tags: [],
   imageUrl: null,
+  images: [],
 };
 
 // Neutral grey: a color we did not read, rather than a color we invented.
@@ -36,8 +38,9 @@ export const UNKNOWN_COLOR = "#9ca3af";
 
 /** Earlier sources win. Merchant data is passed before anything a model produced. */
 export function pickFacts(sources: Partial<ListingFacts>[]): ListingFacts {
-  const facts: ListingFacts = { ...NO_FACTS, tags: [] };
+  const facts: ListingFacts = { ...NO_FACTS, tags: [], images: [] };
   const tags: string[] = [];
+  const images: string[] = [];
   let availabilitySet = false;
   for (const source of sources) {
     if (facts.name === null && source.name) facts.name = source.name;
@@ -59,7 +62,10 @@ export function pickFacts(sources: Partial<ListingFacts>[]): ListingFacts {
       availabilitySet = true;
     }
     tags.push(...(source.tags ?? []));
+    images.push(...(source.images ?? []));
   }
+  facts.images = [...new Set(images)].slice(0, 8);
+  if (facts.imageUrl === null) facts.imageUrl = facts.images[0] ?? null;
   facts.tags = [
     ...new Set(tags.map((tag) => tag.trim().toLowerCase()).filter(Boolean)),
   ];
@@ -102,6 +108,7 @@ export function buildCandidate({
     merchant: merchantFor(sourceUrl),
     sourceUrl,
     imageUrl: facts.imageUrl,
+    images: facts.images,
     priceCents: facts.priceCents,
     currency: "USD",
     measurement,

@@ -61,6 +61,8 @@ export const productSchema = z.object({
   merchant: z.string(),
   sourceUrl: z.url(),
   imageUrl: z.url().nullable(),
+  // The gallery, best first. imageUrl is its first entry, kept for product cards.
+  images: z.array(z.url()).max(8),
   priceCents: z.number().int().nonnegative(),
   currency: z.literal("USD"),
   measurement: measurementSchema,

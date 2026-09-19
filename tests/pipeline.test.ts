@@ -1,5 +1,9 @@
 import { describe, expect, it } from "bun:test";
-import { runSearch, type PipelineDeps } from "../shared/search/pipeline";
+import {
+  runSearch,
+  runSearches,
+  type PipelineDeps,
+} from "../shared/search/pipeline";
 import type { PageContent } from "../shared/search/page";
 import type { AxisReading } from "../shared/search/dimensions";
 import { makeTask } from "./helpers";
@@ -224,5 +228,34 @@ describe("the search pipeline", () => {
     );
     expect(result.candidates).toHaveLength(0);
     expect(result.failures.some((f) => f.detail.includes("ceiling"))).toBe(true);
+  });
+});
+
+describe("searching several categories at once", () => {
+  it("returns one result per task, in order", async () => {
+    const context = deps(pagesFrom([specPage("https://a.test/products/low-oak-cabinet")]));
+    const results = await runSearches(
+      [
+        makeTask({ category: "storage", query: "oak cabinet" }),
+        makeTask({ category: "lighting", query: "arc lamp" }),
+      ],
+      context.deps,
+      { minTierHits: 1 },
+    );
+    expect(results.map((result) => result.category)).toEqual([
+      "storage",
+      "lighting",
+    ]);
+  });
+
+  it("carries the gallery through to each candidate", async () => {
+    const context = deps(pagesFrom([specPage("https://a.test/products/low-oak-cabinet")]));
+    const [result] = await runSearches([makeTask()], context.deps, {
+      minTierHits: 1,
+    });
+    expect(result.candidates[0].product.images.length).toBeGreaterThan(0);
+    expect(result.candidates[0].product.imageUrl).toBe(
+      result.candidates[0].product.images[0],
+    );
   });
 });

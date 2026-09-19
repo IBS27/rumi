@@ -16,6 +16,7 @@ export function makeProduct(
     merchant: "example.com",
     sourceUrl: "https://example.com/products/oak-cabinet",
     imageUrl: "https://example.com/oak.jpg",
+    images: ["https://example.com/oak.jpg"],
     priceCents: 24900,
     currency: "USD",
     measurement: {

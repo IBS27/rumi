@@ -115,6 +115,7 @@ export const sampleProducts = catalog.map((item) =>
     merchant: "Studio sample catalog",
     sourceUrl: `https://example.com/products/${item.id}`,
     imageUrl: null,
+    images: [],
     currency: "USD",
     measurement: {
       dimensions: item.dimensions,

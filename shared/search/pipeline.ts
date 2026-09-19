@@ -206,13 +206,18 @@ export async function runSearch(
         });
       }
     }
-    const facts = pickFacts(layers);
+    // The gallery is added last: merchant and structured images already lead it.
     const pageText = [merchant.bodyText, page.text].filter(Boolean).join("\n");
     const images = [
       ...merchant.images,
       ...(jsonLd?.images ?? []).map((url) => ({ url, alt: null })),
       ...page.images,
     ];
+    // The gallery is added last: merchant and structured images already lead it.
+    const facts = pickFacts([
+      ...layers,
+      { images: images.map((image) => image.url) },
+    ]);
     // Cheap stages only. A drawing is read later, and only if the ranking calls for it.
     const resolved = await resolveDimensions({
       category: task.category,
@@ -304,4 +309,22 @@ export async function runSearch(
     failures,
     `Searched ${hits.length} ${task.category} listing(s) in the ${tierFor(task.maxPriceCents)} tier and kept ${finalists.length}, ${measured} of which have dimensions. Sizes are read from merchant pages and are estimates until confirmed.`,
   );
+}
+
+// The main agent plans several categories at once, so tasks run together, a few at a
+// time: enough to keep the wait short without hammering the search provider.
+export async function runSearches(
+  tasks: SearchTask[],
+  deps: PipelineDeps,
+  options: Partial<PipelineOptions> = {},
+  concurrency = 3,
+): Promise<SearchTaskResult[]> {
+  const results: SearchTaskResult[] = [];
+  for (let start = 0; start < tasks.length; start += concurrency) {
+    const batch = tasks.slice(start, start + concurrency);
+    results.push(
+      ...(await Promise.all(batch.map((task) => runSearch(task, deps, options)))),
+    );
+  }
+  return results;
 }

@@ -19,6 +19,7 @@ export function factsFromJsonLd(
     availability: product.availability,
     colorText: product.color,
     imageUrl: product.images[0] ?? null,
+    images: product.images,
   };
 }
 
@@ -76,6 +77,7 @@ export function factsFromShopify(
       colorText: variant?.title ?? null,
       tags: [...product.tags, product.productType ?? ""].filter(Boolean),
       imageUrl: product.images[0]?.url ?? null,
+      images: product.images.map((image) => image.url),
     },
     images: product.images,
     bodyText: product.bodyText,

@@ -35,6 +35,9 @@ values from the main agent; colour is scored against it, never filtered by it.
 
 ## Output
 
+`searchProducts` answers one task; `searchCategories` answers up to eight at once, three
+at a time, so the main agent does not spend a tool step per category.
+
 ```ts
 { category, query, candidates: RankedCandidate[], explanation, failures: SearchFailure[] }
 
@@ -252,6 +255,8 @@ deployment environment variables, never `VITE_` variables.
 3. `searchTaskResultSchema` returns `candidates: RankedCandidate[]` in place of
    `products`, and adds `category` and `query`. **This one is breaking**: a caller reading
    `.products` must move to `.candidates[].product`.
+4. `productSchema` gains `images: string[]`, the gallery, best first. `imageUrl` stays as
+   its first entry so product cards do not change.
 
 ## Out of scope
 
