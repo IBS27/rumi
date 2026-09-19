@@ -1,0 +1,94 @@
+@import "tailwindcss";
+
+:root {
+  font-family: Arial, Helvetica, sans-serif;
+  color: #444;
+  background: #fafafa;
+  font-synthesis: none;
+}
+
+body {
+  margin: 0;
+}
+
+.workspace-placeholder {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  min-height: 100dvh;
+}
+
+.sidebar {
+  padding: 28px 24px;
+  border-right: 1px solid #ddd;
+  background: #fff;
+}
+
+.sidebar h1 {
+  margin: 0 0 8px;
+  font-size: 18px;
+  font-weight: 500;
+}
+
+.sidebar .intro {
+  margin: 0 0 28px;
+}
+
+.sidebar section + section {
+  margin-top: 22px;
+}
+
+.sidebar h2 {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.sidebar p {
+  font-size: 12px;
+  line-height: 1.6;
+  color: #707070;
+  margin: 0;
+}
+
+.room-placeholder {
+  display: grid;
+  place-items: center;
+  min-height: 450px;
+  margin: 28px;
+  padding: 32px;
+  border: 1px dashed #ccc;
+}
+
+.room-description {
+  max-width: 420px;
+  text-align: center;
+}
+
+.room-description h2 {
+  margin: 0 0 18px;
+  font-size: 20px;
+  font-weight: 400;
+}
+
+.room-description p {
+  margin: 0 0 14px;
+  font-size: 13px;
+  line-height: 1.8;
+  color: #707070;
+}
+
+@media (max-width: 640px) {
+  .workspace-placeholder {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    border-right: 0;
+    border-bottom: 1px solid #ddd;
+  }
+
+  .room-placeholder {
+    margin: 16px;
+    padding: 24px;
+  }
+}

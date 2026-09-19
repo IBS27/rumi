@@ -1,5 +1,9 @@
 # AI interior shopping agent
 
+Current scope: payments, checkout, order handling, and delivery integrations are on hold. Keep product prices, budget calculations, and merchant links. The active milestone ends with a searchable product selection rendered in the user's room. Payment-related details below describe future scope.
+
+Team split: two people own product search and recommendations; two own room capture and the initial 3D editor. Agree on shared room, product, and placement contracts before implementing either side. Product model acquisition and integration into the room need explicit ownership within the 3D team.
+
 ## Problem
 
 People want a room that feels cohesive, but shopping requires disconnected searches, manual measurements, budget calculations, and purchases across stores. It is hard to know whether products will look good together, fit the space, or leave enough room for everyday use.

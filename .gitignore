@@ -1,0 +1,36 @@
+# Dependencies and generated output
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+# Local environment and deployment state
+.env*
+!.env.example
+.convex/
+.vercel/
+convex/_generated/
+
+# Tool caches and logs
+.vite/
+.cache/
+.eslintcache
+.prettiercache
+*.log
+
+# Browser tests and saved authentication
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+playwright/.auth/
+
+# Local editor and operating-system files
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+._*
+Thumbs.db
+Desktop.ini
