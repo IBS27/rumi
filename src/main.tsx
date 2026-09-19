@@ -9,10 +9,10 @@ createRoot(document.getElementById("root")!).render(
   <StrictMode>
     {client ? (
       <ConvexProvider client={client}>
-        <App />
+        <App connected />
       </ConvexProvider>
     ) : (
-      <App />
+      <App connected={false} />
     )}
   </StrictMode>,
 );
