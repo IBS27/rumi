@@ -1,4 +1,4 @@
-# Working in this repo
+# Working in rumi
 
 React + Vite + TypeScript + Tailwind, with Convex as the planned backend. The frontend currently contains static placeholders. Live search, room capture, auth, and backend functions are not implemented. Payments are paused.
 

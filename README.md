@@ -1,4 +1,4 @@
-# Project scaffold
+# rumi
 
 React, Vite, TypeScript, Tailwind, React Three Fiber/Drei, Zustand, Zod, and a Convex schema. The frontend is a static two-column placeholder: sidebar section descriptions beside an empty 3D room area. There is no branding or functional interface.
 

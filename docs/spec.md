@@ -1,4 +1,6 @@
-# AI interior shopping agent
+# rumi
+
+AI interior shopping agent.
 
 Current scope: payments, checkout, order handling, and delivery integrations are on hold. Keep product prices, budget calculations, and merchant links. The active milestone ends with a searchable product selection rendered in the user's room. Payment-related details below describe future scope.
 
