@@ -88,7 +88,8 @@ const shopifyPayload = {
       vendor: "RIZE",
       product_type: "Add On/Expansion",
       tags: ["Cherry", "Bedroom"],
-      body_html: "<p>Solid wood. <b>Width: 63 in</b>, Depth: 18.9 in, Height: 70.9 in</p>",
+      body_html:
+        "<p>Solid wood. <b>Width: 63 in</b>, Depth: 18.9 in, Height: 70.9 in</p>",
       images: [
         { src: "https://cdn.shopify.com/a.jpg", alt: "front" },
         { src: "https://cdn.shopify.com/dimensions-chart.jpg", alt: null },
@@ -143,9 +144,9 @@ describe("Shopify", () => {
   });
 
   it("accepts a single product payload and rejects anything else", () => {
-    expect(mapShopifyProduct({ product: shopifyPayload.products[0] })?.title).toBe(
-      "Bed Frame Expansion Kit",
-    );
+    expect(
+      mapShopifyProduct({ product: shopifyPayload.products[0] })?.title,
+    ).toBe("Bed Frame Expansion Kit");
     expect(mapShopifyProduct({ nope: true })).toBeNull();
     expect(mapShopifyProduct("<html>")).toBeNull();
   });
@@ -160,7 +161,9 @@ describe("diagram image shortlist", () => {
       { url: "https://x.test/closeup.jpg", alt: "size guide" },
     ]);
     // Both named images come before the unnamed ones.
-    expect(shortlist.slice(0, 2).map((image) => image.alt ?? image.url)).toEqual(
+    expect(
+      shortlist.slice(0, 2).map((image) => image.alt ?? image.url),
+    ).toEqual(
       expect.arrayContaining([
         "size guide",
         "https://x.test/product-dimensions.jpg",
@@ -232,11 +235,17 @@ describe("telling a product gallery from page furniture", () => {
     { url: "https://shop.test/cdn/Rectangle_1317_500x.png", alt: null },
     { url: "https://shop.test/cdn/F26-ECOM-MENU-3.png", alt: "menu" },
     { url: "https://shop.test/cdn/oak-wardrobe-front_800x.jpg", alt: null },
-    { url: "https://shop.test/cdn/unnamed_55406.jpg", alt: "Oak Wardrobe dimensions" },
+    {
+      url: "https://shop.test/cdn/unnamed_55406.jpg",
+      alt: "Oak Wardrobe dimensions",
+    },
   ];
 
   it("keeps only images that name the product", () => {
-    const kept = relevantImages(chrome, "https://shop.test/products/oak-wardrobe");
+    const kept = relevantImages(
+      chrome,
+      "https://shop.test/products/oak-wardrobe",
+    );
     expect(kept.map((image) => image.url)).toEqual([
       "https://shop.test/cdn/oak-wardrobe-front_800x.jpg",
       "https://shop.test/cdn/unnamed_55406.jpg",

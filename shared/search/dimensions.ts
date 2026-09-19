@@ -37,15 +37,17 @@ const EMPTY: AxisValues = { width: null, height: null, depth: null };
 
 // Ranges a real product of each category falls inside, in meters. Used both to reject
 // an implausible reading and to resolve a measurement printed without its unit.
-export const PLAUSIBLE_RANGES: Record<Category, Record<Axis, [number, number]>> =
-  {
-    bed: { width: [0.7, 2.2], height: [0.2, 1.6], depth: [1.6, 2.3] },
-    desk: { width: [0.6, 2.4], height: [0.6, 1.3], depth: [0.4, 0.9] },
-    lighting: { width: [0.05, 1.2], height: [0.1, 2.5], depth: [0.05, 1.2] },
-    rug: { width: [0.4, 4], height: [0.002, 0.1], depth: [0.6, 5] },
-    storage: { width: [0.3, 3], height: [0.2, 2.6], depth: [0.2, 0.8] },
-    art: { width: [0.1, 2.5], height: [0.1, 2.5], depth: [0.01, 0.15] },
-  };
+export const PLAUSIBLE_RANGES: Record<
+  Category,
+  Record<Axis, [number, number]>
+> = {
+  bed: { width: [0.7, 2.2], height: [0.2, 1.6], depth: [1.6, 2.3] },
+  desk: { width: [0.6, 2.4], height: [0.6, 1.3], depth: [0.4, 0.9] },
+  lighting: { width: [0.05, 1.2], height: [0.1, 2.5], depth: [0.05, 1.2] },
+  rug: { width: [0.4, 4], height: [0.002, 0.1], depth: [0.6, 5] },
+  storage: { width: [0.3, 3], height: [0.2, 2.6], depth: [0.2, 0.8] },
+  art: { width: [0.1, 2.5], height: [0.1, 2.5], depth: [0.01, 0.15] },
+};
 
 export function axisInRange(
   category: Category,
@@ -353,7 +355,10 @@ export function mergeReadings(
   for (const axis of shared) {
     const fromText = text.values[axis] as number;
     const fromImage = image.values[axis] as number;
-    if (Math.abs(fromText - fromImage) / Math.max(fromText, fromImage) > tolerance)
+    if (
+      Math.abs(fromText - fromImage) / Math.max(fromText, fromImage) >
+      tolerance
+    )
       return reading(
         text.values,
         text.detail,

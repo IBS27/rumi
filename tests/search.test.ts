@@ -116,9 +116,9 @@ describe("the Exa client", () => {
 
   it("raises a clear error when Exa fails", async () => {
     const fetcher = fakeFetch(() => ({ ok: false, json: {} }));
-    expect(
-      exaSearch("key", "oak", 8, [], fetcher.impl),
-    ).rejects.toThrow("status 500");
+    expect(exaSearch("key", "oak", 8, [], fetcher.impl)).rejects.toThrow(
+      "status 500",
+    );
   });
 });
 

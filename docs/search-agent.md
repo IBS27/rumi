@@ -53,16 +53,16 @@ re-running the search. `failures` records, per stage, why candidates were droppe
 Cheap signals filter first. The one expensive stage — reading a dimension drawing — runs
 last, on ranked survivors, and only until enough candidates fit.
 
-| # | Stage | Cost | Notes |
-| --- | --- | --- | --- |
-| 1 | Query and retailer tier | free | `[styleTerms] [query] under $X`, with the tier's domains as `includeDomains` |
-| 2 | Exa `/search`, 12 results | 1 call | Under 6 hits inside the tier, the open web is searched too and the fallback is recorded |
-| 3 | Rendered contents, plus a direct fetch of the markup | 1 call + N cheap GETs | See *Reading a page* |
-| 4 | Merchant data: Shopify JSON, then JSON-LD | free | Replaces a model for price, variants and stock |
-| 5 | Model extraction, only for what merchant data left missing | ≤ 1 cheap call per page | Skipped entirely when the merchant answered |
-| 6 | Cheap dimension stages | free | Structured data, then the page specification |
-| 7 | Filters, dedupe, ranking | free | Availability, price, excluded tags, size |
-| 8 | Read drawings in rank order until K fit | ≤ 3 vision calls | `resolveToFit` |
+| #   | Stage                                                      | Cost                    | Notes                                                                                   |
+| --- | ---------------------------------------------------------- | ----------------------- | --------------------------------------------------------------------------------------- |
+| 1   | Query and retailer tier                                    | free                    | `[styleTerms] [query] under $X`, with the tier's domains as `includeDomains`            |
+| 2   | Exa `/search`, 12 results                                  | 1 call                  | Under 6 hits inside the tier, the open web is searched too and the fallback is recorded |
+| 3   | Rendered contents, plus a direct fetch of the markup       | 1 call + N cheap GETs   | See _Reading a page_                                                                    |
+| 4   | Merchant data: Shopify JSON, then JSON-LD                  | free                    | Replaces a model for price, variants and stock                                          |
+| 5   | Model extraction, only for what merchant data left missing | ≤ 1 cheap call per page | Skipped entirely when the merchant answered                                             |
+| 6   | Cheap dimension stages                                     | free                    | Structured data, then the page specification                                            |
+| 7   | Filters, dedupe, ranking                                   | free                    | Availability, price, excluded tags, size                                                |
+| 8   | Read drawings in rank order until K fit                    | ≤ 3 vision calls        | `resolveToFit`                                                                          |
 
 ### Reading a page
 
@@ -89,13 +89,13 @@ palette. Shopify does not publish dimensions, so the cascade still runs.
 
 ### Order of resolution
 
-| Page has | What runs | `evidence.kind` |
-| --- | --- | --- |
-| Full W/H/D in structured merchant data | text parse only, no vision | `structured` |
-| A specification printed in the page text | text parse only, no vision | `spec-text` |
-| Part of a specification | vision fills only the missing axes, and must agree within 10% on the known ones; disagreement discards the whole diagram | `mixed` |
-| Nothing in text, a drawing in the gallery | vision only | `image` |
-| Nothing anywhere | `dimensions: null`, `source: "unknown"` | `none` |
+| Page has                                  | What runs                                                                                                                | `evidence.kind` |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | --------------- |
+| Full W/H/D in structured merchant data    | text parse only, no vision                                                                                               | `structured`    |
+| A specification printed in the page text  | text parse only, no vision                                                                                               | `spec-text`     |
+| Part of a specification                   | vision fills only the missing axes, and must agree within 10% on the known ones; disagreement discards the whole diagram | `mixed`         |
+| Nothing in text, a drawing in the gallery | vision only                                                                                                              | `image`         |
+| Nothing anywhere                          | `dimensions: null`, `source: "unknown"`                                                                                  | `none`          |
 
 The partial case doubles as a correctness test: a diagram that matches the page on the
 axes we already know is trustworthy on the axis we do not.
@@ -152,14 +152,14 @@ A reading is discarded, never repaired, when:
 - An axis is missing.
 - The triple falls outside the category's plausible range, in meters:
 
-  | Category | Width | Height | Depth |
-  | --- | --- | --- | --- |
-  | bed | 0.70–2.20 | 0.20–1.60 | 1.60–2.30 |
-  | desk | 0.60–2.40 | 0.60–1.30 | 0.40–0.90 |
-  | lighting | 0.05–1.20 | 0.10–2.50 | 0.05–1.20 |
-  | rug | 0.40–4.00 | 0.002–0.10 | 0.60–5.00 |
-  | storage | 0.30–3.00 | 0.20–2.60 | 0.20–0.80 |
-  | art | 0.10–2.50 | 0.10–2.50 | 0.01–0.15 |
+  | Category | Width     | Height     | Depth     |
+  | -------- | --------- | ---------- | --------- |
+  | bed      | 0.70–2.20 | 0.20–1.60  | 1.60–2.30 |
+  | desk     | 0.60–2.40 | 0.60–1.30  | 0.40–0.90 |
+  | lighting | 0.05–1.20 | 0.10–2.50  | 0.05–1.20 |
+  | rug      | 0.40–4.00 | 0.002–0.10 | 0.60–5.00 |
+  | storage  | 0.30–3.00 | 0.20–2.60  | 0.20–0.80 |
+  | art      | 0.10–2.50 | 0.10–2.50  | 0.01–0.15 |
 
 - It contradicts what the page text already said.
 
@@ -182,13 +182,13 @@ could not be read stays a neutral grey rather than a guess.
 Deterministic. The same product listed by several merchants is folded together first, by
 normalised title and price proximity, so it cannot fill the whole result.
 
-| Signal | Weight | Definition |
-| --- | --- | --- |
-| Fit | 0.30 | How much of the allowed footprint the piece uses. Far below it is penalised; above it was already eliminated. |
-| Style | 0.25 | Overlap of `styleTerms` with title, tags and variant. |
-| Colour | 0.20 | OKLab proximity to the palette. |
-| Price | 0.15 | Rewards sensible use of the ceiling; below a fifth of it, penalised as an accessory. |
-| Completeness | 0.10 | `structured` dimensions beat `image` ones; known stock and real photographs beat unknowns. |
+| Signal       | Weight | Definition                                                                                                    |
+| ------------ | ------ | ------------------------------------------------------------------------------------------------------------- |
+| Fit          | 0.30   | How much of the allowed footprint the piece uses. Far below it is penalised; above it was already eliminated. |
+| Style        | 0.25   | Overlap of `styleTerms` with title, tags and variant.                                                         |
+| Colour       | 0.20   | OKLab proximity to the palette.                                                                               |
+| Price        | 0.15   | Rewards sensible use of the ceiling; below a fifth of it, penalised as an accessory.                          |
+| Completeness | 0.10   | `structured` dimensions beat `image` ones; known stock and real photographs beat unknowns.                    |
 
 Candidates without dimensions rank below every candidate that has them.
 
@@ -203,23 +203,23 @@ costs nothing.
 
 Everything under `shared/search/` is pure, free of Convex imports, and tested offline.
 
-| Path | Contents |
-| --- | --- |
-| `index.ts` | Exa client, query building, hard filters, `resolveToFit`, result building |
-| `pipeline.ts` | `runSearch`: the whole flow, with its dependencies injected |
-| `page.ts` | Direct page fetch, HTML to text, image extraction |
-| `jsonld.ts` | schema.org Product parsing |
-| `shopify.ts` | Storefront detection and product JSON mapping |
-| `listing.ts` | Merchant data to listing facts, variant choice |
-| `candidate.ts` | Layering facts by trust, colour resolution, building a `ProductCandidate` |
-| `cascade.ts` | Dimension resolution, cheapest stage first |
-| `dimensions.ts` | Units, fractions, plausible ranges, largest-per-axis selection, merging |
-| `images.ts` | Drawing shortlist, read targets, slug relevance |
-| `color.ts` | Finish lexicon, sRGB to OKLab, palette proximity |
-| `rank.ts` | Dedupe, scoring, ordering |
-| `retailers.ts` | Price tiers to domain lists |
-| `convex/search.ts` | Keys, models, persistence. Thin. |
-| `convex/extract.ts` | The only two model calls: listing facts, and reading a drawing |
+| Path                | Contents                                                                  |
+| ------------------- | ------------------------------------------------------------------------- |
+| `index.ts`          | Exa client, query building, hard filters, `resolveToFit`, result building |
+| `pipeline.ts`       | `runSearch`: the whole flow, with its dependencies injected               |
+| `page.ts`           | Direct page fetch, HTML to text, image extraction                         |
+| `jsonld.ts`         | schema.org Product parsing                                                |
+| `shopify.ts`        | Storefront detection and product JSON mapping                             |
+| `listing.ts`        | Merchant data to listing facts, variant choice                            |
+| `candidate.ts`      | Layering facts by trust, colour resolution, building a `ProductCandidate` |
+| `cascade.ts`        | Dimension resolution, cheapest stage first                                |
+| `dimensions.ts`     | Units, fractions, plausible ranges, largest-per-axis selection, merging   |
+| `images.ts`         | Drawing shortlist, read targets, slug relevance                           |
+| `color.ts`          | Finish lexicon, sRGB to OKLab, palette proximity                          |
+| `rank.ts`           | Dedupe, scoring, ordering                                                 |
+| `retailers.ts`      | Price tiers to domain lists                                               |
+| `convex/search.ts`  | Keys, models, persistence. Thin.                                          |
+| `convex/extract.ts` | The only two model calls: listing facts, and reading a drawing            |
 
 ## Testing
 

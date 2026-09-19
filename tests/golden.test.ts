@@ -73,7 +73,9 @@ describe("a live Shopify listing", () => {
       maxPriceCents: 120000,
       palette: [],
     });
-    expect(completeDimensions(parseDimensionText(bodyText, "storage").values)).toBeNull();
+    expect(
+      completeDimensions(parseDimensionText(bodyText, "storage").values),
+    ).toBeNull();
   });
 
   it("offers product images the diagram shortlist can rank", () => {

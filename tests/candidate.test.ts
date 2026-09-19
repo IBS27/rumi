@@ -74,7 +74,9 @@ describe("color", () => {
 
   it("stays neutral rather than inventing a color", () => {
     expect(
-      resolveColor(facts({ variant: "Model 27", name: "Cabinet", colorText: null })),
+      resolveColor(
+        facts({ variant: "Model 27", name: "Cabinet", colorText: null }),
+      ),
     ).toBe(UNKNOWN_COLOR);
   });
 
@@ -139,5 +141,51 @@ describe("building a candidate", () => {
       }).product?.id;
     expect(build("Oak")).toBe(build("Oak"));
     expect(build("Oak")).not.toBe(build("Walnut"));
+  });
+});
+
+describe("image URLs from real markup", () => {
+  it("repairs a protocol-relative URL instead of losing the listing", () => {
+    const { product } = buildCandidate({
+      sourceUrl: "https://shop.test/products/oak-cabinet",
+      category: "storage",
+      facts: facts({
+        imageUrl: "//cdn.shop.test/a.jpg",
+        images: ["//cdn.shop.test/a.jpg"],
+      }),
+      measurement: measured,
+    });
+    expect(product?.imageUrl).toBe("https://cdn.shop.test/a.jpg");
+    expect(product?.images).toEqual(["https://cdn.shop.test/a.jpg"]);
+  });
+
+  it("drops an unusable URL but keeps the product", () => {
+    const { product } = buildCandidate({
+      sourceUrl: "https://shop.test/products/oak-cabinet",
+      category: "storage",
+      facts: facts({
+        imageUrl: "/img/a.jpg",
+        images: ["/img/a.jpg", "data:image/png;base64,xx"],
+      }),
+      measurement: measured,
+    });
+    expect(product).not.toBeNull();
+    expect(product?.imageUrl).toBeNull();
+    expect(product?.images).toEqual([]);
+  });
+
+  it("caps the gallery at what the contract allows", () => {
+    const many = Array.from(
+      { length: 12 },
+      (_, i) => `https://cdn.shop.test/${i}.jpg`,
+    );
+    const { product } = buildCandidate({
+      sourceUrl: "https://shop.test/products/oak-cabinet",
+      category: "storage",
+      facts: facts({ images: many, imageUrl: null }),
+      measurement: measured,
+    });
+    expect(product?.images).toHaveLength(8);
+    expect(product?.imageUrl).toBe(many[0]);
   });
 });

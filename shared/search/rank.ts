@@ -105,16 +105,7 @@ export function scoreCandidate(
 
 // --- Dedupe ----------------------------------------------------------------
 
-const NOISE = new Set([
-  "the",
-  "a",
-  "with",
-  "and",
-  "for",
-  "in",
-  "inch",
-  "new",
-]);
+const NOISE = new Set(["the", "a", "with", "and", "for", "in", "inch", "new"]);
 
 function titleKey(name: string): string {
   return name

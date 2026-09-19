@@ -53,7 +53,10 @@ export const TIERS: TierDefinition[] = [
 
 export function tierFor(maxPriceCents: number): Tier {
   for (const definition of TIERS)
-    if (definition.ceilingCents === null || maxPriceCents <= definition.ceilingCents)
+    if (
+      definition.ceilingCents === null ||
+      maxPriceCents <= definition.ceilingCents
+    )
       return definition.tier;
   return "luxury";
 }

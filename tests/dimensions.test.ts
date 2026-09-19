@@ -37,7 +37,10 @@ describe("dimension text", () => {
   });
 
   it("reads feet and inches", () => {
-    const reading = parseDimensionText("Width: 5'3\" | Height: 6 ft", "storage");
+    const reading = parseDimensionText(
+      "Width: 5'3\" | Height: 6 ft",
+      "storage",
+    );
     near(reading.values.width, 1.6);
     near(reading.values.height, 1.829);
   });
@@ -62,7 +65,10 @@ describe("dimension text", () => {
   });
 
   it("refuses a positional triple with no stated order", () => {
-    const reading = parseDimensionText("Dimensions: 160 x 48 x 180 cm", "storage");
+    const reading = parseDimensionText(
+      "Dimensions: 160 x 48 x 180 cm",
+      "storage",
+    );
     expect(completeDimensions(reading.values)).toBeNull();
     expect(reading.issue).toContain("order");
   });
@@ -95,20 +101,92 @@ describe("dimension text", () => {
 // The wardrobe diagram: fifteen printed measurements, three of which are the product.
 const wardrobe: AxisReading[] = [
   { value: 15, unit: "in", axis: "width", subject: "component", label: '15"' },
-  { value: 29.9, unit: "in", axis: "width", subject: "component", label: '29.9"' },
+  {
+    value: 29.9,
+    unit: "in",
+    axis: "width",
+    subject: "component",
+    label: '29.9"',
+  },
   { value: 15, unit: "in", axis: "width", subject: "component", label: '15"' },
   { value: 63, unit: "in", axis: "width", subject: "overall", label: '63"' },
-  { value: 12.8, unit: "in", axis: "height", subject: "component", label: '12.8"' },
-  { value: 39.4, unit: "in", axis: "height", subject: "component", label: '39.4"' },
-  { value: 13.6, unit: "in", axis: "height", subject: "component", label: '13.6"' },
-  { value: 8.7, unit: "in", axis: "height", subject: "component", label: '8.7"' },
-  { value: 27.8, unit: "in", axis: "height", subject: "component", label: '27.8"' },
-  { value: 70.9, unit: "in", axis: "height", subject: "overall", label: '70.9"' },
-  { value: 9.8, unit: "in", axis: "depth", subject: "component", label: '9.8"' },
-  { value: 18.9, unit: "in", axis: "depth", subject: "overall", label: '18.9"' },
-  { value: 29.1, unit: "in", axis: "width", subject: "component", label: '29.1"' },
-  { value: 11.8, unit: "in", axis: "depth", subject: "component", label: '11.8"' },
-  { value: 4.7, unit: "in", axis: "height", subject: "component", label: '4.7"' },
+  {
+    value: 12.8,
+    unit: "in",
+    axis: "height",
+    subject: "component",
+    label: '12.8"',
+  },
+  {
+    value: 39.4,
+    unit: "in",
+    axis: "height",
+    subject: "component",
+    label: '39.4"',
+  },
+  {
+    value: 13.6,
+    unit: "in",
+    axis: "height",
+    subject: "component",
+    label: '13.6"',
+  },
+  {
+    value: 8.7,
+    unit: "in",
+    axis: "height",
+    subject: "component",
+    label: '8.7"',
+  },
+  {
+    value: 27.8,
+    unit: "in",
+    axis: "height",
+    subject: "component",
+    label: '27.8"',
+  },
+  {
+    value: 70.9,
+    unit: "in",
+    axis: "height",
+    subject: "overall",
+    label: '70.9"',
+  },
+  {
+    value: 9.8,
+    unit: "in",
+    axis: "depth",
+    subject: "component",
+    label: '9.8"',
+  },
+  {
+    value: 18.9,
+    unit: "in",
+    axis: "depth",
+    subject: "overall",
+    label: '18.9"',
+  },
+  {
+    value: 29.1,
+    unit: "in",
+    axis: "width",
+    subject: "component",
+    label: '29.1"',
+  },
+  {
+    value: 11.8,
+    unit: "in",
+    axis: "depth",
+    subject: "component",
+    label: '11.8"',
+  },
+  {
+    value: 4.7,
+    unit: "in",
+    axis: "height",
+    subject: "component",
+    label: '4.7"',
+  },
 ];
 
 describe("dimension diagram", () => {
@@ -131,7 +209,13 @@ describe("dimension diagram", () => {
   it("refuses an image showing two product sizes", () => {
     const twoSizes: AxisReading[] = [
       ...wardrobe,
-      { value: 47, unit: "in", axis: "width", subject: "overall", label: '47"' },
+      {
+        value: 47,
+        unit: "in",
+        axis: "width",
+        subject: "overall",
+        label: '47"',
+      },
     ];
     const reading = selectOverall(twoSizes, "storage");
     expect(completeDimensions(reading.values)).toBeNull();

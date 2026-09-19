@@ -29,7 +29,8 @@ const isObject = (value: unknown): value is Json =>
 function typeOf(node: Json): string[] {
   const raw = node["@type"];
   if (typeof raw === "string") return [raw];
-  if (Array.isArray(raw)) return raw.filter((t): t is string => typeof t === "string");
+  if (Array.isArray(raw))
+    return raw.filter((t): t is string => typeof t === "string");
   return [];
 }
 

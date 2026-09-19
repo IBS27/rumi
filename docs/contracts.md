@@ -14,15 +14,15 @@
 
 ## Boundaries
 
-| Input/output                     | Owner          | Consumer                      |
-| -------------------------------- | -------------- | ----------------------------- |
-| `RoomSnapshot`                   | Capture/editor | Search, renderer, validation  |
-| `DesignBrief`                    | Conversation   | Search and budget checks      |
-| `SearchRequest` → `SearchResult` | Search adapter | Assistant/product panel       |
-| `SearchTask` → `SearchTaskResult` | Search agent  | Main agent `searchProducts` tool |
-| `ProductCandidate`               | Search/catalog | Product cards, assets, budget |
-| `DesignProposal`                 | Agent/planner  | Validated editor commands     |
-| `AssetRecord`                    | Asset pipeline | Renderer                      |
+| Input/output                      | Owner          | Consumer                         |
+| --------------------------------- | -------------- | -------------------------------- |
+| `RoomSnapshot`                    | Capture/editor | Search, renderer, validation     |
+| `DesignBrief`                     | Conversation   | Search and budget checks         |
+| `SearchRequest` → `SearchResult`  | Search adapter | Assistant/product panel          |
+| `SearchTask` → `SearchTaskResult` | Search agent   | Main agent `searchProducts` tool |
+| `ProductCandidate`                | Search/catalog | Product cards, assets, budget    |
+| `DesignProposal`                  | Agent/planner  | Validated editor commands        |
+| `AssetRecord`                     | Asset pipeline | Renderer                         |
 
 The first proposal operation is additions only. Define explicit move/remove operations when the agent supports them; never silently replace a complete room snapshot. `baseRevision` must match the current room revision, and accepted edits increment it.
 

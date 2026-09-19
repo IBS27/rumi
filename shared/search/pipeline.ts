@@ -323,7 +323,9 @@ export async function runSearches(
   for (let start = 0; start < tasks.length; start += concurrency) {
     const batch = tasks.slice(start, start + concurrency);
     results.push(
-      ...(await Promise.all(batch.map((task) => runSearch(task, deps, options)))),
+      ...(await Promise.all(
+        batch.map((task) => runSearch(task, deps, options)),
+      )),
     );
   }
   return results;

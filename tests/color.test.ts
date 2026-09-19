@@ -1,9 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import {
-  colorFromWords,
-  deltaOk,
-  paletteScore,
-} from "../shared/search/color";
+import { colorFromWords, deltaOk, paletteScore } from "../shared/search/color";
 
 describe("color proximity", () => {
   it("scores an identical color as a perfect match", () => {

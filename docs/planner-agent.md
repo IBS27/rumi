@@ -24,13 +24,13 @@ Every task it receives carries a category, a price ceiling, and a footprint ceil
 
 ## Responsibilities
 
-| Decides | Does not decide |
-| --- | --- |
-| Which categories the room still needs | Which product to buy |
-| How much of the remaining budget each category gets | The actual price of an item |
-| The footprint ceiling each category must fit | The final placement coordinates |
+| Decides                                              | Does not decide                  |
+| ---------------------------------------------------- | -------------------------------- |
+| Which categories the room still needs                | Which product to buy             |
+| How much of the remaining budget each category gets  | The actual price of an item      |
+| The footprint ceiling each category must fit         | The final placement coordinates  |
 | Which tags to exclude, from the brief's restrictions | The style wording sent to search |
-| The order in which categories are searched | Whether a proposal is applied |
+| The order in which categories are searched           | Whether a proposal is applied    |
 
 ## Inputs
 
@@ -121,11 +121,11 @@ Replanning is a new plan from current state, never an edit of a previous plan ob
 
 ## Where the code goes
 
-| Path | Contents |
-| --- | --- |
+| Path                      | Contents                                                                                                                                                                    |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `shared/planner/index.ts` | Pure helpers: remaining-budget math, free-space and footprint derivation, restriction-to-tag mapping, plan validation and normalization. No model calls, no Convex imports. |
-| `convex/planner.ts` | `internalAction` `planRoom({ roomId, instruction })`. One `generateObject` call against `designPlanSchema`, then the `shared/planner` validation. Returns a `DesignPlan`. |
-| `tests/planner.test.ts` | Covers `shared/planner` against the fixtures, with no network and no deployment. |
+| `convex/planner.ts`       | `internalAction` `planRoom({ roomId, instruction })`. One `generateObject` call against `designPlanSchema`, then the `shared/planner` validation. Returns a `DesignPlan`.   |
+| `tests/planner.test.ts`   | Covers `shared/planner` against the fixtures, with no network and no deployment.                                                                                            |
 
 Follow the shape of `convex/search.ts` and `shared/search/index.ts`: the Convex action
 holds the model call and the I/O, the shared module holds the logic worth testing.

@@ -32,11 +32,13 @@ export interface ResolvedDimensions {
   usedVision: boolean;
 }
 
-const UNKNOWN: Measurement = {
+// A fresh object each time: a shared one would be embedded in every candidate, where a
+// later edit to its evidence would rewrite history for all of them.
+const unknown = (): Measurement => ({
   dimensions: null,
   source: "unknown",
   evidence: { kind: "none", detail: null },
-};
+});
 
 const EMPTY_READING: Reading = {
   values: { width: null, height: null, depth: null },
@@ -90,7 +92,7 @@ export async function resolveDimensions(
       stage: "dimensions",
       detail: "No dimensions in the page text and no image to read.",
     });
-    return { measurement: UNKNOWN, failures, usedVision: false };
+    return { measurement: unknown(), failures, usedVision: false };
   }
 
   const shortlist = shortlistDiagramImages(sources.images);
@@ -100,7 +102,7 @@ export async function resolveDimensions(
       stage: "dimensions",
       detail: "No image printed measurements.",
     });
-    return { measurement: UNKNOWN, failures, usedVision: true };
+    return { measurement: unknown(), failures, usedVision: true };
   }
 
   const diagram = selectOverall(readings, sources.category);
@@ -108,7 +110,7 @@ export async function resolveDimensions(
   const merged = mergeReadings(partial, diagram);
   note(merged.issue);
   const measurement =
-    known(merged, hasAny(partial) ? "mixed" : "image") ?? UNKNOWN;
+    known(merged, hasAny(partial) ? "mixed" : "image") ?? unknown();
   if (measurement.evidence.detail === null && measurement.dimensions !== null)
     measurement.evidence.detail = imageUrl;
   if (!measurement.dimensions)

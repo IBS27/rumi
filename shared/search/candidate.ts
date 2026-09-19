@@ -4,6 +4,7 @@ import {
   type Measurement,
   type ProductCandidate,
 } from "../contracts";
+import { z } from "zod";
 import { colorFromWords } from "./color";
 import { merchantFor, productIdFor } from "./index";
 
@@ -44,7 +45,8 @@ export function pickFacts(sources: Partial<ListingFacts>[]): ListingFacts {
   let availabilitySet = false;
   for (const source of sources) {
     if (facts.name === null && source.name) facts.name = source.name;
-    if (facts.variant === null && source.variant) facts.variant = source.variant;
+    if (facts.variant === null && source.variant)
+      facts.variant = source.variant;
     if (
       facts.priceCents === null &&
       typeof source.priceCents === "number" &&
@@ -57,19 +59,37 @@ export function pickFacts(sources: Partial<ListingFacts>[]): ListingFacts {
       facts.colorHex = source.colorHex;
     if (facts.imageUrl === null && source.imageUrl)
       facts.imageUrl = source.imageUrl;
-    if (!availabilitySet && source.availability && source.availability !== "unknown") {
+    if (
+      !availabilitySet &&
+      source.availability &&
+      source.availability !== "unknown"
+    ) {
       facts.availability = source.availability;
       availabilitySet = true;
     }
     tags.push(...(source.tags ?? []));
     images.push(...(source.images ?? []));
   }
-  facts.images = [...new Set(images)].slice(0, 8);
-  if (facts.imageUrl === null) facts.imageUrl = facts.images[0] ?? null;
+  facts.images = [
+    ...new Set(
+      images.map(usableImage).filter((url): url is string => url !== null),
+    ),
+  ].slice(0, 8);
+  facts.imageUrl = facts.imageUrl
+    ? usableImage(facts.imageUrl)
+    : (facts.images[0] ?? null);
   facts.tags = [
     ...new Set(tags.map((tag) => tag.trim().toLowerCase()).filter(Boolean)),
   ];
   return facts;
+}
+
+// Retail markup is full of protocol-relative and relative image URLs. One of those must
+// never cost us the listing, so images are repaired where possible and dropped where not.
+export function usableImage(raw: string): string | null {
+  const candidate = raw.startsWith("//") ? `https:${raw}` : raw.trim();
+  if (!/^https?:\/\//i.test(candidate)) return null;
+  return z.url().safeParse(candidate).success ? candidate : null;
 }
 
 const HEX = /^#[0-9a-fA-F]{6}$/;

@@ -130,7 +130,9 @@ describe("the search pipeline", () => {
   });
 
   it("prefers structured merchant data and skips the model", async () => {
-    const context = deps(pagesFrom([jsonLdPage("https://c.test/products/oak-wardrobe")]));
+    const context = deps(
+      pagesFrom([jsonLdPage("https://c.test/products/oak-wardrobe")]),
+    );
     const result = await runSearch(makeTask(), context.deps, {
       minTierHits: 1,
     });
@@ -142,7 +144,9 @@ describe("the search pipeline", () => {
   });
 
   it("reads a drawing only when the text was silent", async () => {
-    const context = deps(pagesFrom([diagramPage("https://d.test/products/mystery-cabinet")]));
+    const context = deps(
+      pagesFrom([diagramPage("https://d.test/products/mystery-cabinet")]),
+    );
     const result = await runSearch(makeTask(), context.deps, {
       minTierHits: 1,
     });
@@ -150,10 +154,9 @@ describe("the search pipeline", () => {
     expect(result.candidates[0].product.measurement.evidence.kind).toBe(
       "image",
     );
-    expect(result.candidates[0].product.measurement.dimensions?.width).toBeCloseTo(
-      1.092,
-      2,
-    );
+    expect(
+      result.candidates[0].product.measurement.dimensions?.width,
+    ).toBeCloseTo(1.092, 2);
   });
 
   it("stops reading drawings once enough candidates fit", async () => {
@@ -169,7 +172,9 @@ describe("the search pipeline", () => {
   });
 
   it("falls back to the open web when the tier is thin", async () => {
-    const context = deps(pagesFrom([specPage("https://a.test/products/low-oak-cabinet")]));
+    const context = deps(
+      pagesFrom([specPage("https://a.test/products/low-oak-cabinet")]),
+    );
     const result = await runSearch(makeTask(), context.deps, {
       minTierHits: 6,
     });
@@ -188,7 +193,9 @@ describe("the search pipeline", () => {
   });
 
   it("keeps going when one page cannot be read", async () => {
-    const pages = pagesFrom([specPage("https://a.test/products/low-oak-cabinet")]);
+    const pages = pagesFrom([
+      specPage("https://a.test/products/low-oak-cabinet"),
+    ]);
     const context = deps(pages, {
       search: async () => [
         { url: "https://a.test/products/low-oak-cabinet", title: null },
@@ -199,17 +206,20 @@ describe("the search pipeline", () => {
       minTierHits: 1,
     });
     expect(result.candidates).toHaveLength(1);
-    expect(result.failures.some((f) => f.detail.includes("could not be read"))).toBe(
-      true,
-    );
+    expect(
+      result.failures.some((f) => f.detail.includes("could not be read")),
+    ).toBe(true);
   });
 
   it("survives a model that throws", async () => {
-    const context = deps(pagesFrom([specPage("https://a.test/products/low-oak-cabinet")]), {
-      extractListing: async () => {
-        throw new Error("rate limited");
+    const context = deps(
+      pagesFrom([specPage("https://a.test/products/low-oak-cabinet")]),
+      {
+        extractListing: async () => {
+          throw new Error("rate limited");
+        },
       },
-    });
+    );
     const result = await runSearch(makeTask(), context.deps, {
       minTierHits: 1,
     });
@@ -220,20 +230,26 @@ describe("the search pipeline", () => {
   });
 
   it("drops a listing the page priced above the ceiling", async () => {
-    const context = deps(pagesFrom([specPage("https://a.test/products/low-oak-cabinet")]));
+    const context = deps(
+      pagesFrom([specPage("https://a.test/products/low-oak-cabinet")]),
+    );
     const result = await runSearch(
       makeTask({ maxPriceCents: 10000 }),
       context.deps,
       { minTierHits: 1 },
     );
     expect(result.candidates).toHaveLength(0);
-    expect(result.failures.some((f) => f.detail.includes("ceiling"))).toBe(true);
+    expect(result.failures.some((f) => f.detail.includes("ceiling"))).toBe(
+      true,
+    );
   });
 });
 
 describe("searching several categories at once", () => {
   it("returns one result per task, in order", async () => {
-    const context = deps(pagesFrom([specPage("https://a.test/products/low-oak-cabinet")]));
+    const context = deps(
+      pagesFrom([specPage("https://a.test/products/low-oak-cabinet")]),
+    );
     const results = await runSearches(
       [
         makeTask({ category: "storage", query: "oak cabinet" }),
@@ -249,7 +265,9 @@ describe("searching several categories at once", () => {
   });
 
   it("carries the gallery through to each candidate", async () => {
-    const context = deps(pagesFrom([specPage("https://a.test/products/low-oak-cabinet")]));
+    const context = deps(
+      pagesFrom([specPage("https://a.test/products/low-oak-cabinet")]),
+    );
     const [result] = await runSearches([makeTask()], context.deps, {
       minTierHits: 1,
     });

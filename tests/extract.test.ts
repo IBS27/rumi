@@ -78,7 +78,13 @@ describe("reading a drawing", () => {
     const { instance } = model({
       hasPrintedMeasurements: false,
       measurements: [
-        { value: 40, unit: "in", axis: "width", subject: "overall", label: "guess" },
+        {
+          value: 40,
+          unit: "in",
+          axis: "width",
+          subject: "overall",
+          label: "guess",
+        },
       ],
     });
     const result = await readDiagram(instance, images);
@@ -89,9 +95,27 @@ describe("reading a drawing", () => {
     const { instance } = model({
       hasPrintedMeasurements: true,
       measurements: [
-        { value: 63, unit: "in", axis: "width", subject: "overall", label: '63"' },
-        { value: 15, unit: "in", axis: "width", subject: "component", label: '15"' },
-        { value: 70.9, unit: "in", axis: "height", subject: "overall", label: '70.9"' },
+        {
+          value: 63,
+          unit: "in",
+          axis: "width",
+          subject: "overall",
+          label: '63"',
+        },
+        {
+          value: 15,
+          unit: "in",
+          axis: "width",
+          subject: "component",
+          label: '15"',
+        },
+        {
+          value: 70.9,
+          unit: "in",
+          axis: "height",
+          subject: "overall",
+          label: '70.9"',
+        },
       ],
     });
     const result = await readDiagram(instance, images);
@@ -104,7 +128,13 @@ describe("reading a drawing", () => {
     const { instance } = model({
       hasPrintedMeasurements: true,
       measurements: [
-        { value: 63, unit: "in", axis: "width", subject: "overall", label: " " },
+        {
+          value: 63,
+          unit: "in",
+          axis: "width",
+          subject: "overall",
+          label: " ",
+        },
       ],
     });
     expect((await readDiagram(instance, images)).readings).toHaveLength(0);

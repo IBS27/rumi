@@ -31,9 +31,7 @@ export function hexToOklab(hex: string): Oklab {
 export function deltaOk(left: string, right: string): number {
   const a = hexToOklab(left);
   const b = hexToOklab(right);
-  return Math.sqrt(
-    (a.L - b.L) ** 2 + (a.a - b.a) ** 2 + (a.b - b.b) ** 2,
-  );
+  return Math.sqrt((a.L - b.L) ** 2 + (a.a - b.a) ** 2 + (a.b - b.b) ** 2);
 }
 
 // Black to white is a distance of 1. Half of that already reads as a different color,

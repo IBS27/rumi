@@ -46,7 +46,10 @@ export function chooseVariant(
         : product.variants;
   return [...pool].sort((a, b) => {
     const score = (variant: ShopifyVariant) =>
-      paletteScore(colorFromWords(variant.title)?.hex ?? UNKNOWN_COLOR, palette);
+      paletteScore(
+        colorFromWords(variant.title)?.hex ?? UNKNOWN_COLOR,
+        palette,
+      );
     const difference = score(b) - score(a);
     return difference !== 0 ? difference : a.priceCents - b.priceCents;
   })[0];

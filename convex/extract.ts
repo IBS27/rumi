@@ -70,7 +70,7 @@ const diagramSchema = z.object({
         label: z
           .string()
           .min(1)
-          .describe("The measurement exactly as printed, e.g. 63\""),
+          .describe('The measurement exactly as printed, e.g. 63"'),
       }),
     )
     .max(40),

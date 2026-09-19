@@ -4,12 +4,42 @@ import type { AxisReading } from "../shared/search/dimensions";
 import type { ImageRef } from "../shared/search/images";
 
 const wardrobeReadings: AxisReading[] = [
-  { value: 29.9, unit: "in", axis: "width", subject: "component", label: '29.9"' },
+  {
+    value: 29.9,
+    unit: "in",
+    axis: "width",
+    subject: "component",
+    label: '29.9"',
+  },
   { value: 63, unit: "in", axis: "width", subject: "overall", label: '63"' },
-  { value: 39.4, unit: "in", axis: "height", subject: "component", label: '39.4"' },
-  { value: 70.9, unit: "in", axis: "height", subject: "overall", label: '70.9"' },
-  { value: 11.8, unit: "in", axis: "depth", subject: "component", label: '11.8"' },
-  { value: 18.9, unit: "in", axis: "depth", subject: "overall", label: '18.9"' },
+  {
+    value: 39.4,
+    unit: "in",
+    axis: "height",
+    subject: "component",
+    label: '39.4"',
+  },
+  {
+    value: 70.9,
+    unit: "in",
+    axis: "height",
+    subject: "overall",
+    label: '70.9"',
+  },
+  {
+    value: 11.8,
+    unit: "in",
+    axis: "depth",
+    subject: "component",
+    label: '11.8"',
+  },
+  {
+    value: 18.9,
+    unit: "in",
+    axis: "depth",
+    subject: "overall",
+    label: '18.9"',
+  },
 ];
 
 const images: ImageRef[] = [

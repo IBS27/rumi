@@ -60,15 +60,15 @@ Prioritize verified dimensions, faithful product representations, and a complete
 
 Use one coordinating agent with typed tools. This is the planned stack; live integrations are not configured yet.
 
-| Layer | Choice | Responsibility |
-| --- | --- | --- |
-| Runtime | TypeScript on Convex | Run agent tools beside the application data and validation logic |
-| Agent orchestration | Convex Agent | Own the agent loop, conversation threads, history, and streaming |
-| Model access | Vercel AI SDK | Model calls, typed tools, and structured responses |
-| Model | GPT-5.6 Terra | Interpret the brief, ask questions, compare products, and propose design changes |
-| Product discovery | Exa Search + Contents | Find product pages and retrieve their content |
-| Validation | Zod and shared TypeScript helpers | Check product data, dimensions, budget, placements, and proposal revisions |
-| Background jobs | Convex Workflow, when needed | Durable research and asset jobs with retries |
+| Layer               | Choice                            | Responsibility                                                                   |
+| ------------------- | --------------------------------- | -------------------------------------------------------------------------------- |
+| Runtime             | TypeScript on Convex              | Run agent tools beside the application data and validation logic                 |
+| Agent orchestration | Convex Agent                      | Own the agent loop, conversation threads, history, and streaming                 |
+| Model access        | Vercel AI SDK                     | Model calls, typed tools, and structured responses                               |
+| Model               | GPT-5.6 Terra                     | Interpret the brief, ask questions, compare products, and propose design changes |
+| Product discovery   | Exa Search + Contents             | Find product pages and retrieve their content                                    |
+| Validation          | Zod and shared TypeScript helpers | Check product data, dimensions, budget, placements, and proposal revisions       |
+| Background jobs     | Convex Workflow, when needed      | Durable research and asset jobs with retries                                     |
 
 Confirm the provider's model identifier and access for GPT-5.6 Terra during integration. Keep model configuration separate from the agent's tools and contracts.
 

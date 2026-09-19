@@ -88,7 +88,11 @@ export function mapShopifyProduct(payload: unknown): ShopifyProduct | null {
   if (!parsed.success) return null;
   const data = parsed.data;
   const raw =
-    "products" in data ? data.products[0] : "product" in data ? data.product : data;
+    "products" in data
+      ? data.products[0]
+      : "product" in data
+        ? data.product
+        : data;
   const tags = Array.isArray(raw.tags)
     ? raw.tags
     : typeof raw.tags === "string"

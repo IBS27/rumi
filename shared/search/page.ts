@@ -50,9 +50,10 @@ export function extractImages(html: string, base: string): ImageRef[] {
   return found.filter((image) => {
     if (seen.has(image.url)) return false;
     seen.add(image.url);
+    // Whole words only: "iconic-chair.jpg" is a product, "icon.png" is not.
     return (
       !/\.(svg|gif)(\?|$)/i.test(image.url) &&
-      !/sprite|logo|icon/i.test(image.url)
+      !/(^|[^a-z])(sprite|logo|icon|favicon)([^a-z]|$)/i.test(image.url)
     );
   });
 }
