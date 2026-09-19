@@ -53,3 +53,36 @@ Success means the edited room and cart agree, locked choices remain intact, fit 
 - **Persistence and verification.** Save approved designs, purchases, delivery status, and owned items. Verify the demo end to end, especially room/cart consistency, locked choices, budget enforcement, clearance detection, changed-price approval, and duplicate-purchase prevention.
 
 Prioritize verified dimensions, faithful product representations, and a complete purchase journey. Accurate 3D reconstruction of arbitrary internet products is a separate research and catalog challenge beyond the initial demo.
+
+### Agent stack
+
+Use one coordinating agent with typed tools. This is the planned stack; live integrations are not configured yet.
+
+| Layer | Choice | Responsibility |
+| --- | --- | --- |
+| Runtime | TypeScript on Convex | Run agent tools beside the application data and validation logic |
+| Agent orchestration | Convex Agent | Own the agent loop, conversation threads, history, and streaming |
+| Model access | Vercel AI SDK | Model calls, typed tools, and structured responses |
+| Model | GPT-5.6 Terra | Interpret the brief, ask questions, compare products, and propose design changes |
+| Product discovery | Exa Search + Contents | Find product pages and retrieve their content |
+| Validation | Zod and shared TypeScript helpers | Check product data, dimensions, budget, placements, and proposal revisions |
+| Background jobs | Convex Workflow, when needed | Durable research and asset jobs with retries |
+
+Confirm the provider's model identifier and access for GPT-5.6 Terra during integration. Keep model configuration separate from the agent's tools and contracts.
+
+Start with `getRoomContext`, `searchProducts`, `getProductDetails`, `checkBudget`, `validatePlacement`, and `proposeDesign`.
+
+1. Read confirmed room geometry, existing furniture, locks, preferences, and budget.
+2. Ask for essential missing information.
+3. Search the catalog or selected retailers across relevant product categories.
+4. Extract specific variants, prices, dimensions, images, and source URLs into `ProductCandidate` records.
+5. Filter invalid candidates using application code, then rank the remaining options for the room.
+6. Return a structured `DesignProposal` tied to the current room revision.
+
+The model handles aesthetic judgment and tradeoffs. Code enforces arithmetic, collisions, locked objects, and stale-revision checks. Preserve source evidence and unknown fields; search results alone do not verify price, stock, or physical fit.
+
+Begin with Exa's search and content retrieval. Add Firecrawl only if product pages need better extraction. Defer additional agent frameworks, a separate vector database, and specialist agents until a concrete limitation justifies them.
+
+Search developer 1 owns discovery, extraction, deduplication, and product normalization. Search developer 2 owns conversation, tool orchestration, ranking, and proposals. The 3D team owns model acquisition and generation; recommendations should return before model assets finish loading.
+
+References: [Convex Agent](https://docs.convex.dev/agents/overview), [Exa](https://exa.ai/docs/reference/search), [Firecrawl](https://docs.firecrawl.dev/features/scrape), [Convex Workflow](https://www.convex.dev/components/workflow).
