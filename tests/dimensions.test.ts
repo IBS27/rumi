@@ -348,3 +348,47 @@ describe("round pieces and long pieces", () => {
     expect(reading.values.width).toBeNull();
   });
 });
+
+describe("pairs and shipping boxes", () => {
+  it("reads a rug's feet-by-feet pair, completed by its pile height", () => {
+    const reading = parseDimensionText(
+      "2.5' x 8' Measure For Delivery\nMedium 1/2\" pile",
+      "rug",
+    );
+    near(reading.values.width, 0.762);
+    near(reading.values.depth, 2.438);
+    near(reading.values.height, 0.013);
+  });
+
+  it("skips a shipping-box line that is not labelled as one", () => {
+    const reading = parseDimensionText(
+      '8"H x 8"W x 31"L\n2.5\' x 8\' rug\nPile height: 0.5"',
+      "rug",
+    );
+    near(reading.values.width, 0.762);
+    near(reading.values.depth, 2.438);
+    expect(reading.issue).toBeNull();
+  });
+
+  it("reads a print's width by height pair and its frame depth", () => {
+    const reading = parseDimensionText(
+      'Amanti Art 16" x 23" Soft Summer I Framed Canvas\nFrame depth: 1.5"',
+      "art",
+    );
+    near(reading.values.width, 0.406);
+    near(reading.values.height, 0.584);
+    near(reading.values.depth, 0.038);
+  });
+
+  it("leaves a print without a stated depth incomplete rather than guessing", () => {
+    const reading = parseDimensionText('16" x 23" framed canvas', "art");
+    near(reading.values.width, 0.406);
+    expect(reading.values.depth).toBeNull();
+    expect(completeDimensions(reading.values)).toBeNull();
+  });
+
+  it("does not read a pair for a category where the order is ambiguous", () => {
+    const reading = parseDimensionText('47" x 30" cabinet', "storage");
+    expect(reading.values.width).toBeNull();
+  });
+});

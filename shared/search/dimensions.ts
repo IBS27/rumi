@@ -73,7 +73,7 @@ export function completeDimensions(values: AxisValues): Dimensions | null {
 
 const round = (meters: number) => Math.round(meters * 1000) / 1000;
 
-function reading(
+function readingOf(
   values: AxisValues,
   detail: string | null,
   issue: string | null,
@@ -100,7 +100,10 @@ const UNIT_WORDS: Record<string, Unit> = {
   m: "m",
 };
 
-const AXIS_WORDS: Record<string, Axis | "diameter" | "length"> = {
+const AXIS_WORDS: Record<
+  string,
+  Axis | "diameter" | "length" | "pile" | "thickness"
+> = {
   w: "width",
   width: "width",
   d: "depth",
@@ -115,18 +118,39 @@ const AXIS_WORDS: Record<string, Axis | "diameter" | "length"> = {
   // Rugs and beds state width by length; elsewhere "length" is too ambiguous to use.
   l: "length",
   length: "length",
+  // A rug's height is its pile; a print's depth is its frame.
+  pile: "pile",
+  "pile height": "pile",
+  thickness: "thickness",
+  thick: "thickness",
+  "frame depth": "depth",
+  profile: "thickness",
 };
 
 const LENGTH_IS_DEPTH: Category[] = ["rug", "bed"];
 
 function axesFor(word: string, category: Category): Axis[] {
-  const mapped = AXIS_WORDS[word.toLowerCase()];
+  const mapped = AXIS_WORDS[word.toLowerCase().replace(/\s+/g, " ")];
   if (!mapped) return [];
   if (mapped === "diameter") return ["width", "depth"];
   if (mapped === "length")
     return LENGTH_IS_DEPTH.includes(category) ? ["depth"] : [];
+  if (mapped === "pile") return category === "rug" ? ["height"] : [];
+  if (mapped === "thickness")
+    return category === "rug"
+      ? ["height"]
+      : category === "art"
+        ? ["depth"]
+        : [];
   return [mapped];
 }
+
+// Two categories state their size as a pair by convention, and both can turn a
+// quarter on the floor or the wall, so the order carries no risk.
+const PAIR_AXES: Partial<Record<Category, [Axis, Axis]>> = {
+  rug: ["width", "depth"],
+  art: ["width", "height"],
+};
 
 const UNIT_PATTERN =
   `(?:inches|inch|in\\.|in|feet|foot|ft\\.|ft|cm|mm|m|''|"|')` as const;
@@ -178,7 +202,7 @@ interface TextMatch {
 }
 
 const AXIS_PATTERN =
-  "(?:width|depth|height|diameter|diam|dia|length|W|D|H|L|ø)";
+  "(?:pile height|frame depth|width|depth|height|diameter|diam|dia|length|thickness|thick|profile|pile|W|D|H|L|ø)";
 
 function collectLabelled(line: string, category: Category): TextMatch[] {
   const found: TextMatch[] = [];
@@ -237,6 +261,30 @@ function collectPositional(line: string, category: Category): TextMatch[] {
   return found;
 }
 
+// "2.5' x 8'" for a rug, "16\" x 23\"" for a print. Only a pair, never part of a triple.
+function collectPair(line: string, category: Category): TextMatch[] {
+  const axes = PAIR_AXES[category];
+  if (!axes) return [];
+  const pair = line.match(
+    new RegExp(
+      String.raw`(?<![\d.])(${NUMBER})[ \t]*(${UNIT_PATTERN})?[ \t]*[x×][ \t]*(${NUMBER})[ \t]*(${UNIT_PATTERN})?(?![ \t]*[x×])`,
+      "i",
+    ),
+  );
+  if (!pair) return [];
+  const second = toUnit(pair[4]);
+  const first = toUnit(pair[2]) ?? second;
+  return [
+    {
+      axis: axes[0],
+      value: Number(pair[1]),
+      unit: first,
+      label: pair[0].trim(),
+    },
+    { axis: axes[1], value: Number(pair[3]), unit: second ?? first, label: "" },
+  ];
+}
+
 // A measurement printed without its unit is resolved by asking which unit puts every
 // axis inside the plausible range. Exactly one answer means the unit is known.
 function inferUnit(matches: TextMatch[], category: Category): Unit | null {
@@ -253,44 +301,17 @@ function axesIn(matches: TextMatch[]): number {
   return new Set(matches.map((match) => match.axis)).size;
 }
 
-export function parseDimensionText(text: string, category: Category): Reading {
-  const lines = normalizeFeetInches(text)
-    .split(/[\n\r;]+/)
-    .filter((line) => !EXCLUDED_LINE.test(line));
-  const perLine: TextMatch[][] = [];
-  let sawUnorderedTriple = false;
-  for (const line of lines) {
-    const labelled = collectLabelled(line, category);
-    if (labelled.length > 0) {
-      perLine.push(labelled);
-      continue;
-    }
-    const positional = collectPositional(line, category);
-    if (positional.length === 1 && Number.isNaN(positional[0].value)) {
-      sawUnorderedTriple = true;
-      continue;
-    }
-    if (positional.length > 0) perLine.push(positional);
-  }
-  // One line stating all three axes is a specification. Measurements scattered over a
-  // page are usually parts, so a whole statement is preferred when the page has one.
-  const whole = perLine.find((line) => axesIn(line) === 3);
-  const matches: TextMatch[] = whole ?? perLine.flat();
-  if (matches.length === 0)
-    return reading(
-      EMPTY,
-      null,
-      sawUnorderedTriple
-        ? "The page states dimensions without an axis order."
-        : "No measurements were printed in the page text.",
-    );
+type Attempt =
+  | { kind: "complete"; reading: Reading }
+  | { kind: "partial"; reading: Reading }
+  | { kind: "rejected"; issue: string };
 
+function attempt(matches: TextMatch[], category: Category): Attempt {
   const unitless = matches.filter((match) => match.unit === null);
   const inferred =
     unitless.length === matches.length ? inferUnit(matches, category) : null;
   if (unitless.length === matches.length && inferred === null)
-    return reading(EMPTY, null, "The measurements carry no unit.");
-
+    return { kind: "rejected", issue: "The measurements carry no unit." };
   const values: AxisValues = { ...EMPTY };
   const labels: string[] = [];
   for (const match of matches) {
@@ -298,16 +319,76 @@ export function parseDimensionText(text: string, category: Category): Reading {
     if (!unit) continue;
     if (values[match.axis] !== null) continue; // first mention wins
     values[match.axis] = round(match.value * TO_METERS[unit]);
-    labels.push(match.unit ? match.label : `${match.label} (${unit})`);
+    if (match.label)
+      labels.push(match.unit ? match.label : `${match.label} (${unit})`);
   }
   const complete = completeDimensions(values);
   if (complete && !withinRange(category, complete))
-    return reading(
+    return {
+      kind: "rejected",
+      issue: `The page dimensions are outside the plausible range for a ${category}.`,
+    };
+  const reading = readingOf(values, labels.join(" x ") || null, null);
+  return { kind: complete ? "complete" : "partial", reading };
+}
+
+export function parseDimensionText(text: string, category: Category): Reading {
+  const lines = normalizeFeetInches(text)
+    .split(/[\n\r;]+/)
+    .filter((line) => !EXCLUDED_LINE.test(line));
+  const whole: TextMatch[][] = [];
+  const pairs: TextMatch[][] = [];
+  const scattered: TextMatch[] = [];
+  let sawUnorderedTriple = false;
+  for (const line of lines) {
+    const labelled = collectLabelled(line, category);
+    if (labelled.length > 0) {
+      if (axesIn(labelled) === 3) whole.push(labelled);
+      else scattered.push(...labelled);
+      continue;
+    }
+    const positional = collectPositional(line, category);
+    if (positional.length === 1 && Number.isNaN(positional[0].value)) {
+      sawUnorderedTriple = true;
+      continue;
+    }
+    if (positional.length > 0) {
+      whole.push(positional);
+      continue;
+    }
+    const pair = collectPair(line, category);
+    if (pair.length > 0) pairs.push(pair);
+  }
+  // A whole statement first, then a conventional pair completed by whatever the page
+  // says elsewhere, then measurements scattered through the page. A statement that
+  // fails the plausible range is a shipping box or a part; the next one is tried.
+  const groups: TextMatch[][] = [
+    ...whole,
+    ...pairs.map((pair) => [...pair, ...scattered]),
+    scattered,
+  ].filter((group) => group.length > 0);
+  if (groups.length === 0)
+    return readingOf(
       EMPTY,
       null,
-      `The page dimensions are outside the plausible range for a ${category}.`,
+      sawUnorderedTriple
+        ? "The page states dimensions without an axis order."
+        : "No measurements were printed in the page text.",
     );
-  return reading(values, labels.join(" x ") || null, null);
+  let partial: Reading | null = null;
+  let rejection: string | null = null;
+  for (const group of groups) {
+    const result = attempt(group, category);
+    if (result.kind === "complete") return result.reading;
+    if (result.kind === "partial" && !partial) partial = result.reading;
+    if (result.kind === "rejected" && !rejection) rejection = result.issue;
+  }
+  if (partial) return partial;
+  return readingOf(
+    EMPTY,
+    null,
+    rejection ?? "No measurements were printed in the page text.",
+  );
 }
 
 // --- Diagram ---------------------------------------------------------------
@@ -322,7 +403,7 @@ export function selectOverall(
     (item) => item.axis !== "unknown" && item.unit !== null && item.value > 0,
   );
   if (usable.length === 0)
-    return reading(EMPTY, null, "The image printed no usable measurements.");
+    return readingOf(EMPTY, null, "The image printed no usable measurements.");
 
   const values: AxisValues = { ...EMPTY };
   const labels: string[] = [];
@@ -336,7 +417,7 @@ export function selectOverall(
       .map((item) => item.value * TO_METERS[item.unit!]);
     // Two overall readings far apart mean the image shows two product sizes.
     if (declared.some((value) => value < largest * 0.85))
-      return reading(
+      return readingOf(
         EMPTY,
         null,
         `The image appears to show two ${category} sizes, so its measurements are ambiguous.`,
@@ -346,14 +427,14 @@ export function selectOverall(
   }
   const complete = completeDimensions(values);
   if (!complete)
-    return reading(values, labels.join(" x ") || null, "An axis is missing.");
+    return readingOf(values, labels.join(" x ") || null, "An axis is missing.");
   if (!withinRange(category, complete))
-    return reading(
+    return readingOf(
       EMPTY,
       null,
       `The image dimensions are outside the plausible range for a ${category}.`,
     );
-  return reading(values, labels.join(" x "), null);
+  return readingOf(values, labels.join(" x "), null);
 }
 
 // --- Merging ---------------------------------------------------------------
@@ -375,7 +456,7 @@ export function mergeReadings(
       Math.abs(fromText - fromImage) / Math.max(fromText, fromImage) >
       tolerance
     )
-      return reading(
+      return readingOf(
         text.values,
         text.detail,
         `The diagram disagrees with the page text on ${axis}.`,
@@ -391,5 +472,5 @@ export function mergeReadings(
   }
   if (labels.length === 0) return text;
   const detail = [text.detail, image.detail].filter(Boolean).join(" + ");
-  return reading(values, detail || null, null);
+  return readingOf(values, detail || null, null);
 }
