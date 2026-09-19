@@ -48,6 +48,14 @@ describe("query building", () => {
     expect(query).toContain("$400");
   });
 
+  it("does not repeat a style word the query already says", () => {
+    expect(
+      buildExaQuery(
+        makeTask({ query: "oak wardrobe", styleTerms: ["oak", "minimalist"] }),
+      ),
+    ).toBe("minimalist oak wardrobe under $400");
+  });
+
   it("falls back to the category when there is no query", () => {
     expect(buildExaQuery(makeTask({ query: "" }))).toContain("storage");
   });

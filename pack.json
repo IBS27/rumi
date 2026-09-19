@@ -1,0 +1,367 @@
+{
+ "scenarios": [
+  {
+   "name": "Bedside lamp on a tight budget",
+   "note": "Value tier. Small footprint beside an existing bed, and no drilling means no wall fitting.",
+   "task": {
+    "query": "bedside table lamp",
+    "category": "lighting",
+    "maxPriceCents": 12000,
+    "maxFootprint": {
+     "width": 0.45,
+     "depth": 0.45
+    },
+    "maxHeight": 1.7,
+    "styleTerms": [
+     "minimalist",
+     "warm"
+    ],
+    "palette": [
+     "#c49b60",
+     "#d8cdb9"
+    ],
+    "excludeTags": [
+     "hardwired",
+     "drill"
+    ]
+   },
+   "tier": "value",
+   "query": "minimalist warm bedside table lamp under $120",
+   "domains": [
+    "ikea.com",
+    "target.com",
+    "wayfair.com",
+    "amazon.com",
+    "walmart.com"
+   ],
+   "range": {
+    "width": [
+     0.05,
+     1.2
+    ],
+    "height": [
+     0.1,
+     2.5
+    ],
+    "depth": [
+     0.05,
+     1.2
+    ]
+   }
+  },
+  {
+   "name": "Wool rug for the foot of the bed",
+   "note": "Mid tier. A rug is the one category where the piece should fill most of the space it is given.",
+   "task": {
+    "query": "wool area rug",
+    "category": "rug",
+    "maxPriceCents": 22000,
+    "maxFootprint": {
+     "width": 2.4,
+     "depth": 3
+    },
+    "maxHeight": 0.1,
+    "styleTerms": [
+     "natural",
+     "minimalist"
+    ],
+    "palette": [
+     "#b6b19b",
+     "#d8cdb9"
+    ],
+    "excludeTags": []
+   },
+   "tier": "mid",
+   "query": "natural minimalist wool area rug under $220",
+   "domains": [
+    "article.com",
+    "westelm.com",
+    "cb2.com",
+    "burrow.com",
+    "floydhome.com",
+    "roomandboard.com",
+    "crateandbarrel.com"
+   ],
+   "range": {
+    "width": [
+     0.4,
+     4
+    ],
+    "height": [
+     0.002,
+     0.1
+    ],
+    "depth": [
+     0.6,
+     5
+    ]
+   }
+  },
+  {
+   "name": "Wardrobe for the empty wall",
+   "note": "Luxury tier. The hardest dimension case: wardrobes usually publish a drawing rather than a specification.",
+   "task": {
+    "query": "oak wardrobe",
+    "category": "storage",
+    "maxPriceCents": 90000,
+    "maxFootprint": {
+     "width": 1.8,
+     "depth": 0.6
+    },
+    "maxHeight": 2.2,
+    "styleTerms": [
+     "oak",
+     "minimalist"
+    ],
+    "palette": [
+     "#c19a6b"
+    ],
+    "excludeTags": []
+   },
+   "tier": "luxury",
+   "query": "oak minimalist oak wardrobe under $900",
+   "domains": [
+    "dwr.com",
+    "rh.com",
+    "lumens.com",
+    "hay.dk",
+    "muuto.com",
+    "hermanmiller.com",
+    "knoll.com"
+   ],
+   "range": {
+    "width": [
+     0.3,
+     3
+    ],
+    "height": [
+     0.2,
+     2.6
+    ],
+    "depth": [
+     0.2,
+     0.8
+    ]
+   }
+  },
+  {
+   "name": "Wall art that needs no drilling",
+   "note": "Value tier, with a restriction the search has to respect rather than mention.",
+   "task": {
+    "query": "framed abstract print",
+    "category": "art",
+    "maxPriceCents": 15000,
+    "maxFootprint": {
+     "width": 0.9,
+     "depth": 0.12
+    },
+    "maxHeight": 1.2,
+    "styleTerms": [
+     "abstract",
+     "warm"
+    ],
+    "palette": [
+     "#768574",
+     "#c49b60"
+    ],
+    "excludeTags": [
+     "drill",
+     "mural"
+    ]
+   },
+   "tier": "value",
+   "query": "abstract warm framed abstract print under $150",
+   "domains": [
+    "ikea.com",
+    "target.com",
+    "wayfair.com",
+    "amazon.com",
+    "walmart.com"
+   ],
+   "range": {
+    "width": [
+     0.1,
+     2.5
+    ],
+    "height": [
+     0.1,
+     2.5
+    ],
+    "depth": [
+     0.01,
+     0.15
+    ]
+   }
+  }
+ ],
+ "sample": {
+  "category": "storage",
+  "query": "bedside table",
+  "candidates": [
+   {
+    "product": {
+     "id": "web-82acb162",
+     "variantId": "Black",
+     "name": "The Block",
+     "category": "storage",
+     "merchant": "floydhome.com",
+     "sourceUrl": "https://www.floydhome.com/products/the-block",
+     "imageUrl": "https://cdn.shopify.com/s/files/1/0462/1706/8706/files/The_Block_Glacial_horizontal.png?v=1774538986",
+     "images": [
+      "https://cdn.shopify.com/s/files/1/0462/1706/8706/files/The_Block_Glacial_horizontal.png?v=1774538986",
+      "https://cdn.shopify.com/s/files/1/0462/1706/8706/files/The_Block_Brick_horizontal.png?v=1774538986",
+      "https://cdn.shopify.com/s/files/1/0462/1706/8706/files/The_Block_Marine_horizontal.png?v=1774538986",
+      "https://cdn.shopify.com/s/files/1/0462/1706/8706/files/The_Block_Putty_horizontal.png?v=1774467868",
+      "https://cdn.shopify.com/s/files/1/0462/1706/8706/files/The_Block_Almond_horizontal.png?v=1774467868",
+      "https://cdn.shopify.com/s/files/1/0462/1706/8706/files/The_Block_Black_horizontal.png?v=1774467868",
+      "https://cdn.shopify.com/s/files/1/0462/1706/8706/files/TheBlock_ProductSelector1.jpg?v=1774467868",
+      "https://cdn.shopify.com/s/files/1/0462/1706/8706/files/TheBlock_ProductSelector2.jpg?v=1774467868"
+     ],
+     "priceCents": 36500,
+     "currency": "USD",
+     "measurement": {
+      "dimensions": null,
+      "source": "unknown",
+      "evidence": {
+       "kind": "none",
+       "detail": null
+      }
+     },
+     "color": "#1a1a1a",
+     "tags": [
+      "accessories",
+      "category-bed-ao-eu",
+      "category-storage",
+      "category-tables",
+      "coffee & side tables",
+      "discount %|0",
+      "shelving & storage"
+     ],
+     "availability": "available",
+     "assetId": null,
+     "synthetic": false
+    },
+    "score": 0.399,
+    "breakdown": {
+     "fit": 0,
+     "style": 0,
+     "color": 1,
+     "price": 0.9916666666666667,
+     "completeness": 0.5
+    }
+   },
+   {
+    "product": {
+     "id": "web-560bc292",
+     "variantId": "Black / No Light / No Charger",
+     "name": "The Pop Bedside Table",
+     "category": "storage",
+     "merchant": "floydhome.com",
+     "sourceUrl": "https://www.floydhome.com/products/the-pop-bedside-table",
+     "imageUrl": "https://cdn.shopify.com/s/files/1/0462/1706/8706/files/Pop_BST_Black.png?v=1777066357",
+     "images": [
+      "https://cdn.shopify.com/s/files/1/0462/1706/8706/files/Pop_BST_Black.png?v=1777066357",
+      "https://cdn.shopify.com/s/files/1/0462/1706/8706/files/Pop_BST_Black_-_C.png?v=1777066399",
+      "https://cdn.shopify.com/s/files/1/0462/1706/8706/files/Pop_BST_Black_-_L.png?v=1777066402",
+      "https://cdn.shopify.com/s/files/1/0462/1706/8706/files/Pop_BST_Black_-_C_L.png?v=1777303659",
+      "https://cdn.shopify.com/s/files/1/0462/1706/8706/files/Pop_BST_White.png?v=1777066399",
+      "https://cdn.shopify.com/s/files/1/0462/1706/8706/files/Pop_BST_White_-_C.png?v=1777066399",
+      "https://cdn.shopify.com/s/files/1/0462/1706/8706/files/Pop_BST_White_-_L.png?v=1777066402",
+      "https://cdn.shopify.com/s/files/1/0462/1706/8706/files/Pop_BST_White_-_C_L.png?v=1777066402"
+     ],
+     "priceCents": 24500,
+     "currency": "USD",
+     "measurement": {
+      "dimensions": null,
+      "source": "unknown",
+      "evidence": {
+       "kind": "none",
+       "detail": null
+      }
+     },
+     "color": "#1a1a1a",
+     "tags": [
+      "accessories",
+      "bedroom",
+      "category-bed-ao-eu",
+      "coffee & side tables",
+      "discount %|0",
+      "bed add-ons"
+     ],
+     "availability": "available",
+     "assetId": null,
+     "synthetic": false
+    },
+    "score": 0.364,
+    "breakdown": {
+     "fit": 0,
+     "style": 0,
+     "color": 1,
+     "price": 0.7604166666666666,
+     "completeness": 0.5
+    }
+   },
+   {
+    "product": {
+     "id": "web-34939708",
+     "variantId": "Undermount Shelf - Black",
+     "name": "Serviceability - Pop Bedside Table",
+     "category": "storage",
+     "merchant": "floydhome.com",
+     "sourceUrl": "https://www.floydhome.com/products/serviceability-pop-bedside-table",
+     "imageUrl": null,
+     "images": [],
+     "priceCents": 2000,
+     "currency": "USD",
+     "measurement": {
+      "dimensions": null,
+      "source": "unknown",
+      "evidence": {
+       "kind": "none",
+       "detail": null
+      }
+     },
+     "color": "#1a1a1a",
+     "tags": [
+      "not searchable",
+      "serviceability"
+     ],
+     "availability": "available",
+     "assetId": null,
+     "synthetic": false
+    },
+    "score": 0.243,
+    "breakdown": {
+     "fit": 0,
+     "style": 0,
+     "color": 1,
+     "price": 0.08333333333333333,
+     "completeness": 0.3
+    }
+   }
+  ],
+  "explanation": "Searched 5 storage listing(s) in the mid tier and kept 3, 0 of which have dimensions. Sizes are read from merchant pages and are estimates until confirmed.",
+  "failures": [
+   {
+    "stage": "dimensions",
+    "detail": "The page dimensions are outside the plausible range for a storage."
+   },
+   {
+    "stage": "dimensions",
+    "detail": "No measurements were printed in the page text."
+   },
+   {
+    "stage": "dimensions",
+    "detail": "The page states no dimensions and has no image to read."
+   },
+   {
+    "stage": "filter",
+    "detail": "Dropped 1 product(s) over the $600 price ceiling."
+   },
+   {
+    "stage": "dimensions",
+    "detail": "No image printed measurements."
+   }
+  ]
+ }
+}

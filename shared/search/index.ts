@@ -125,7 +125,13 @@ export async function exaContents(
 // Retrieval reads better from a short noun phrase than from a sentence of constraints.
 // Footprint and price are enforced in code, so only the price hint is worth a word.
 export function buildExaQuery(task: SearchTask): string {
-  const parts = [...task.styleTerms, task.query || task.category];
+  const base = (task.query || task.category).trim();
+  const lower = base.toLowerCase();
+  // A style word the query already says would only be repeated back at the index.
+  const parts = [
+    ...task.styleTerms.filter((term) => !lower.includes(term.toLowerCase())),
+    base,
+  ];
   if (task.maxPriceCents > 0)
     parts.push(`under ${formatMoney(task.maxPriceCents)}`);
   return parts.filter(Boolean).join(" ");
