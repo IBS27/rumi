@@ -13,7 +13,11 @@ export const upsertProducts = internalMutation({
         .query("products")
         .withIndex("by_catalog_id", (q) => q.eq("id", product.id))
         .unique();
-      if (existing) continue;
+      // Prices and stock move, so a second sighting replaces the stored record.
+      if (existing) {
+        await ctx.db.replace(existing._id, product);
+        continue;
+      }
       await ctx.db.insert("products", product);
       inserted.push(product.id);
     }
