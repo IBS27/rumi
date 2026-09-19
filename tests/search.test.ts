@@ -67,7 +67,10 @@ describe("query building", () => {
     expect(searchDomains(makeTask({ maxPriceCents: 5000 }))).toContain(
       "ikea.com",
     );
-    expect(searchDomains(makeTask({ maxPriceCents: 200000 }))).toContain(
+    expect(searchDomains(makeTask({ maxPriceCents: 90000 }))).toContain(
+      "westelm.com",
+    );
+    expect(searchDomains(makeTask({ maxPriceCents: 400000 }))).toContain(
       "dwr.com",
     );
   });
@@ -309,23 +312,29 @@ describe("search hits", () => {
   });
 
   it("tells a listing from a category page", () => {
-    expect(looksLikeListing("https://www.dwr.com/in-stock-bed-bath?lang=en_US")).toBe(
-      false,
-    );
+    expect(
+      looksLikeListing("https://www.dwr.com/in-stock-bed-bath?lang=en_US"),
+    ).toBe(false);
     expect(looksLikeListing("https://shop.test/collections/beds")).toBe(false);
     expect(
       looksLikeListing("https://shop.test/collections/beds/products/oak-bed"),
     ).toBe(true);
-    expect(looksLikeListing("https://www.ikea.com/us/en/p/tonstad-80489322/")).toBe(
-      true,
-    );
+    expect(
+      looksLikeListing("https://www.ikea.com/us/en/p/tonstad-80489322/"),
+    ).toBe(true);
     expect(looksLikeListing("https://www.amazon.com/dp/B08Z8GHPFV")).toBe(true);
   });
 
   it("folds the same listing under two locales into one hit", () => {
     const hits = dedupeHits([
-      { url: "https://www.dwr.com/line-wardrobe/2572723.html?lang=en_US", title: "a" },
-      { url: "https://www.dwr.com/line-wardrobe/2572723.html?lang=en_CA", title: "b" },
+      {
+        url: "https://www.dwr.com/line-wardrobe/2572723.html?lang=en_US",
+        title: "a",
+      },
+      {
+        url: "https://www.dwr.com/line-wardrobe/2572723.html?lang=en_CA",
+        title: "b",
+      },
       { url: "https://www.dwr.com/in-stock-bed-bath?lang=en_US", title: "c" },
     ]);
     expect(hits).toHaveLength(1);

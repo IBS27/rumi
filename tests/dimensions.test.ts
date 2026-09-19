@@ -322,3 +322,29 @@ describe("printed fractions and page furniture", () => {
     expect(reading.issue).toContain("order");
   });
 });
+
+describe("round pieces and long pieces", () => {
+  it("reads a diameter as width and depth at once", () => {
+    const reading = parseDimensionText('Diameter: 6" Height: 10"', "lighting");
+    near(reading.values.width, 0.152);
+    near(reading.values.depth, 0.152);
+    near(reading.values.height, 0.254);
+  });
+
+  it("reads length as depth for a rug", () => {
+    const reading = parseDimensionText(
+      'Width: 30" Length: 96" Pile height: 1/2"',
+      "rug",
+    );
+    near(reading.values.width, 0.762);
+    near(reading.values.depth, 2.438);
+  });
+
+  it("leaves length alone for a piece where it is ambiguous", () => {
+    const reading = parseDimensionText(
+      'Length: 47" Height: 30" Depth: 20"',
+      "storage",
+    );
+    expect(reading.values.width).toBeNull();
+  });
+});

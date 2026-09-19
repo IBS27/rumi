@@ -191,13 +191,13 @@ describe("diagram image shortlist", () => {
 describe("retailer tiers", () => {
   it("chooses a tier from the price ceiling", () => {
     expect(tierFor(5000)).toBe("value");
-    expect(tierFor(30000)).toBe("mid");
-    expect(tierFor(150000)).toBe("luxury");
+    expect(tierFor(90000)).toBe("mid");
+    expect(tierFor(400000)).toBe("luxury");
   });
 
   it("returns bare hostnames for the tier", () => {
     const value = domainsFor(5000);
-    const luxury = domainsFor(150000);
+    const luxury = domainsFor(400000);
     expect(value.some((domain) => domain.includes("ikea"))).toBe(true);
     expect(luxury).not.toEqual(value);
     for (const domain of [...value, ...luxury])
@@ -262,6 +262,20 @@ describe("telling a product gallery from page furniture", () => {
       "low",
       "oak",
       "cabinet",
+    ]);
+  });
+});
+
+describe("thumbnails", () => {
+  it("never shortlists an image too small to read", () => {
+    const shortlist = shortlistDiagramImages([
+      { url: "https://x.test/a?wid=100&hei=100&fmt=pjpeg", alt: null },
+      { url: "https://x.test/b_150x.jpg", alt: null },
+      { url: "https://x.test/c.jpg?w=320&fit=max", alt: null },
+      { url: "https://x.test/d.jpg?fit=max&w=1200", alt: null },
+    ]);
+    expect(shortlist.map((image) => image.url)).toEqual([
+      "https://x.test/d.jpg?fit=max&w=1200",
     ]);
   });
 });

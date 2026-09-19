@@ -323,8 +323,45 @@ describe("a listing the model could not name", () => {
         imageUrl: null,
       }),
     });
-    const result = await runSearch(makeTask(), context.deps, { minTierHits: 1 });
+    const result = await runSearch(makeTask(), context.deps, {
+      minTierHits: 1,
+    });
     expect(result.candidates).toHaveLength(1);
     expect(result.candidates[0].product.name).toBe("Low oak cabinet");
+  });
+});
+
+describe("a tier whose every hit fails the ceiling", () => {
+  it("searches the open web before coming back empty", async () => {
+    const pricey = specPage("https://dwr.test/products/line-wardrobe");
+    const affordable = specPage("https://open.test/products/oak-wardrobe");
+    const pages = pagesFrom([pricey, affordable]);
+    const context = deps(pages, {
+      search: async (_query, _count, includeDomains) =>
+        includeDomains.length > 0
+          ? [{ url: pricey.url, title: null }]
+          : [{ url: affordable.url, title: null }],
+      extractListing: async (page) => ({
+        name: page.title,
+        variant: "Natural Oak",
+        priceCents: page.url.includes("dwr") ? 679500 : 24900,
+        availability: "available",
+        tags: [],
+        imageUrl: null,
+      }),
+    });
+    const result = await runSearch(
+      makeTask({ maxPriceCents: 40000 }),
+      context.deps,
+      {
+        minTierHits: 1,
+      },
+    );
+    expect(result.candidates.map((c) => c.product.sourceUrl)).toEqual([
+      affordable.url,
+    ]);
+    expect(
+      result.failures.some((f) => f.detail.includes("passed the filters")),
+    ).toBe(true);
   });
 });

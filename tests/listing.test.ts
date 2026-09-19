@@ -118,8 +118,12 @@ describe("merchant facts", () => {
 
 describe("a name from the page title", () => {
   it("keeps the product and drops the shop", () => {
-    expect(nameFromTitle("Line Wardrobe – Design Within Reach")).toBe("Line Wardrobe");
-    expect(nameFromTitle("TÄRNABY Table lamp - IKEA")).toBe("TÄRNABY Table lamp");
+    expect(nameFromTitle("Line Wardrobe – Design Within Reach")).toBe(
+      "Line Wardrobe",
+    );
+    expect(nameFromTitle("TÄRNABY Table lamp - IKEA")).toBe(
+      "TÄRNABY Table lamp",
+    );
     expect(nameFromTitle("Oak bed | Muji")).toBe("Oak bed");
   });
 

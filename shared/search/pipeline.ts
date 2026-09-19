@@ -9,7 +9,7 @@ import { resolveDimensions, type DiagramReader } from "./cascade";
 import { relevantImages, type ImageRef } from "./images";
 import { parseProductJsonLd } from "./jsonld";
 import { factsFromJsonLd, factsFromShopify, nameFromTitle } from "./listing";
-import type { PageContent } from "./page";
+import { htmlToText, type PageContent } from "./page";
 import { rankCandidates } from "./rank";
 import { isShopify, mapShopifyProduct, productJsonUrl } from "./shopify";
 import { tierFor } from "./retailers";
@@ -111,7 +111,11 @@ async function gatherPages(
       url,
       title: live?.title || markup?.title || null,
       html: markup?.html ?? live?.html ?? null,
-      text: [live?.text, markup?.text].filter(Boolean).join("\n"),
+      // Rendered text may carry tags; block ends become line breaks so a packaging
+      // note on one line cannot take a specification on the next down with it.
+      text: [live ? htmlToText(live.text) : null, markup?.text]
+        .filter(Boolean)
+        .join("\n"),
       images: [
         ...(live?.images ?? []),
         ...(markup ? relevantImages(markup.images, url) : []),
@@ -161,7 +165,9 @@ export async function runSearch(
   const domains = searchDomains(task);
 
   let hits = await deps.search(query, settings.results, domains);
+  let searchedOpenWeb = false;
   if (hits.length < settings.minTierHits) {
+    searchedOpenWeb = true;
     failures.push({
       stage: "search",
       detail: `Only ${hits.length} result(s) inside the ${tierFor(task.maxPriceCents)} tier, so the open web was searched as well.`,
@@ -178,84 +184,106 @@ export async function runSearch(
       `No ${task.category} listings matched this search.`,
     );
 
-  const pages = await gatherPages(
-    hits.slice(0, settings.results).map((hit) => hit.url),
-    deps,
-    failures,
-  );
-
   const candidates: ProductCandidate[] = [];
   const contexts = new Map<string, PageFacts>();
   let extractions = 0;
-  for (const page of pages) {
-    const merchant = await merchantLayer(page, task, deps);
-    const jsonLd = page.html ? parseProductJsonLd(page.html) : null;
-    const structured = factsFromJsonLd(jsonLd);
-    const layers: Partial<ListingFacts>[] = [merchant.facts, structured];
-    const missing =
-      !(merchant.facts.name ?? structured.name) ||
-      (merchant.facts.priceCents ?? structured.priceCents) === null ||
-      (merchant.facts.priceCents ?? structured.priceCents) === undefined;
-    if (missing && extractions < settings.maxExtractions) {
-      extractions++;
-      try {
-        layers.push(await deps.extractListing(page, task));
-      } catch (error) {
+  const seenUrls = new Set<string>();
+
+  const collect = async (batch: ExaSearchHit[]) => {
+    const urls = batch
+      .map((hit) => hit.url)
+      .filter((url) => !seenUrls.has(url))
+      .slice(0, settings.results);
+    for (const url of urls) seenUrls.add(url);
+    const pages = await gatherPages(urls, deps, failures);
+    for (const page of pages) {
+      const merchant = await merchantLayer(page, task, deps);
+      const jsonLd = page.html ? parseProductJsonLd(page.html) : null;
+      const structured = factsFromJsonLd(jsonLd);
+      const layers: Partial<ListingFacts>[] = [merchant.facts, structured];
+      const missing =
+        !(merchant.facts.name ?? structured.name) ||
+        (merchant.facts.priceCents ?? structured.priceCents) === null ||
+        (merchant.facts.priceCents ?? structured.priceCents) === undefined;
+      if (missing && extractions < settings.maxExtractions) {
+        extractions++;
+        try {
+          layers.push(await deps.extractListing(page, task));
+        } catch (error) {
+          failures.push({
+            stage: "extract",
+            detail: `Could not read ${page.url}: ${message(error)}.`,
+          });
+        }
+      }
+      const pageText = [merchant.bodyText, page.text]
+        .filter(Boolean)
+        .join("\n");
+      const images = [
+        ...merchant.images,
+        ...(jsonLd?.images ?? []).map((url) => ({ url, alt: null })),
+        ...page.images,
+      ];
+      // The gallery is added last: merchant and structured images already lead it. The
+      // page title is the last word on the name, after everything else was silent.
+      const facts = pickFacts([
+        ...layers,
+        { images: images.map((image) => image.url) },
+        { name: nameFromTitle(page.title) },
+      ]);
+      // Cheap stages only. A drawing is read later, and only if the ranking calls for it.
+      const resolved = await resolveDimensions({
+        category: task.category,
+        structuredText: jsonLd?.dimensionText ?? null,
+        pageText,
+        images,
+      });
+      // Why a size could not be read is worth telling the caller even for a candidate
+      // that never reaches the drawing stage.
+      failures.push(...resolved.failures);
+      const { product, issue } = buildCandidate({
+        sourceUrl: page.url,
+        category: task.category,
+        facts,
+        measurement: resolved.measurement,
+      });
+      if (!product) {
         failures.push({
           stage: "extract",
-          detail: `Could not read ${page.url}: ${message(error)}.`,
+          detail: `Skipped ${page.url}: ${issue ?? "incomplete listing"}.`,
         });
+        continue;
       }
-    }
-    // The gallery is added last: merchant and structured images already lead it.
-    const pageText = [merchant.bodyText, page.text].filter(Boolean).join("\n");
-    const images = [
-      ...merchant.images,
-      ...(jsonLd?.images ?? []).map((url) => ({ url, alt: null })),
-      ...page.images,
-    ];
-    // The gallery is added last: merchant and structured images already lead it. The
-    // page title is the last word on the name, after everything else was silent.
-    const facts = pickFacts([
-      ...layers,
-      { images: images.map((image) => image.url) },
-      { name: nameFromTitle(page.title) },
-    ]);
-    // Cheap stages only. A drawing is read later, and only if the ranking calls for it.
-    const resolved = await resolveDimensions({
-      category: task.category,
-      structuredText: jsonLd?.dimensionText ?? null,
-      pageText,
-      images,
-    });
-    // Why a size could not be read is worth telling the caller even for a candidate
-    // that never reaches the drawing stage.
-    failures.push(...resolved.failures);
-    const { product, issue } = buildCandidate({
-      sourceUrl: page.url,
-      category: task.category,
-      facts,
-      measurement: resolved.measurement,
-    });
-    if (!product) {
-      failures.push({
-        stage: "extract",
-        detail: `Skipped ${page.url}: ${issue ?? "incomplete listing"}.`,
+      candidates.push(product);
+      contexts.set(product.id, {
+        productId: product.id,
+        pageText,
+        structuredText: jsonLd?.dimensionText ?? null,
+        images,
       });
-      continue;
     }
-    candidates.push(product);
-    contexts.set(product.id, {
-      productId: product.id,
-      pageText,
-      structuredText: jsonLd?.dimensionText ?? null,
-      images,
-    });
-  }
+  };
 
-  const unique = dedupeProducts(candidates);
-  const { kept, failures: filterFailures } = filterCandidates(unique, task);
+  await collect(hits);
+  let { kept, failures: filterFailures } = filterCandidates(
+    dedupeProducts(candidates),
+    task,
+  );
+  // A tier can answer with pages that all fail the ceiling — a $900 wardrobe asked of
+  // shops whose cheapest is $6,000. That is not a reason to come back empty.
+  if (kept.length === 0 && domains.length > 0 && !searchedOpenWeb) {
+    failures.push({
+      stage: "search",
+      detail: `Nothing inside the ${tierFor(task.maxPriceCents)} tier passed the filters, so the open web was searched as well.`,
+    });
+    await collect(dedupeHits(await deps.search(query, settings.results, [])));
+    ({ kept, failures: filterFailures } = filterCandidates(
+      dedupeProducts(candidates),
+      task,
+    ));
+  }
   failures.push(...filterFailures);
+
   const ranked = rankCandidates(kept, task);
 
   const { kept: sized, failures: sizingFailures } = await resolveToFit({

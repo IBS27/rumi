@@ -120,7 +120,9 @@ export async function readDiagram(
       })),
     )
   ).filter(
-    (entry): entry is { image: ImageRef; file: NonNullable<typeof entry.file> } =>
+    (
+      entry,
+    ): entry is { image: ImageRef; file: NonNullable<typeof entry.file> } =>
       entry.file !== null,
   );
   if (loaded.length === 0) return { readings: [], imageUrl: null };

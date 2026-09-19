@@ -100,14 +100,33 @@ const UNIT_WORDS: Record<string, Unit> = {
   m: "m",
 };
 
-const AXIS_WORDS: Record<string, Axis> = {
+const AXIS_WORDS: Record<string, Axis | "diameter" | "length"> = {
   w: "width",
   width: "width",
   d: "depth",
   depth: "depth",
   h: "height",
   height: "height",
+  // A round piece states its diameter, which is its width and its depth at once.
+  dia: "diameter",
+  diam: "diameter",
+  diameter: "diameter",
+  ø: "diameter",
+  // Rugs and beds state width by length; elsewhere "length" is too ambiguous to use.
+  l: "length",
+  length: "length",
 };
+
+const LENGTH_IS_DEPTH: Category[] = ["rug", "bed"];
+
+function axesFor(word: string, category: Category): Axis[] {
+  const mapped = AXIS_WORDS[word.toLowerCase()];
+  if (!mapped) return [];
+  if (mapped === "diameter") return ["width", "depth"];
+  if (mapped === "length")
+    return LENGTH_IS_DEPTH.includes(category) ? ["depth"] : [];
+  return [mapped];
+}
 
 const UNIT_PATTERN =
   `(?:inches|inch|in\\.|in|feet|foot|ft\\.|ft|cm|mm|m|''|"|')` as const;
@@ -158,44 +177,43 @@ interface TextMatch {
   label: string;
 }
 
-function collectLabelled(line: string): TextMatch[] {
+const AXIS_PATTERN =
+  "(?:width|depth|height|diameter|diam|dia|length|W|D|H|L|ø)";
+
+function collectLabelled(line: string, category: Category): TextMatch[] {
   const found: TextMatch[] = [];
   // 63"W  |  63 in W  |  160 cm Width
   const suffix = new RegExp(
-    String.raw`(${NUMBER})[ \t]*(${UNIT_PATTERN})?[ \t]*\(?(width|depth|height|W|D|H)\)?(?![a-z])`,
+    String.raw`(${NUMBER})[ \t]*(${UNIT_PATTERN})?[ \t]*\(?(${AXIS_PATTERN})\)?(?![a-z])`,
     "g",
   );
-  for (const match of line.matchAll(suffix)) {
-    const axis = AXIS_WORDS[match[3].toLowerCase()];
-    if (axis)
+  for (const match of line.matchAll(suffix))
+    for (const axis of axesFor(match[3], category))
       found.push({
         axis,
         value: Number(match[1]),
         unit: toUnit(match[2]),
         label: match[0].trim(),
       });
-  }
-  // Width: 160 cm  |  W = 63 in
+  // Width: 160 cm  |  W = 63 in  |  Diameter: 6"
   const prefix = new RegExp(
-    String.raw`\b(width|depth|height|W|D|H)\b[ \t]*[:=]?[ \t]*(${NUMBER})[ \t]*(${UNIT_PATTERN})?`,
+    String.raw`(?:^|[^a-z])(${AXIS_PATTERN})\b[ \t]*[:=]?[ \t]*(${NUMBER})[ \t]*(${UNIT_PATTERN})?`,
     "gi",
   );
-  for (const match of line.matchAll(prefix)) {
-    const axis = AXIS_WORDS[match[1].toLowerCase()];
-    if (axis)
+  for (const match of line.matchAll(prefix))
+    for (const axis of axesFor(match[1], category))
       found.push({
         axis,
         value: Number(match[2]),
         unit: toUnit(match[3]),
         label: match[0].trim(),
       });
-  }
   return found;
 }
 
 // "W x D x H: 160 x 48 x 180 cm". A positional triple is only usable when the page
 // states its own axis order.
-function collectPositional(line: string): TextMatch[] {
+function collectPositional(line: string, category: Category): TextMatch[] {
   const order = line.match(
     /(?:^|[^a-z])(w|d|h|l)[ \t]*[x×][ \t]*(w|d|h|l)[ \t]*[x×][ \t]*(w|d|h|l)(?![a-z])/i,
   );
@@ -208,16 +226,14 @@ function collectPositional(line: string): TextMatch[] {
   if (!order) return [{ axis: "width", value: NaN, unit: null, label: "" }];
   const unit = toUnit(triple[4]);
   const found: TextMatch[] = [];
-  for (let index = 0; index < 3; index++) {
-    const axis = AXIS_WORDS[order[index + 1].toLowerCase()];
-    if (!axis) continue;
-    found.push({
-      axis,
-      value: Number(triple[index + 1]),
-      unit,
-      label: `${triple[index + 1]}${unit ? ` ${unit}` : ""}`,
-    });
-  }
+  for (let index = 0; index < 3; index++)
+    for (const axis of axesFor(order[index + 1], category))
+      found.push({
+        axis,
+        value: Number(triple[index + 1]),
+        unit,
+        label: `${triple[index + 1]}${unit ? ` ${unit}` : ""}`,
+      });
   return found;
 }
 
@@ -244,12 +260,12 @@ export function parseDimensionText(text: string, category: Category): Reading {
   const perLine: TextMatch[][] = [];
   let sawUnorderedTriple = false;
   for (const line of lines) {
-    const labelled = collectLabelled(line);
+    const labelled = collectLabelled(line, category);
     if (labelled.length > 0) {
       perLine.push(labelled);
       continue;
     }
-    const positional = collectPositional(line);
+    const positional = collectPositional(line, category);
     if (positional.length === 1 && Number.isNaN(positional[0].value)) {
       sawUnorderedTriple = true;
       continue;

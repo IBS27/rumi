@@ -124,8 +124,10 @@ export async function exaContents(
 
 // Search engines hand back the same listing under tracking and locale parameters, and
 // category pages beside the products they list. Both cost a page read and a model call.
-const TRACKING_PARAM = /^(utm_|ref$|ref_|lang$|locale$|cid$|gclid$|fbclid$|mc_|srsltid$|_pos$|_sid$|_ss$)/i;
-const PRODUCT_PATH = /\/(products?|p|pdp|dp|item|items|prod)\/|\d{4,}|\.html?$/i;
+const TRACKING_PARAM =
+  /^(utm_|ref$|ref_|lang$|locale$|cid$|gclid$|fbclid$|mc_|srsltid$|_pos$|_sid$|_ss$)/i;
+const PRODUCT_PATH =
+  /\/(products?|p|pdp|dp|item|items|prod)\/|\d{4,}|\.html?$/i;
 const CATEGORY_SEGMENT =
   /^(collections?|categor(?:y|ies)|search|shop-all|in-stock.*|new-arrivals|browse|all-.+|c)$/i;
 

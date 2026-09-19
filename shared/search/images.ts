@@ -30,11 +30,27 @@ export function diagramScore(
   return score;
 }
 
+// Printed measurements are small type; under about 400 pixels they cannot be read.
+const SMALL = String.raw`(?:\d{1,2}|[123]\d{2})`;
+const THUMBNAIL = new RegExp(
+  [
+    String.raw`[?&](?:wid|hei|w|h|width|height)=${SMALL}(?:&|$)`,
+    String.raw`_${SMALL}x(?:\d{1,3})?\.`,
+    String.raw`\/${SMALL}x${SMALL}\/`,
+  ].join("|"),
+  "i",
+);
+
+export function isThumbnail(image: ImageRef): boolean {
+  return THUMBNAIL.test(image.url);
+}
+
 export function shortlistDiagramImages(
   images: ImageRef[],
   limit = SHORTLIST,
 ): ImageRef[] {
   return images
+    .filter((image) => !isThumbnail(image))
     .map((image, index) => ({
       image,
       index,

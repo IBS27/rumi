@@ -25,7 +25,8 @@ export const TIERS: TierDefinition[] = [
   },
   {
     tier: "mid",
-    ceilingCents: 80000,
+    // The luxury shops' cheapest case goods start in the thousands.
+    ceilingCents: 250000,
     domains: [
       "article.com",
       "westelm.com",
