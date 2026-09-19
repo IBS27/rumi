@@ -1,0 +1,629 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 54;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0C2940517D13B46162618C7B /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B871B44101049FF1C28895FC /* Foundation.framework */; };
+		101D67B8DE4D1643A7160B8F /* ScanLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 736200C3EBB5E1646904ADF4 /* ScanLifecycleTests.swift */; };
+		105B1E384C02DDACBF3691C3 /* RoomFileStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 726771A3FB147098EB6DA8FC /* RoomFileStore.swift */; };
+		1C397A31323F26A341145900 /* RoomScanViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3166799A7E0C12F32082B29A /* RoomScanViewController.swift */; };
+		2A412EAFA0629C598A901EA8 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B871B44101049FF1C28895FC /* Foundation.framework */; };
+		2DD4F66637705C8BD96B680A /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B871B44101049FF1C28895FC /* Foundation.framework */; };
+		3409A75C0D223F919DA76D3A /* ScanModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6216FEEDC53F5AEBB8823A3 /* ScanModel.swift */; };
+		4BBB2EE7B81559277544FFBA /* RumiCaptureApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93402C270E1DB26AAFE9AAB0 /* RumiCaptureApp.swift */; };
+		8D896EC7A3868C6787C9B4A8 /* CaptureScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3DAF8D5A242D88349EB8D8C5 /* CaptureScreen.swift */; };
+		959F7D2228B37E3C3FF8C077 /* ScanLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CF3A37C969BA7CFA7CA0CFE /* ScanLifecycle.swift */; };
+		CE51A008633F108E1FF7226A /* RumiCaptureUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0791B1A66C2F42372CC296BA /* RumiCaptureUITests.swift */; };
+		DAC95BF1586CBD54EF0F8FBE /* RoomFileStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59C817B0712D20EF32D9110B /* RoomFileStoreTests.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		528C18472DE080EC0A70067C /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A476858A75DD444E0362B9F5 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = DD0A8D32CC129C73813B7868;
+			remoteInfo = RumiCapture;
+		};
+		EF14C8489C88AA9678982267 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A476858A75DD444E0362B9F5 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = DD0A8D32CC129C73813B7868;
+			remoteInfo = RumiCapture;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		0791B1A66C2F42372CC296BA /* RumiCaptureUITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RumiCaptureUITests.swift; sourceTree = "<group>"; };
+		1CF3A37C969BA7CFA7CA0CFE /* ScanLifecycle.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ScanLifecycle.swift; sourceTree = "<group>"; };
+		3166799A7E0C12F32082B29A /* RoomScanViewController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RoomScanViewController.swift; sourceTree = "<group>"; };
+		3DAF8D5A242D88349EB8D8C5 /* CaptureScreen.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CaptureScreen.swift; sourceTree = "<group>"; };
+		3FFABD7421C7443E26E6C779 /* RumiCaptureTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RumiCaptureTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		59C817B0712D20EF32D9110B /* RoomFileStoreTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RoomFileStoreTests.swift; sourceTree = "<group>"; };
+		726771A3FB147098EB6DA8FC /* RoomFileStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RoomFileStore.swift; sourceTree = "<group>"; };
+		736200C3EBB5E1646904ADF4 /* ScanLifecycleTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ScanLifecycleTests.swift; sourceTree = "<group>"; };
+		82D718478EFAA4E39279ABE1 /* RumiCapture.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = RumiCapture.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		93402C270E1DB26AAFE9AAB0 /* RumiCaptureApp.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RumiCaptureApp.swift; sourceTree = "<group>"; };
+		A6216FEEDC53F5AEBB8823A3 /* ScanModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ScanModel.swift; sourceTree = "<group>"; };
+		B871B44101049FF1C28895FC /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
+		E813561E80DE5510188F4557 /* RumiCaptureUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RumiCaptureUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		0DB7E108FA74E0BD7BC37590 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2DD4F66637705C8BD96B680A /* Foundation.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E796A9B5A536DD3DBE138532 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0C2940517D13B46162618C7B /* Foundation.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F439B780F0FDA4E614D10A7A /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2A412EAFA0629C598A901EA8 /* Foundation.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		1DF8D3C40A33B391F7CC9FEB /* RumiCaptureTests */ = {
+			isa = PBXGroup;
+			children = (
+				59C817B0712D20EF32D9110B /* RoomFileStoreTests.swift */,
+				736200C3EBB5E1646904ADF4 /* ScanLifecycleTests.swift */,
+			);
+			path = RumiCaptureTests;
+			sourceTree = "<group>";
+		};
+		2D9C08F0D53C4AD5EEB6B400 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				82D718478EFAA4E39279ABE1 /* RumiCapture.app */,
+				3FFABD7421C7443E26E6C779 /* RumiCaptureTests.xctest */,
+				E813561E80DE5510188F4557 /* RumiCaptureUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		36AFFAEFCFE4DCB135950C98 /* RumiCaptureUITests */ = {
+			isa = PBXGroup;
+			children = (
+				0791B1A66C2F42372CC296BA /* RumiCaptureUITests.swift */,
+			);
+			path = RumiCaptureUITests;
+			sourceTree = "<group>";
+		};
+		400306C4FA6CADD9F5DAD40E /* iOS */ = {
+			isa = PBXGroup;
+			children = (
+				B871B44101049FF1C28895FC /* Foundation.framework */,
+			);
+			name = iOS;
+			sourceTree = "<group>";
+		};
+		42682FDEB403D221A0D2752E /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				400306C4FA6CADD9F5DAD40E /* iOS */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		774A0CE75AA55ADB30AD1912 = {
+			isa = PBXGroup;
+			children = (
+				2D9C08F0D53C4AD5EEB6B400 /* Products */,
+				42682FDEB403D221A0D2752E /* Frameworks */,
+				EE407DE78784E6B743C12270 /* RumiCapture */,
+				1DF8D3C40A33B391F7CC9FEB /* RumiCaptureTests */,
+				36AFFAEFCFE4DCB135950C98 /* RumiCaptureUITests */,
+			);
+			sourceTree = "<group>";
+		};
+		EE407DE78784E6B743C12270 /* RumiCapture */ = {
+			isa = PBXGroup;
+			children = (
+				3DAF8D5A242D88349EB8D8C5 /* CaptureScreen.swift */,
+				726771A3FB147098EB6DA8FC /* RoomFileStore.swift */,
+				3166799A7E0C12F32082B29A /* RoomScanViewController.swift */,
+				93402C270E1DB26AAFE9AAB0 /* RumiCaptureApp.swift */,
+				1CF3A37C969BA7CFA7CA0CFE /* ScanLifecycle.swift */,
+				A6216FEEDC53F5AEBB8823A3 /* ScanModel.swift */,
+			);
+			path = RumiCapture;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		299AA5A674EFB81B844AF58E /* RumiCaptureTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = DE05D853BCA6CCB69275831C /* Build configuration list for PBXNativeTarget "RumiCaptureTests" */;
+			buildPhases = (
+				7FC2D866FD160426FCFA3465 /* Sources */,
+				E796A9B5A536DD3DBE138532 /* Frameworks */,
+				0B904A92A93DBBEA466E1719 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				DE464A6B30C57F007D8D7588 /* PBXTargetDependency */,
+			);
+			name = RumiCaptureTests;
+			productName = RumiCaptureTests;
+			productReference = 3FFABD7421C7443E26E6C779 /* RumiCaptureTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		DD0A8D32CC129C73813B7868 /* RumiCapture */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 86BDBF1530B7764975377E2D /* Build configuration list for PBXNativeTarget "RumiCapture" */;
+			buildPhases = (
+				886DD078F3A1DB945972D1E8 /* Sources */,
+				0DB7E108FA74E0BD7BC37590 /* Frameworks */,
+				643957F764467A8EAF959456 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = RumiCapture;
+			productName = RumiCapture;
+			productReference = 82D718478EFAA4E39279ABE1 /* RumiCapture.app */;
+			productType = "com.apple.product-type.application";
+		};
+		EA146C28F795BD8997DE1C86 /* RumiCaptureUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A43ADD6732B4151B07A29632 /* Build configuration list for PBXNativeTarget "RumiCaptureUITests" */;
+			buildPhases = (
+				33A2364A35BB360EEA04A678 /* Sources */,
+				F439B780F0FDA4E614D10A7A /* Frameworks */,
+				24233EB859090FF8454016E2 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				F8BFE0183878A4449395D49E /* PBXTargetDependency */,
+			);
+			name = RumiCaptureUITests;
+			productName = RumiCaptureUITests;
+			productReference = E813561E80DE5510188F4557 /* RumiCaptureUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A476858A75DD444E0362B9F5 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastSwiftUpdateCheck = 1600;
+				LastUpgradeCheck = 2660;
+			};
+			buildConfigurationList = 5304F2603630F0101E478F36 /* Build configuration list for PBXProject "RumiCapture" */;
+			compatibilityVersion = "Xcode 3.2";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 774A0CE75AA55ADB30AD1912;
+			productRefGroup = 2D9C08F0D53C4AD5EEB6B400 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				DD0A8D32CC129C73813B7868 /* RumiCapture */,
+				299AA5A674EFB81B844AF58E /* RumiCaptureTests */,
+				EA146C28F795BD8997DE1C86 /* RumiCaptureUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		0B904A92A93DBBEA466E1719 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		24233EB859090FF8454016E2 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		643957F764467A8EAF959456 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		33A2364A35BB360EEA04A678 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CE51A008633F108E1FF7226A /* RumiCaptureUITests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		7FC2D866FD160426FCFA3465 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DAC95BF1586CBD54EF0F8FBE /* RoomFileStoreTests.swift in Sources */,
+				101D67B8DE4D1643A7160B8F /* ScanLifecycleTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		886DD078F3A1DB945972D1E8 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8D896EC7A3868C6787C9B4A8 /* CaptureScreen.swift in Sources */,
+				105B1E384C02DDACBF3691C3 /* RoomFileStore.swift in Sources */,
+				1C397A31323F26A341145900 /* RoomScanViewController.swift in Sources */,
+				4BBB2EE7B81559277544FFBA /* RumiCaptureApp.swift in Sources */,
+				959F7D2228B37E3C3FF8C077 /* ScanLifecycle.swift in Sources */,
+				3409A75C0D223F919DA76D3A /* ScanModel.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		DE464A6B30C57F007D8D7588 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = RumiCapture;
+			target = DD0A8D32CC129C73813B7868 /* RumiCapture */;
+			targetProxy = EF14C8489C88AA9678982267 /* PBXContainerItemProxy */;
+		};
+		F8BFE0183878A4449395D49E /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = RumiCapture;
+			target = DD0A8D32CC129C73813B7868 /* RumiCapture */;
+			targetProxy = 528C18472DE080EC0A70067C /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		38768D6F2C13C8FCC7C28D18 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 3SN533K2V4;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "Rumi Capture";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.lifestyle";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Rumi uses your camera and LiDAR to scan a room and save its geometry on this iPhone.";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.rumi.RumiCapture;
+				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		445694EF68CF76ED353651B6 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.rumi.RumiCaptureUITests;
+				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_TARGET_NAME = RumiCapture;
+			};
+			name = Debug;
+		};
+		515BEAF36E0FE48ECF1D648B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		7E108EB4A1568D213B9C1BAB /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.rumi.RumiCaptureTests;
+				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/RumiCapture.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/RumiCapture";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		CB6DAF5BB0270F292545653B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.rumi.RumiCaptureUITests;
+				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_TARGET_NAME = RumiCapture;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		F510A331026896F70D4CE423 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		F53AA0152FCEC74D194857D3 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.rumi.RumiCaptureTests;
+				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/RumiCapture.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/RumiCapture";
+			};
+			name = Debug;
+		};
+		FF51ED30E8306577A9E119DE /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 3SN533K2V4;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "Rumi Capture";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.lifestyle";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Rumi uses your camera and LiDAR to scan a room and save its geometry on this iPhone.";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.rumi.RumiCapture;
+				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		5304F2603630F0101E478F36 /* Build configuration list for PBXProject "RumiCapture" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				515BEAF36E0FE48ECF1D648B /* Debug */,
+				F510A331026896F70D4CE423 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		86BDBF1530B7764975377E2D /* Build configuration list for PBXNativeTarget "RumiCapture" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				FF51ED30E8306577A9E119DE /* Release */,
+				38768D6F2C13C8FCC7C28D18 /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A43ADD6732B4151B07A29632 /* Build configuration list for PBXNativeTarget "RumiCaptureUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				CB6DAF5BB0270F292545653B /* Release */,
+				445694EF68CF76ED353651B6 /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		DE05D853BCA6CCB69275831C /* Build configuration list for PBXNativeTarget "RumiCaptureTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7E108EB4A1568D213B9C1BAB /* Release */,
+				F53AA0152FCEC74D194857D3 /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = A476858A75DD444E0362B9F5 /* Project object */;
+}
