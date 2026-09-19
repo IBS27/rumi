@@ -73,6 +73,22 @@ const images = [
   { url: "https://shop.test/side.jpg", alt: null },
 ];
 
+// Serves a small PNG for most URLs, hotlink-protection for one, and a page for another.
+const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
+const imageFetch = (async (input: RequestInfo | URL) => {
+  const url = String(input);
+  if (url.includes("blocked")) return new Response("forbidden", { status: 403 });
+  if (url.includes("page"))
+    return new Response("<html></html>", {
+      status: 200,
+      headers: { "content-type": "text/html" },
+    });
+  return new Response(png, {
+    status: 200,
+    headers: { "content-type": "image/png" },
+  });
+}) as typeof fetch;
+
 describe("reading a drawing", () => {
   it("returns nothing when the model reports no printed measurements", async () => {
     const { instance } = model({
@@ -87,7 +103,7 @@ describe("reading a drawing", () => {
         },
       ],
     });
-    const result = await readDiagram(instance, images);
+    const result = await readDiagram(instance, images, imageFetch);
     expect(result.readings).toEqual([]);
   });
 
@@ -118,7 +134,7 @@ describe("reading a drawing", () => {
         },
       ],
     });
-    const result = await readDiagram(instance, images);
+    const result = await readDiagram(instance, images, imageFetch);
     expect(result.readings).toHaveLength(3);
     expect(result.readings[0]).toMatchObject({ value: 63, axis: "width" });
     expect(result.imageUrl).toContain("dimensions");
@@ -137,27 +153,49 @@ describe("reading a drawing", () => {
         },
       ],
     });
-    expect((await readDiagram(instance, images)).readings).toHaveLength(0);
+    expect(
+      (await readDiagram(instance, images, imageFetch)).readings,
+    ).toHaveLength(0);
   });
 
-  it("sends only the named drawing, not the whole gallery", async () => {
+  it("sends only the named drawing, as bytes, not the whole gallery", async () => {
     const { instance, calls } = model({
       hasPrintedMeasurements: true,
       measurements: [],
     });
-    await readDiagram(instance, images);
-    // The provider layer carries an image URL as a file part.
+    const result = await readDiagram(instance, images, imageFetch);
     const content = (
-      calls[0].prompt as { content: { type: string; data?: unknown }[] }[]
+      calls[0].prompt as {
+        content: { type: string; data?: unknown; mediaType?: string }[];
+      }[]
     )[0].content;
     const sent = content.filter((part) => part.type === "file");
     expect(sent).toHaveLength(1);
-    expect(String(sent[0].data)).toContain("product-dimensions");
+    expect(sent[0].mediaType).toBe("image/png");
+    expect(sent[0].data).toBeInstanceOf(Uint8Array);
+    expect(result.imageUrl).toContain("product-dimensions");
+  });
+
+  it("skips a hotlink-protected image and a URL that is really a page", async () => {
+    const { instance, calls } = model({
+      hasPrintedMeasurements: true,
+      measurements: [],
+    });
+    const result = await readDiagram(
+      instance,
+      [
+        { url: "https://shop.test/blocked-dimensions.jpg", alt: null },
+        { url: "https://shop.test/page-dimensions", alt: null },
+      ],
+      imageFetch,
+    );
+    expect(calls).toHaveLength(0);
+    expect(result).toEqual({ readings: [], imageUrl: null });
   });
 
   it("never calls the model when there is nothing to look at", async () => {
     const { instance, calls } = model({});
-    const result = await readDiagram(instance, []);
+    const result = await readDiagram(instance, [], imageFetch);
     expect(result).toEqual({ readings: [], imageUrl: null });
     expect(calls).toHaveLength(0);
   });

@@ -86,3 +86,11 @@ export function factsFromShopify(
     bodyText: product.bodyText,
   };
 }
+
+// A page title is "Line Wardrobe – Design Within Reach": the product, then the shop.
+// It is the fallback name when neither merchant data nor the model produced one.
+export function nameFromTitle(title: string | null): string | null {
+  if (!title) return null;
+  const first = title.split(/\s+[–|—-]\s+/)[0]?.trim() ?? "";
+  return first.length >= 3 ? first : null;
+}

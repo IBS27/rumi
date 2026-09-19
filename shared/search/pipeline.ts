@@ -8,13 +8,14 @@ import { buildCandidate, pickFacts, type ListingFacts } from "./candidate";
 import { resolveDimensions, type DiagramReader } from "./cascade";
 import { relevantImages, type ImageRef } from "./images";
 import { parseProductJsonLd } from "./jsonld";
-import { factsFromJsonLd, factsFromShopify } from "./listing";
+import { factsFromJsonLd, factsFromShopify, nameFromTitle } from "./listing";
 import type { PageContent } from "./page";
 import { rankCandidates } from "./rank";
 import { isShopify, mapShopifyProduct, productJsonUrl } from "./shopify";
 import { tierFor } from "./retailers";
 import {
   buildExaQuery,
+  dedupeHits,
   dedupeProducts,
   filterCandidates,
   resolveToFit,
@@ -108,7 +109,7 @@ async function gatherPages(
     if (!markup && !live) continue;
     pages.push({
       url,
-      title: live?.title ?? markup?.title ?? null,
+      title: live?.title || markup?.title || null,
       html: markup?.html ?? live?.html ?? null,
       text: [live?.text, markup?.text].filter(Boolean).join("\n"),
       images: [
@@ -166,9 +167,9 @@ export async function runSearch(
       detail: `Only ${hits.length} result(s) inside the ${tierFor(task.maxPriceCents)} tier, so the open web was searched as well.`,
     });
     const open = await deps.search(query, settings.results, []);
-    const seen = new Set(hits.map((hit) => hit.url));
-    hits = [...hits, ...open.filter((hit) => !seen.has(hit.url))];
+    hits = [...hits, ...open];
   }
+  hits = dedupeHits(hits);
   if (hits.length === 0)
     return taskResult(
       task,
@@ -213,10 +214,12 @@ export async function runSearch(
       ...(jsonLd?.images ?? []).map((url) => ({ url, alt: null })),
       ...page.images,
     ];
-    // The gallery is added last: merchant and structured images already lead it.
+    // The gallery is added last: merchant and structured images already lead it. The
+    // page title is the last word on the name, after everything else was silent.
     const facts = pickFacts([
       ...layers,
       { images: images.map((image) => image.url) },
+      { name: nameFromTitle(page.title) },
     ]);
     // Cheap stages only. A drawing is read later, and only if the ranking calls for it.
     const resolved = await resolveDimensions({

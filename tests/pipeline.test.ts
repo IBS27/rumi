@@ -309,3 +309,22 @@ describe("explaining a silent page", () => {
     expect(new Set(details).size).toBe(details.length);
   });
 });
+
+describe("a listing the model could not name", () => {
+  it("takes the name from the page title rather than dropping the product", async () => {
+    const page = specPage("https://a.test/products/low-oak-cabinet");
+    const context = deps(pagesFrom([page]), {
+      extractListing: async () => ({
+        name: null,
+        variant: "Natural Oak",
+        priceCents: 24900,
+        availability: "available",
+        tags: [],
+        imageUrl: null,
+      }),
+    });
+    const result = await runSearch(makeTask(), context.deps, { minTierHits: 1 });
+    expect(result.candidates).toHaveLength(1);
+    expect(result.candidates[0].product.name).toBe("Low oak cabinet");
+  });
+});

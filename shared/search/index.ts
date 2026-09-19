@@ -122,6 +122,52 @@ export async function exaContents(
     }));
 }
 
+// Search engines hand back the same listing under tracking and locale parameters, and
+// category pages beside the products they list. Both cost a page read and a model call.
+const TRACKING_PARAM = /^(utm_|ref$|ref_|lang$|locale$|cid$|gclid$|fbclid$|mc_|srsltid$|_pos$|_sid$|_ss$)/i;
+const PRODUCT_PATH = /\/(products?|p|pdp|dp|item|items|prod)\/|\d{4,}|\.html?$/i;
+const CATEGORY_SEGMENT =
+  /^(collections?|categor(?:y|ies)|search|shop-all|in-stock.*|new-arrivals|browse|all-.+|c)$/i;
+
+export function canonicalUrl(raw: string): string | null {
+  try {
+    const url = new URL(raw);
+    url.hash = "";
+    url.hostname = url.hostname.toLowerCase();
+    for (const key of [...url.searchParams.keys()])
+      if (TRACKING_PARAM.test(key)) url.searchParams.delete(key);
+    return url.toString().replace(/\?$/, "");
+  } catch {
+    return null;
+  }
+}
+
+export function looksLikeListing(raw: string): boolean {
+  try {
+    const url = new URL(raw);
+    const path = url.pathname + url.search;
+    if (PRODUCT_PATH.test(path)) return true;
+    return !url.pathname
+      .split("/")
+      .some((segment) => CATEGORY_SEGMENT.test(segment));
+  } catch {
+    return false;
+  }
+}
+
+export function dedupeHits(hits: ExaSearchHit[]): ExaSearchHit[] {
+  const seen = new Set<string>();
+  const kept: ExaSearchHit[] = [];
+  for (const hit of hits) {
+    const canonical = canonicalUrl(hit.url);
+    if (!canonical || seen.has(canonical) || !looksLikeListing(canonical))
+      continue;
+    seen.add(canonical);
+    kept.push({ ...hit, url: canonical });
+  }
+  return kept;
+}
+
 // Retrieval reads better from a short noun phrase than from a sentence of constraints.
 // Footprint and price are enforced in code, so only the price hint is worth a word.
 export function buildExaQuery(task: SearchTask): string {

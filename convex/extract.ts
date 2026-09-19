@@ -6,7 +6,6 @@ import type { AxisReading } from "../shared/search/dimensions";
 import type { ImageRef } from "../shared/search/images";
 import { diagramReadTargets } from "../shared/search/images";
 import type { PageContent } from "../shared/search/page";
-import { formatMoney } from "../shared/budget";
 
 // The only two places a model is used. Everything it returns is checked by code before
 // it reaches a contract: prices, units, and axis selection are not its decisions.
@@ -36,8 +35,9 @@ export async function extractListing(
     schema: listingSchema,
     prompt: [
       `Read this product page for one purchasable ${task.category}.`,
-      `Price ceiling: ${formatMoney(task.maxPriceCents)}.`,
-      "Report only what the page states. Use null where it is silent.",
+      "Report exactly what the page states, whatever the price: the ceiling is",
+      "applied afterwards, so an expensive listing must still be reported in full.",
+      "Use null only where the page is genuinely silent.",
       "Do not report dimensions; they are read separately.",
       `Page URL: ${page.url}`,
       `Page title: ${page.title ?? "untitled"}`,
@@ -76,12 +76,54 @@ const diagramSchema = z.object({
     .max(40),
 });
 
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+
+// Providers fetch an image URL on their own terms and fail on hotlink protection or on
+// a URL that turns out to be a page. Fetching it here, as a browser would, and sending
+// the bytes removes both failures before a model call is spent.
+async function loadImage(
+  url: string,
+  fetchImpl: typeof fetch,
+): Promise<{ data: Uint8Array; mediaType: string } | null> {
+  try {
+    const response = await fetchImpl(url, {
+      headers: {
+        "user-agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+        accept: "image/*",
+      },
+    });
+    if (!response.ok) return null;
+    const mediaType = (response.headers.get("content-type") ?? "")
+      .split(";")[0]
+      .trim();
+    if (!/^image\/(jpeg|png|webp|gif)$/.test(mediaType)) return null;
+    const data = new Uint8Array(await response.arrayBuffer());
+    if (data.byteLength === 0 || data.byteLength > MAX_IMAGE_BYTES) return null;
+    return { data, mediaType };
+  } catch {
+    return null;
+  }
+}
+
 export async function readDiagram(
   model: LanguageModel,
   images: ImageRef[],
+  fetchImpl: typeof fetch = fetch,
 ): Promise<{ readings: AxisReading[]; imageUrl: string | null }> {
   const targets = diagramReadTargets(images);
-  if (targets.length === 0) return { readings: [], imageUrl: null };
+  const loaded = (
+    await Promise.all(
+      targets.map(async (image) => ({
+        image,
+        file: await loadImage(image.url, fetchImpl),
+      })),
+    )
+  ).filter(
+    (entry): entry is { image: ImageRef; file: NonNullable<typeof entry.file> } =>
+      entry.file !== null,
+  );
+  if (loaded.length === 0) return { readings: [], imageUrl: null };
   const { object } = await generateObject({
     model,
     schema: diagramSchema,
@@ -101,16 +143,17 @@ export async function readDiagram(
               "Copy each number into label exactly as printed, with its unit mark.",
             ].join(" "),
           },
-          ...targets.map((image) => ({
+          ...loaded.map(({ file }) => ({
             type: "image" as const,
-            image: new URL(image.url),
+            image: file.data,
+            mediaType: file.mediaType,
           })),
         ],
       },
     ],
   });
-  if (!object.hasPrintedMeasurements)
-    return { readings: [], imageUrl: targets[0]?.url ?? null };
+  const imageUrl = loaded[0].image.url;
+  if (!object.hasPrintedMeasurements) return { readings: [], imageUrl };
   const readings: AxisReading[] = object.measurements
     .filter((item) => item.label.trim().length > 0)
     .map((item) => ({
@@ -120,5 +163,5 @@ export async function readDiagram(
       subject: item.subject,
       label: item.label,
     }));
-  return { readings, imageUrl: targets[0]?.url ?? null };
+  return { readings, imageUrl };
 }

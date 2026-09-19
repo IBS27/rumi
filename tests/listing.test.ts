@@ -3,6 +3,7 @@ import {
   chooseVariant,
   factsFromJsonLd,
   factsFromShopify,
+  nameFromTitle,
 } from "../shared/search/listing";
 import type { ShopifyProduct } from "../shared/search/shopify";
 
@@ -112,5 +113,19 @@ describe("merchant facts", () => {
 
   it("returns nothing when a page has no structured data", () => {
     expect(factsFromJsonLd(null)).toEqual({});
+  });
+});
+
+describe("a name from the page title", () => {
+  it("keeps the product and drops the shop", () => {
+    expect(nameFromTitle("Line Wardrobe – Design Within Reach")).toBe("Line Wardrobe");
+    expect(nameFromTitle("TÄRNABY Table lamp - IKEA")).toBe("TÄRNABY Table lamp");
+    expect(nameFromTitle("Oak bed | Muji")).toBe("Oak bed");
+  });
+
+  it("gives nothing for an empty or useless title", () => {
+    expect(nameFromTitle(null)).toBeNull();
+    expect(nameFromTitle("")).toBeNull();
+    expect(nameFromTitle("A – Shop")).toBeNull();
   });
 });
