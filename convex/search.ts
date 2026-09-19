@@ -12,6 +12,8 @@ import type { ProductCandidate, SearchTask } from "../shared/contracts";
 import type { PageContent } from "../shared/search/page";
 import type { ImageRef } from "../shared/search/images";
 
+export const DEFAULT_MODEL = "gpt-5.6-luna";
+
 // The deployment side of the search agent: keys, models, storage. The pipeline itself
 // lives in shared/search so it can be tested without a deployment.
 // Takes the one thing it needs from the action context, so it does not have to restate
@@ -20,10 +22,12 @@ function searchDeps(persist: (products: ProductCandidate[]) => Promise<void>) {
   const apiKey = process.env.EXA_API_KEY;
   if (!apiKey)
     throw new Error("Set EXA_API_KEY in this deployment's environment.");
+  // Reading a listing and reading a drawing are both small, well-scoped jobs, so both
+  // run on the house default for those. Override per deployment when a job needs more.
   const listingModel = openai(
-    process.env.RUMI_EXTRACTION_MODEL ?? "gpt-4o-mini",
+    process.env.RUMI_EXTRACTION_MODEL ?? DEFAULT_MODEL,
   );
-  const visionModel = openai(process.env.RUMI_VISION_MODEL ?? "gpt-4o");
+  const visionModel = openai(process.env.RUMI_VISION_MODEL ?? DEFAULT_MODEL);
   return {
     search: (query: string, numResults: number, includeDomains: string[]) =>
       exaSearch(apiKey, query, numResults, includeDomains),

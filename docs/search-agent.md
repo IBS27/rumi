@@ -244,7 +244,8 @@ Known gaps, recorded as tests rather than hidden:
 ## Configuration
 
 `EXA_API_KEY` is required. `OPENAI_API_KEY` is required for the two model calls.
-`RUMI_EXTRACTION_MODEL` and `RUMI_VISION_MODEL` override the defaults. All of these are
+Both model calls default to `gpt-5.6-luna`, the house default for small, well-scoped
+jobs; `RUMI_EXTRACTION_MODEL` and `RUMI_VISION_MODEL` override it per deployment. All of these are
 deployment environment variables, never `VITE_` variables.
 
 ## Contract changes to agree with the main agent's owner
