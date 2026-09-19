@@ -85,6 +85,11 @@ worst error class: a sale price, a "from" price, or the wrong variant. The varia
 is the cheapest in-stock one within the ceiling whose finish name sits closest to the
 palette. Shopify does not publish dimensions, so the cascade still runs.
 
+Otherwise a model reads those fields from the page text. That prompt names no price
+ceiling: told one, the model suppressed a $6,795 listing instead of reading it, and the
+ceiling is applied in code anyway. A listing the model still cannot name takes its name
+from the page title, which is the product then the shop.
+
 ## Dimensions
 
 ### Order of resolution
@@ -109,7 +114,18 @@ axes we already know is trustworthy on the axis we do not.
   markup prints exactly this unordered form, and the agent declines it rather than
   guessing: the drawing stage is what rescues that page.
 - A line stating all three axes is preferred over measurements scattered through a page,
-  which are usually parts.
+  which are usually parts. A statement that fails the plausible range — a shipping box
+  printed without the word, `8"H x 8"W x 31"L` for a rolled rug — does not end the
+  reading; the next candidate line is tried.
+- Two categories state their size as a pair by convention, and both can turn a quarter,
+  so the pair is read: a rug's `2.5' x 8'` is width by length, completed by its pile
+  height; a print's `16" x 23"` is width by height, completed by a frame depth. A print
+  whose page never states a depth stays incomplete rather than guessed — the majority of
+  wall art, which is the open contract question below.
+- A round piece states a diameter, which is read as width and depth at once. "Length" is
+  read as depth for rugs and beds only; elsewhere it is too ambiguous to use.
+- Rendered text is turned into lines at block ends before parsing. Collapsing it merged
+  lines, so one packaging note took a page's whole specification with it.
 - Lines mentioning packaging, shipping or cartons are dropped: the box is bigger than the
   product. So are filter menus, which advertise ranges and result counts
   (`Width 72" to 86" (88)`) that read exactly like measurements.
@@ -122,7 +138,8 @@ axes we already know is trustworthy on the axis we do not.
 A product photograph carries no scale and is never a source. A dimension drawing is
 different: it is an image containing printed numbers.
 
-**Choosing the image.** Images are scored on a name match
+**Choosing the image.** Anything under about 400 pixels is skipped first — a
+100-pixel thumbnail was once sent to be read. Images are scored on a name match
 (`dimension|spec|measure|size|schematic|drawing`), a bonus for sitting just after the hero
 shot, and a larger bonus for being last in the gallery, which is where drawings usually
 sit when nothing is named. A named drawing is read alone; otherwise the best two are sent
@@ -236,6 +253,10 @@ declare URL support makes the SDK download the file first, so a hotlink-protecte
 missing image throws. That is caught per candidate and degrades to unknown dimensions
 rather than failing the search.
 
+Live runs against four bedroom briefs — a lamp, a rug, a wardrobe, a print — are the
+working benchmark: at the time of writing, 6 of 10 returned candidates carry a size,
+lamps and case goods reliably, rugs usually, prints never (no stated depth).
+
 Known gaps, recorded as tests rather than hidden:
 
 - A page whose only printed dimensions are an unordered triple yields nothing from text.
@@ -267,6 +288,11 @@ deployment environment variables, never `VITE_` variables.
 - Placement. The agent reports what fits, never where it goes.
 
 ## Open questions
+
+- Wall art states width and height and almost never a depth, so under the current
+  contract a print can never be placed. A depth-less measurement for wall-mounted
+  categories — or a 2D contract for them — is the single change that would fix an entire
+  category, and it belongs to the room and renderer owners.
 
 - Should an aesthetic re-rank of the top five live here, or in the main agent, which
   already receives the `breakdown` values?
