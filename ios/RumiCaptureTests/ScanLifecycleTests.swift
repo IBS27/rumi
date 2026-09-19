@@ -2,6 +2,27 @@ import XCTest
 @testable import RumiCapture
 
 final class ScanLifecycleTests: XCTestCase {
+    func testKeepAwakeCoversCaptureAndProcessingUntilEveryExit() throws {
+        for exit in ["complete", "fail", "reset"] {
+            var state = ScanLifecycle()
+            XCTAssertFalse(state.isCapturing)
+            let id = try XCTUnwrap(state.requestStart())
+            XCTAssertFalse(state.isCapturing, "Permission prompts must not disable auto-lock")
+            XCTAssertTrue(state.authorize(id, supported: true, cameraAllowed: true))
+            XCTAssertTrue(state.isCapturing, "Keep awake before the camera starts")
+            state.didStart(id)
+            XCTAssertTrue(state.isCapturing)
+            XCTAssertTrue(state.process(id))
+            XCTAssertTrue(state.isCapturing, "Finish Scan must not re-enable auto-lock")
+            switch exit {
+            case "complete": XCTAssertTrue(state.complete(id))
+            case "fail": state.fail(id, message: "Interrupted or timed out")
+            default: state.reset()
+            }
+            XCTAssertFalse(state.isCapturing, "Restore auto-lock after \(exit)")
+        }
+    }
+
     func testOnlyFinalProcessingCanComplete() throws {
         var state = ScanLifecycle()
         let id = try XCTUnwrap(state.requestStart())

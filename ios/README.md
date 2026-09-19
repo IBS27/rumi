@@ -99,6 +99,7 @@ Choose an installed simulator name from `xcrun simctl list devices available`. T
 - AirDrop JSON to the Mac; run the inspector above. Check walls/openings/objects, dimensions and transforms, then import with the web workflow. Compare several dimensions with a tape measure.
 - Relaunch Rumi and export the retained result again. Confirm starting another scan discards only after confirmation, and the new scan does not reuse the old session/result.
 - During scanning and during processing, lock the phone or background the app. Return and confirm an interruption message and ability to start again. Backgrounding a completed scan must retain it.
+- With Auto-Lock set to 30 seconds, leave the screen untouched during scanning and processing. Confirm the phone stays awake, then confirm auto-lock resumes after completion, failure, or discard.
 - Test an export/save failure if practical, such as insufficient storage. The completed in-memory room must remain available to retry. Do not delete personal data to induce this test.
 
 ## Limitations

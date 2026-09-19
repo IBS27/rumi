@@ -4,7 +4,12 @@ import SwiftUI
 
 @MainActor
 final class ScanModel: ObservableObject {
-    @Published private(set) var lifecycle = ScanLifecycle()
+    @Published private(set) var lifecycle = ScanLifecycle() {
+        didSet {
+            // Keep the phone awake through processing; restore auto-lock on every exit.
+            UIApplication.shared.isIdleTimerDisabled = lifecycle.isCapturing
+        }
+    }
     @Published private(set) var room: CapturedRoom?
     @Published private(set) var exportMessage: String?
     @Published var alertMessage: String?
