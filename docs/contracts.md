@@ -20,6 +20,7 @@
 | `RoomSnapshot`                   | Capture/editor | Search, renderer, validation  |
 | `DesignBrief`                    | Conversation   | Search and budget checks      |
 | `SearchRequest` → `SearchResult` | Search adapter | Assistant/product panel       |
+| `SearchTask` → `SearchTaskResult` | Search subagent | Main agent `searchProducts` tool |
 | `ProductCandidate`               | Search/catalog | Product cards, assets, budget |
 | `DesignProposal`                 | Agent/planner  | Validated editor commands     |
 | `AssetRecord`                    | Asset pipeline | Renderer                      |
@@ -27,6 +28,8 @@
 The first proposal operation is additions only. Define explicit move/remove operations when the agent supports them; never silently replace a complete room snapshot. `baseRevision` must match the current room revision, and accepted edits increment it.
 
 The fixture adapter is synchronous. A live search implementation may return a promise of the same validated result and report progress separately. The renderer must not depend on a model provider or search API response format.
+
+The live path is two levels. `convex/agent.ts` runs the main agent, which plans the room and calls `convex/search.ts` (`searchProducts`) with a `SearchTask` carrying hard constraints: `maxPriceCents`, `maxFootprint`, `styleTerms`, and `excludeTags`. The subagent searches the web, extracts pages into `ProductCandidate` records, filters against those constraints in code, and returns a `SearchTaskResult` whose `failures` tell the agent why candidates were dropped. Extracted dimensions are always `estimated`; unknowns stay `unknown`. Agent and search functions are internal. Public project and message functions require authenticated ownership; the current UI does not call them. See [agent integration](agent-integration.md) for API and migration details.
 
 ## Applying a result
 

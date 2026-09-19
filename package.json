@@ -12,9 +12,11 @@
     "format": "prettier --write src shared convex tests docs *.ts *.js *.json *.html README.md"
   },
   "dependencies": {
+    "@ai-sdk/openai": "2.0.127",
     "@clerk/react": "^6.16.1",
     "@react-three/drei": "^10.7.8",
     "@react-three/fiber": "^9.7.0",
+    "ai": "5.0.256",
     "convex": "^1.46.0",
     "convex-helpers": "^0.1.124",
     "lucide-react": "^1.47.0",
