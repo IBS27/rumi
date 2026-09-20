@@ -451,6 +451,10 @@ describe("search hits", () => {
     expect(isUnsupportedMerchant("https://www.ikea.com/gb/en/p/rug/")).toBe(true);
     // A single language segment is not a country.
     expect(isUnsupportedMerchant("https://shop.example.com/en/products/rug")).toBe(false);
+    // A .com that names its country in the host.
+    expect(isUnsupportedMerchant("https://www.gallerycanada.com/products/bench")).toBe(true);
+    expect(isUnsupportedMerchant("https://furniture-australia.com/p/1")).toBe(true);
+    expect(isUnsupportedMerchant("https://www.canadianbrand-usa.com/p/1")).toBe(false);
     expect(isUnsupportedMerchant("https://www.wayfair.com/rugs/pdp/rug-w1.html")).toBe(false);
     expect(
       dedupeHits([
