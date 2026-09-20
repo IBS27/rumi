@@ -7,6 +7,7 @@ import {
   withinRange,
   type AxisReading,
 } from "../shared/search/dimensions";
+import { resolveDimensions } from "../shared/search/cascade";
 
 const near = (value: number | null, expected: number) => {
   expect(value).not.toBeNull();
@@ -390,15 +391,79 @@ describe("pairs and shipping boxes", () => {
     near(reading.values.depth, 0.038);
   });
 
-  it("leaves a print without a stated depth incomplete rather than guessing", () => {
-    const reading = parseDimensionText('16" x 23" framed canvas', "art");
-    near(reading.values.width, 0.406);
-    expect(reading.values.depth).toBeNull();
-    expect(completeDimensions(reading.values)).toBeNull();
+  it("completes a flat piece from its two printed axes with a thin third", () => {
+    // A print's frame depth is a known thin constant; nobody prints it.
+    const print = parseDimensionText('16" x 23" framed canvas', "wall art");
+    near(print.values.width, 0.406);
+    near(print.values.height, 0.584);
+    expect(print.values.depth).toBe(0.03);
+    expect(completeDimensions(print.values)).not.toBeNull();
+    // A stated frame depth still wins over the constant.
+    const framed = parseDimensionText('16" x 23"\nFrame depth: 1.5"', "framed prints");
+    near(framed.values.depth, 0.038);
+    // Rugs: width × length on the floor, pile assumed.
+    const rug = parseDimensionText("5' x 8' area rug", "area rug");
+    near(rug.values.width, 1.524);
+    near(rug.values.depth, 2.438);
+    expect(rug.values.height).toBe(0.01);
+    // Mirrors are art-family: width × height, thin depth.
+    const mirror = parseDimensionText('Full length mirror 20" x 64"', "wall mirror");
+    near(mirror.values.height, 1.626);
+    expect(mirror.values.depth).toBe(0.03);
+    // Curtains hang: width × height per panel.
+    const curtain = parseDimensionText('Curtain panel 52" x 84"', "blackout curtain panels");
+    near(curtain.values.width, 1.321);
+    near(curtain.values.height, 2.134);
+    expect(curtain.values.depth).toBe(0.05);
+    // Pillows and throws: a square pair on the surface, a hand deep.
+    const pillow = parseDimensionText('Decorative pillow cover 18" x 18"', "decorative pillows");
+    near(pillow.values.width, 0.457);
+    near(pillow.values.depth, 0.457);
+    expect(pillow.values.height).toBe(0.15);
+    // A solid piece never gets a guessed axis.
+    expect(completeDimensions(parseDimensionText('47" x 30" cabinet', "storage").values)).toBeNull();
   });
 
   it("does not read a pair for a category where the order is ambiguous", () => {
     const reading = parseDimensionText('47" x 30" cabinet', "storage");
     expect(reading.values.width).toBeNull();
+  });
+});
+
+describe("standard bed sizes", () => {
+  it("takes a bed's footprint from the size in its name when the page lists every size", async () => {
+    const resolved = await resolveDimensions({
+      category: "full bed",
+      name: "Elvina Low Profile Upholstered Platform Bed, Queen",
+      structuredText: null,
+      pageText: "Available in Twin, Full, Queen and King. Headboard height: 42 in",
+      images: [],
+    });
+    const dimensions = resolved.measurement.dimensions!;
+    near(dimensions.width, 1.6);
+    near(dimensions.depth, 2.11);
+    // The page's headboard height wins over the default.
+    near(dimensions.height, 1.067);
+    expect(resolved.measurement.source).toBe("estimated");
+    expect(resolved.measurement.evidence.detail).toContain("Standard Queen size");
+  });
+
+  it("does not guess when the name lists several sizes or is not a bed", async () => {
+    const variants = await resolveDimensions({
+      category: "bed",
+      name: "Platform Bed Frame Twin/Full/Queen",
+      structuredText: null,
+      pageText: "",
+      images: [],
+    });
+    expect(variants.measurement.dimensions).toBeNull();
+    const table = await resolveDimensions({
+      category: "nightstand",
+      name: "Queen Anne bedside table",
+      structuredText: null,
+      pageText: "",
+      images: [],
+    });
+    expect(table.measurement.dimensions).toBeNull();
   });
 });
