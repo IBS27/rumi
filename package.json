@@ -20,6 +20,7 @@
     "convex": "^1.46.0",
     "convex-helpers": "^0.1.124",
     "lucide-react": "^1.47.0",
+    "polygon-clipping": "^0.15.7",
     "qrcode.react": "^4.2.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",

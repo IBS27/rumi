@@ -1,10 +1,11 @@
 import { Euler, Matrix4, Quaternion, Vector3 } from "three";
+import polygonClipping, { type Polygon } from "polygon-clipping";
 import type { CapturedRoom } from "../contracts";
 import { worldCorners } from "./roomplan";
 
 type Point = { x: number; z: number };
 export type WalkPosition = Point & { y: number };
-type Floor = { points: Point[]; y: number };
+type Floor = { points: Point[]; y: number; boundary: Point[][] };
 type Obstacle = { points: Point[]; bottom: number; top: number };
 export type Walkthrough = {
   floors: Floor[];
@@ -14,6 +15,7 @@ export type Walkthrough = {
 
 export const WALK_RADIUS = 0.2;
 export const EYE_HEIGHT = 1.6;
+const MAX_STEP = 0.18;
 
 function segmentDistance(p: Point, a: Point, b: Point): number {
   const dx = b.x - a.x;
@@ -69,8 +71,15 @@ function hull(points: Point[]): Point[] {
 }
 
 function clearance(model: Walkthrough, p: Point, floor: Floor): number {
-  if (!inside(p, floor.points)) return -1;
-  let distance = edgeDistance(p, floor.points);
+  // Include a patch's edge so a center exactly on a shared seam has a floor.
+  if (
+    !floor.boundary.length ||
+    (!inside(p, floor.points) && edgeDistance(p, floor.points) > 1e-8)
+  )
+    return -1;
+  let distance = Math.min(
+    ...floor.boundary.map((ring) => edgeDistance(p, ring)),
+  );
   for (const obstacle of model.obstacles) {
     if (
       obstacle.top <= floor.y + 0.08 ||
@@ -92,9 +101,33 @@ export function createWalkthrough(room: CapturedRoom): Walkthrough {
     // or place an eye-level camera under a low ceiling.
     return high - low <= 0.1 &&
       room.dimensions.height - high >= EYE_HEIGHT + 0.15
-      ? [{ points, y: high }]
+      ? [{ points, y: high, boundary: [] }]
       : [];
   });
+  // Measure standing clearance against the union, not internal patch seams.
+  // Keep hole rings and separate islands; only floors within one safe step of
+  // this elevation may support the footprint. Do not merge heights transitively.
+  const boundaries = new Map<number, Point[][]>();
+  for (const floor of floors) {
+    let boundary = boundaries.get(floor.y);
+    if (!boundary) {
+      const polygons: Polygon[] = floors
+        .filter((other) => Math.abs(other.y - floor.y) <= MAX_STEP)
+        .map((other) => [other.points.map((p) => [p.x, p.z])]);
+      try {
+        boundary = polygonClipping
+          .union(polygons[0], ...polygons.slice(1))
+          .flatMap((polygon) =>
+            polygon.map((ring) => ring.map(([x, z]) => ({ x, z }))),
+          );
+      } catch {
+        // Unusable captured polygons must not crash the editor or permit walking.
+        boundary = [];
+      }
+      boundaries.set(floor.y, boundary);
+    }
+    floor.boundary = boundary;
+  }
   const obstacles: Obstacle[] = room.walls.map((wall) => {
     const corners = worldCorners(wall);
     // Solid wall footprints also keep the user inside at exterior doorways.
@@ -153,7 +186,7 @@ export function walkPosition(
 ): WalkPosition | null {
   const floor = model.floors.find(
     (floor) =>
-      Math.abs(floor.y - currentY) <= 0.18 &&
+      Math.abs(floor.y - currentY) <= MAX_STEP &&
       clearance(model, p, floor) >= WALK_RADIUS,
   );
   return floor ? { ...p, y: floor.y } : null;

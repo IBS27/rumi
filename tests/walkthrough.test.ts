@@ -10,7 +10,192 @@ import { syntheticRoomPlan } from "../shared/fixtures/roomplan";
 
 const sample = () => importRoomPlan(syntheticRoomPlan, "Walk test", true);
 
+// Adjacent patches of one captured room, not separate rooms.
+function floorPatches(patches: { outline: number[][]; y?: number }[]) {
+  const raw = structuredClone(syntheticRoomPlan);
+  raw.objects = [];
+  raw.floors = patches.map(({ outline, y = 0 }, index) => ({
+    ...raw.floors[0],
+    identifier: `floor-${index}`,
+    transform: raw.floors[0].transform.map((value, i) =>
+      i === 13 ? y : value,
+    ),
+    polygonCorners: outline.map(([x, z]) => [x, z, 0]),
+  }));
+  return importRoomPlan(raw, "Split floor", true);
+}
+
+const leftPatch = [
+  [0, 0],
+  [2.9, 0],
+  [2.9, 3.2],
+  [0, 3.2],
+];
+const rightPatch = [
+  [2.9, 0],
+  [5.8, 0],
+  [5.8, 3.2],
+  [2.9, 3.2],
+];
+
 describe("first-person navigation", () => {
+  test("crosses shared floor edges in both directions, including small steps", () => {
+    for (const y of [0, 0.1, 0.18]) {
+      const model = createWalkthrough(
+        floorPatches([{ outline: leftPatch }, { outline: rightPatch, y }]),
+      );
+      expect(walkPosition(model, { x: 2.9, z: 1.5 }, 0)).not.toBeNull();
+      const across = moveWalk(model, { x: 2, y: 0, z: 1.5 }, 2, 0);
+      expect(across.x).toBeCloseTo(4);
+      expect(across.y).toBe(y);
+      const back = moveWalk(model, across, -2, 0);
+      expect(back.x).toBeCloseTo(2);
+      expect(back.y).toBe(0);
+    }
+  });
+
+  test("crosses overlapping and diagonal floor seams", () => {
+    for (const outlines of [
+      [
+        leftPatch,
+        [
+          [2.8, 0],
+          [5.8, 0],
+          [5.8, 3.2],
+          [2.8, 3.2],
+        ],
+      ],
+      [
+        [
+          [0, 0],
+          [5.8, 0],
+          [0, 3.2],
+        ],
+        [
+          [5.8, 0],
+          [5.8, 3.2],
+          [0, 3.2],
+        ],
+      ],
+    ]) {
+      const model = createWalkthrough(
+        floorPatches(outlines.map((outline) => ({ outline }))),
+      );
+      expect(moveWalk(model, { x: 1, y: 0, z: 1.5 }, 4, 0).x).toBeCloseTo(5);
+    }
+  });
+
+  test("keeps real gaps and unsafe steps impassable", () => {
+    for (const patch of [
+      {
+        outline: [
+          [3, 0],
+          [5.8, 0],
+          [5.8, 3.2],
+          [3, 3.2],
+        ],
+      },
+      { outline: rightPatch, y: 0.3 },
+    ]) {
+      const model = createWalkthrough(
+        floorPatches([{ outline: leftPatch }, patch]),
+      );
+      expect(
+        moveWalk(model, { x: 2, y: 0, z: 1.5 }, 2, 0).x,
+      ).toBeLessThanOrEqual(2.7);
+    }
+  });
+
+  test("preserves holes and concave edges in joined floors", () => {
+    const model = createWalkthrough(
+      floorPatches([
+        {
+          outline: [
+            [0, 0],
+            [2, 0],
+            [2, 3.2],
+            [0, 3.2],
+          ],
+        },
+        {
+          outline: [
+            [2, 0],
+            [4, 0],
+            [4, 1],
+            [2, 1],
+          ],
+        },
+        {
+          outline: [
+            [2, 2.2],
+            [4, 2.2],
+            [4, 3.2],
+            [2, 3.2],
+          ],
+        },
+        {
+          outline: [
+            [4, 0],
+            [5.8, 0],
+            [5.8, 3.2],
+            [4, 3.2],
+          ],
+        },
+      ]),
+    );
+    expect(moveWalk(model, { x: 1, y: 0, z: 0.5 }, 4, 0).x).toBeCloseTo(5);
+    expect(walkPosition(model, { x: 3, z: 1.5 }, 0)).toBeNull();
+    expect(walkPosition(model, { x: 1.9, z: 1.5 }, 0)).toBeNull();
+    expect(moveWalk(model, { x: 1, y: 0, z: 1.5 }, 4, 0).x).toBeLessThanOrEqual(
+      1.8,
+    );
+  });
+
+  test("does not squeeze through floor patches joined at only a corner", () => {
+    const model = createWalkthrough(
+      floorPatches([
+        {
+          outline: [
+            [0, 0],
+            [2, 0],
+            [2, 2],
+            [0, 2],
+          ],
+        },
+        {
+          outline: [
+            [2, 2],
+            [4, 2],
+            [4, 3.2],
+            [2, 3.2],
+          ],
+        },
+      ]),
+    );
+    const result = moveWalk(model, { x: 1, y: 0, z: 1 }, 2, 2);
+    expect(result.x).toBeLessThanOrEqual(1.8);
+    expect(result.z).toBeLessThanOrEqual(1.8);
+  });
+
+  test("still blocks furniture on a shared floor seam", () => {
+    const room = floorPatches([
+      { outline: leftPatch },
+      { outline: rightPatch },
+    ]);
+    room.objects = [
+      {
+        ...sample().objects[0],
+        position: { x: 2.9, y: 0, z: 1.5 },
+        rotation: { x: 0, y: 0, z: 0 },
+        dimensions: { width: 0.1, height: 1, depth: 2 },
+      },
+    ];
+    const model = createWalkthrough(room);
+    expect(moveWalk(model, { x: 2, y: 0, z: 1.5 }, 2, 0).x).toBeLessThanOrEqual(
+      2.65,
+    );
+  });
+
   test("spawns on clear captured floor in a furnished concave room", () => {
     const model = createWalkthrough(sample());
     expect(model.start).not.toBeNull();
