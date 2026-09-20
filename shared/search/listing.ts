@@ -1,6 +1,5 @@
 import type { ListingFacts } from "./candidate";
-import { UNKNOWN_COLOR } from "./candidate";
-import { colorFromWords, paletteScore } from "./color";
+import { colorFromWords, paletteScore, UNKNOWN_COLOR } from "./color";
 import type { ImageRef } from "./images";
 import type { JsonLdProduct } from "./jsonld";
 import type { ShopifyProduct, ShopifyVariant } from "./shopify";

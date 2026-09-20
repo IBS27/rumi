@@ -133,13 +133,52 @@ describe("the search pipeline", () => {
     const context = deps(
       pagesFrom([jsonLdPage("https://c.test/products/oak-wardrobe")]),
     );
-    const result = await runSearch(makeTask(), context.deps, {
-      minTierHits: 1,
-    });
+    const result = await runSearch(
+      makeTask({ query: "oak wardrobe" }),
+      context.deps,
+      { minTierHits: 1 },
+    );
     expect(result.candidates[0].product.priceCents).toBe(29900);
     expect(result.candidates[0].product.measurement.evidence.kind).toBe(
       "structured",
     );
+    expect(context.counters.extractions).toBe(0);
+  });
+
+  it("probes the Shopify product endpoint even when rendered markup lost its fingerprint", async () => {
+    const page = specPage("https://independent.test/products/oak-cabinet");
+    page.html = "<html><body>Rendered product page</body></html>";
+    let fetched = "";
+    const context = deps(pagesFrom([page]), {
+      fetchJson: async (url) => {
+        fetched = url;
+        return {
+          product: {
+            id: 1,
+            title: "Independent oak cabinet",
+            handle: "oak-cabinet",
+            vendor: "Independent",
+            product_type: "Cabinet",
+            tags: ["oak"],
+            body_html: '<p>43"W x 14"D x 28"H</p>',
+            images: [{ src: "https://independent.test/oak.jpg" }],
+            variants: [
+              {
+                id: 2,
+                title: "Natural Oak",
+                price: "249.00",
+                available: true,
+              },
+            ],
+          },
+        };
+      },
+    });
+    const result = await runSearch(makeTask(), context.deps, {
+      minTierHits: 1,
+    });
+    expect(fetched).toBe("https://independent.test/products/oak-cabinet.json");
+    expect(result.candidates[0].product.name).toBe("Independent oak cabinet");
     expect(context.counters.extractions).toBe(0);
   });
 
@@ -179,10 +218,77 @@ describe("the search pipeline", () => {
       minTierHits: 6,
     });
     expect(context.counters.searches[0].length).toBeGreaterThan(0);
-    expect(context.counters.searches[1]).toEqual([]);
+    expect(context.counters.searches).toContainEqual([]);
     expect(result.failures.some((f) => f.detail.includes("open web"))).toBe(
       true,
     );
+  });
+
+  it("keeps open-web results when the retailer catalogue search fails", async () => {
+    const page = specPage("https://ikea.test/products/low-oak-cabinet");
+    const context = deps(pagesFrom([page]), {
+      search: async (_query, _count, includeDomains) => {
+        if (includeDomains.length > 0) throw new Error("temporary outage");
+        return [{ url: page.url, title: page.title }];
+      },
+    });
+    const result = await runSearch(makeTask(), context.deps, {
+      minTierHits: 1,
+    });
+    expect(result.candidates).toHaveLength(1);
+    expect(
+      result.failures.some((failure) =>
+        failure.detail.includes("Retailer catalogue search failed"),
+      ),
+    ).toBe(true);
+  });
+
+  it("expands to the open web when only one merchant survives filtering", async () => {
+    const target = specPage("https://target.test/products/target-oak-cabinet");
+    target.title = "Target oak cabinet";
+    const ikea = specPage("https://ikea.test/products/ikea-oak-cabinet");
+    ikea.title = "IKEA oak cabinet";
+    const walmart = specPage(
+      "https://walmart.test/products/walmart-oak-cabinet",
+    );
+    walmart.title = "Walmart oak cabinet";
+    const open = specPage("https://wayfair.test/products/wayfair-oak-cabinet");
+    open.title = "Wayfair oak cabinet";
+    const searches: string[][] = [];
+    const context = deps(pagesFrom([target, ikea, walmart, open]), {
+      search: async (_query, _count, includeDomains) => {
+        searches.push(includeDomains);
+        if (includeDomains.length === 0)
+          return [{ url: open.url, title: open.title }];
+        return [
+          { url: target.url, title: target.title },
+          { url: ikea.url, title: ikea.title },
+          { url: walmart.url, title: walmart.title },
+        ];
+      },
+      extractListing: async (page) => ({
+        name: page.title,
+        variant: "Natural Oak",
+        priceCents:
+          page.url.includes("ikea") || page.url.includes("walmart")
+            ? 90000
+            : 24900,
+        availability: "available",
+        tags: ["cabinet"],
+      }),
+    });
+    const result = await runSearch(makeTask(), context.deps, {
+      minTierHits: 1,
+    });
+    expect(searches).toContainEqual([]);
+    expect(
+      result.candidates.map((candidate) => candidate.product.merchant),
+    ).toEqual(expect.arrayContaining(["target.test", "wayfair.test"]));
+    expect(
+      result.failures.some((failure) =>
+        failure.detail.includes("passed the catalogue filters"),
+      ),
+    ).toBe(true);
   });
 
   it("reports an empty search instead of failing", async () => {
@@ -288,9 +394,11 @@ describe("explaining a silent page", () => {
       images: [],
     };
     const context = deps(pagesFrom([silent]));
-    const result = await runSearch(makeTask(), context.deps, {
-      minTierHits: 1,
-    });
+    const result = await runSearch(
+      makeTask({ query: "oak shelf" }),
+      context.deps,
+      { minTierHits: 1 },
+    );
     expect(result.candidates[0].product.measurement.dimensions).toBeNull();
     expect(result.failures.some((f) => f.detail.includes("order"))).toBe(true);
   });
@@ -360,8 +468,8 @@ describe("a tier whose every hit fails the ceiling", () => {
     expect(result.candidates.map((c) => c.product.sourceUrl)).toEqual([
       affordable.url,
     ]);
-    expect(
-      result.failures.some((f) => f.detail.includes("passed the filters")),
-    ).toBe(true);
+    expect(result.failures.some((f) => f.detail.includes("open web"))).toBe(
+      true,
+    );
   });
 });

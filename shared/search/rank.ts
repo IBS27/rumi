@@ -9,10 +9,10 @@ import { paletteScore } from "./color";
 
 const WEIGHTS: Record<keyof ScoreBreakdown, number> = {
   fit: 0.3,
-  style: 0.25,
-  color: 0.2,
+  style: 0.3,
+  color: 0.1,
   price: 0.15,
-  completeness: 0.1,
+  completeness: 0.15,
 };
 
 const clamp = (value: number) => Math.min(1, Math.max(0, value));
@@ -162,4 +162,35 @@ export function rankCandidates(
       if (known(a) !== known(b)) return known(b) - known(a);
       return b.score - a.score;
     });
+}
+
+// The first choices shown to the planner should represent different shops when the
+// retrieval set allows it. Score order still decides the best item from each merchant;
+// lower-ranked repeats fill any remaining slots afterward.
+export function diversifyMerchants(
+  candidates: RankedCandidate[],
+  target: number,
+): RankedCandidate[] {
+  if (target <= 1 || candidates.length <= 1) return candidates;
+  const selected: RankedCandidate[] = [];
+  const selectedIds = new Set<string>();
+  const merchants = new Set<string>();
+  for (const candidate of candidates) {
+    if (selected.length >= target) break;
+    const merchant = candidate.product.merchant;
+    if (merchants.has(merchant)) continue;
+    merchants.add(merchant);
+    selected.push(candidate);
+    selectedIds.add(candidate.product.id);
+  }
+  for (const candidate of candidates) {
+    if (selected.length >= target) break;
+    if (selectedIds.has(candidate.product.id)) continue;
+    selected.push(candidate);
+    selectedIds.add(candidate.product.id);
+  }
+  return [
+    ...selected,
+    ...candidates.filter((candidate) => !selectedIds.has(candidate.product.id)),
+  ];
 }

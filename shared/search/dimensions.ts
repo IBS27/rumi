@@ -38,7 +38,7 @@ const EMPTY: AxisValues = { width: null, height: null, depth: null };
 // Ranges a real product of each category falls inside, in meters. Used both to reject
 // an implausible reading and to resolve a measurement printed without its unit.
 export const PLAUSIBLE_RANGES: Record<
-  Category,
+  string,
   Record<Axis, [number, number]>
 > = {
   bed: { width: [0.7, 2.2], height: [0.2, 1.6], depth: [1.6, 2.3] },
@@ -49,12 +49,20 @@ export const PLAUSIBLE_RANGES: Record<
   art: { width: [0.1, 2.5], height: [0.1, 2.5], depth: [0.01, 0.15] },
 };
 
+// Unknown categories stay usable without pretending we know category-specific bounds.
+// This catches only physically implausible readings; fit is still enforced by the task.
+const GENERIC_RANGE: Record<Axis, [number, number]> = {
+  width: [0.01, 10],
+  height: [0.001, 10],
+  depth: [0.01, 10],
+};
+
 export function axisInRange(
   category: Category,
   axis: Axis,
   meters: number,
 ): boolean {
-  const [low, high] = PLAUSIBLE_RANGES[category][axis];
+  const [low, high] = (PLAUSIBLE_RANGES[category] ?? GENERIC_RANGE)[axis];
   return meters >= low && meters <= high;
 }
 
@@ -147,7 +155,7 @@ function axesFor(word: string, category: Category): Axis[] {
 
 // Two categories state their size as a pair by convention, and both can turn a
 // quarter on the floor or the wall, so the order carries no risk.
-const PAIR_AXES: Partial<Record<Category, [Axis, Axis]>> = {
+const PAIR_AXES: Record<string, [Axis, Axis]> = {
   rug: ["width", "depth"],
   art: ["width", "height"],
 };

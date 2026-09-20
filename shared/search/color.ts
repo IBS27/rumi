@@ -38,8 +38,13 @@ export function deltaOk(left: string, right: string): number {
 // so it is the point where the score reaches zero.
 const SCALE = 0.5;
 
+// An unread finish is uncertainty, not literal grey. Keep it neutral in ranking so a
+// missing color label cannot eliminate an otherwise strong product.
+export const UNKNOWN_COLOR = "#9ca3af";
+
 export function paletteScore(color: string, palette: string[]): number {
   if (palette.length === 0) return 0.5;
+  if (color.toLowerCase() === UNKNOWN_COLOR) return 0.5;
   const closest = Math.min(...palette.map((entry) => deltaOk(color, entry)));
   return Math.max(0, 1 - closest / SCALE);
 }

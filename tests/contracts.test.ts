@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import {
   measurementSchema,
   assetSchema,
+  searchTaskSchema,
   proposalSchema,
 } from "../shared/contracts";
 import {
@@ -22,6 +23,20 @@ import { fixtureSearch } from "../shared/fixtures/search";
 import schema from "../convex/schema";
 
 describe("team handoff", () => {
+  it("accepts item categories chosen by the main agent", () => {
+    expect(
+      searchTaskSchema.parse({
+        category: "dining chair",
+        query: "oak wishbone chair",
+        maxPriceCents: 30000,
+        maxFootprint: { width: 0.7, depth: 0.7 },
+        maxHeight: 1.2,
+        styleTerms: ["modern"],
+        palette: ["#c19a6b"],
+        excludeTags: [],
+      }).category,
+    ).toBe("dining chair");
+  });
   it("creates Convex table validators from the shared contracts", () => {
     expect(Object.keys(schema.tables)).toEqual([
       "rooms",

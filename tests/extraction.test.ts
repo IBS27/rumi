@@ -197,8 +197,15 @@ describe("retailer tiers", () => {
 
   it("returns bare hostnames for the tier", () => {
     const value = domainsFor(5000);
+    const mid = domainsFor(90000);
     const luxury = domainsFor(400000);
     expect(value.some((domain) => domain.includes("ikea"))).toBe(true);
+    expect(value).toEqual(
+      expect.arrayContaining(["walmart.com", "wayfair.com", "target.com"]),
+    );
+    expect(mid).toEqual(expect.arrayContaining(value));
+    expect(mid).toContain("article.com");
+    expect(luxury).toEqual(expect.arrayContaining(mid));
     expect(luxury).not.toEqual(value);
     for (const domain of [...value, ...luxury])
       expect(domain).toMatch(/^[a-z0-9.-]+\.[a-z]{2,}$/);

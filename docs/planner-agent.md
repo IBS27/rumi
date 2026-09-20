@@ -20,7 +20,9 @@ fills one list entry at a time. The planner never searches the web, never picks 
 merchant, and never places an object.
 
 The planner exists so the search subagent is never given an open-ended request.
-Every task it receives carries a category, a price ceiling, and a footprint ceiling.
+Every task it receives carries an item category named by the main agent, a price ceiling,
+and a footprint ceiling. Categories are open strings rather than a fixed room-specific
+list.
 
 ## Responsibilities
 

@@ -1,6 +1,7 @@
 // The price ceiling decides which shops are worth searching: a $60 lamp and a $2,000
-// lamp do not live in the same catalogues. Data, not prose, so it is testable and easy
-// to correct once each domain has been checked against the search provider.
+// lamp do not live in exactly the same catalogues. Each tier adds stores to the cheaper
+// tiers rather than replacing them: a larger budget should never hide a good IKEA or
+// Walmart result. Data, not prose, so the catalogue is testable and easy to maintain.
 
 export type Tier = "value" | "mid" | "luxury";
 
@@ -18,9 +19,21 @@ export const TIERS: TierDefinition[] = [
     domains: [
       "ikea.com",
       "target.com",
-      "wayfair.com",
-      "amazon.com",
       "walmart.com",
+      "wayfair.com",
+      "homedepot.com",
+      "lowes.com",
+      "costco.com",
+      "worldmarket.com",
+      "allmodern.com",
+      "jossandmain.com",
+      "ashleyfurniture.com",
+      "livingspaces.com",
+      "roomstogo.com",
+      "athome.com",
+      "rugsusa.com",
+      "ruggable.com",
+      "lampsplus.com",
     ],
   },
   {
@@ -35,6 +48,21 @@ export const TIERS: TierDefinition[] = [
       "floydhome.com",
       "roomandboard.com",
       "crateandbarrel.com",
+      "potterybarn.com",
+      "joybird.com",
+      "apt2b.com",
+      "castlery.com",
+      "albanypark.com",
+      "luluandgeorgia.com",
+      "rejuvenation.com",
+      "schoolhouse.com",
+      "urbanoutfitters.com",
+      "polyandbark.com",
+      "insideweather.com",
+      "sundays-company.com",
+      "branchfurniture.com",
+      "mcgeeandco.com",
+      "sixpenny.com",
     ],
   },
   {
@@ -48,6 +76,9 @@ export const TIERS: TierDefinition[] = [
       "muuto.com",
       "hermanmiller.com",
       "knoll.com",
+      "2modern.com",
+      "designpublic.com",
+      "finnishdesignshop.com",
     ],
   },
 ];
@@ -64,5 +95,10 @@ export function tierFor(maxPriceCents: number): Tier {
 
 export function domainsFor(maxPriceCents: number): string[] {
   const tier = tierFor(maxPriceCents);
-  return TIERS.find((definition) => definition.tier === tier)?.domains ?? [];
+  const through = TIERS.findIndex((definition) => definition.tier === tier);
+  return [
+    ...new Set(
+      TIERS.slice(0, through + 1).flatMap((definition) => definition.domains),
+    ),
+  ];
 }

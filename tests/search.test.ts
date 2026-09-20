@@ -4,10 +4,12 @@ import {
   canonicalUrl,
   dedupeHits,
   dedupeProducts,
+  diversifyHits,
   looksLikeListing,
   exaContents,
   exaSearch,
   filterCandidates,
+  isUnsupportedMerchant,
   merchantFor,
   productIdFor,
   resolveToFit,
@@ -59,8 +61,8 @@ describe("query building", () => {
     ).toBe("minimalist oak wardrobe under $400");
   });
 
-  it("falls back to the category when there is no query", () => {
-    expect(buildExaQuery(makeTask({ query: "" }))).toContain("storage");
+  it("requires the main agent to provide the item name", () => {
+    expect(() => makeTask({ query: "" })).toThrow();
   });
 
   it("chooses retailer domains from the price ceiling", () => {
@@ -73,6 +75,10 @@ describe("query building", () => {
     expect(searchDomains(makeTask({ maxPriceCents: 400000 }))).toContain(
       "dwr.com",
     );
+    expect(searchDomains(makeTask({ maxPriceCents: 90000 }))).toEqual(
+      expect.arrayContaining(["walmart.com", "ikea.com", "article.com"]),
+    );
+    expect(searchDomains(makeTask())).not.toContain("amazon.com");
   });
 });
 
@@ -200,6 +206,27 @@ describe("hard filters", () => {
       makeTask({ maxHeight: 2 }),
     );
     expect(kept).toHaveLength(0);
+  });
+
+  it("matches exclusions inside a longer tag or title", () => {
+    const task = makeTask({ excludeTags: ["drill"] });
+    const { kept } = filterCandidates(
+      [makeProduct({ tags: ["drilling required"] })],
+      task,
+    );
+    expect(kept).toHaveLength(0);
+  });
+
+  it("does not impose a bedroom-specific product taxonomy", () => {
+    const task = makeTask({
+      category: "dining chair",
+      query: "wishbone chair",
+    });
+    const { kept } = filterCandidates(
+      [makeProduct({ category: "dining chair", name: "Oak wishbone chair" })],
+      task,
+    );
+    expect(kept).toHaveLength(1);
   });
 });
 
@@ -339,5 +366,35 @@ describe("search hits", () => {
     ]);
     expect(hits).toHaveLength(1);
     expect(hits[0].url).toBe("https://www.dwr.com/line-wardrobe/2572723.html");
+  });
+
+  it("drops Amazon URLs because indexed product links are not dependable", () => {
+    expect(isUnsupportedMerchant("https://www.amazon.com/dp/B08Z8GHPFV")).toBe(
+      true,
+    );
+    expect(isUnsupportedMerchant("https://www.ikea.com/us/en/p/item/")).toBe(
+      false,
+    );
+    expect(
+      dedupeHits([
+        { url: "https://www.amazon.com/dp/B08Z8GHPFV", title: "Lamp" },
+        { url: "https://www.ikea.com/us/en/p/lamp-1234/", title: "Lamp" },
+      ]).map((hit) => hit.url),
+    ).toEqual(["https://www.ikea.com/us/en/p/lamp-1234/"]);
+  });
+
+  it("round-robins hits from different merchants", () => {
+    const hits = diversifyHits([
+      { url: "https://target.com/p/1", title: "one" },
+      { url: "https://target.com/p/2", title: "two" },
+      { url: "https://target.com/p/3", title: "three" },
+      { url: "https://walmart.com/ip/1", title: "four" },
+      { url: "https://ikea.com/p/1", title: "five" },
+    ]);
+    expect(hits.slice(0, 3).map((hit) => merchantFor(hit.url))).toEqual([
+      "target.com",
+      "walmart.com",
+      "ikea.com",
+    ]);
   });
 });

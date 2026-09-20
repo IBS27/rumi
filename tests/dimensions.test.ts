@@ -14,6 +14,16 @@ const near = (value: number | null, expected: number) => {
 };
 
 describe("dimension text", () => {
+  it("uses safe generic bounds for a category supplied by the main agent", () => {
+    const reading = parseDimensionText(
+      "Width: 22 in; Depth: 24 in; Height: 32 in",
+      "dining chair",
+    );
+    near(reading.values.width, 0.559);
+    near(reading.values.depth, 0.61);
+    near(reading.values.height, 0.813);
+    expect(reading.issue).toBeNull();
+  });
   it("reads inch dimensions written against each axis", () => {
     const reading = parseDimensionText(
       'Product Dimensions: 63"W x 18.9"D x 70.9"H',

@@ -32,14 +32,10 @@ export const measurementSchema = z
     (value) => (value.dimensions === null) === (value.evidence.kind === "none"),
     "Measurements without dimensions must have no evidence",
   );
-export const categorySchema = z.enum([
-  "bed",
-  "desk",
-  "lighting",
-  "rug",
-  "storage",
-  "art",
-]);
+// The main agent names the item to search for. Keep category open so search and room
+// records can carry dining, living-room, office, outdoor, or any future item type
+// without a contract migration.
+export const categorySchema = z.string().trim().min(1).max(80);
 export const assetSchema = z
   .object({
     id: idSchema,
@@ -140,7 +136,7 @@ export const footprintSchema = z.object({
 });
 export const hexColorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/);
 export const searchTaskSchema = z.object({
-  query: z.string(),
+  query: z.string().trim().min(1).max(200),
   category: categorySchema,
   maxPriceCents: z.number().int().nonnegative(),
   maxFootprint: footprintSchema.nullable(),

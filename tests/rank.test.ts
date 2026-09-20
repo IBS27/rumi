@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import {
   dedupeListings,
+  diversifyMerchants,
   rankCandidates,
   scoreCandidate,
 } from "../shared/search/rank";
@@ -156,5 +157,38 @@ describe("ranking", () => {
       "unknown",
     ]);
     expect(ranked[0].score).toBeGreaterThanOrEqual(ranked[1].score);
+  });
+
+  it("puts different merchants in the first result slots", () => {
+    const task = makeTask();
+    const ranked = rankCandidates(
+      [
+        makeProduct({ id: "target-1", merchant: "target.com" }),
+        makeProduct({
+          id: "target-2",
+          merchant: "target.com",
+          name: "Wide oak cabinet",
+          sourceUrl: "https://target.com/p/2",
+        }),
+        makeProduct({
+          id: "walmart",
+          merchant: "walmart.com",
+          name: "Oak sideboard cabinet",
+          sourceUrl: "https://walmart.com/ip/1",
+        }),
+        makeProduct({
+          id: "ikea",
+          merchant: "ikea.com",
+          name: "Oak door cabinet",
+          sourceUrl: "https://ikea.com/p/1",
+        }),
+      ],
+      task,
+    );
+    const diversified = diversifyMerchants(ranked, 3);
+    expect(
+      new Set(diversified.slice(0, 3).map((item) => item.product.merchant))
+        .size,
+    ).toBe(3);
   });
 });

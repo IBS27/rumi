@@ -10,14 +10,16 @@ import { relevantImages, type ImageRef } from "./images";
 import { parseProductJsonLd } from "./jsonld";
 import { factsFromJsonLd, factsFromShopify, nameFromTitle } from "./listing";
 import { htmlToText, type PageContent } from "./page";
-import { rankCandidates } from "./rank";
-import { isShopify, mapShopifyProduct, productJsonUrl } from "./shopify";
+import { diversifyMerchants, rankCandidates } from "./rank";
+import { mapShopifyProduct, productJsonUrl } from "./shopify";
 import { tierFor } from "./retailers";
 import {
   buildExaQuery,
   dedupeHits,
   dedupeProducts,
+  diversifyHits,
   filterCandidates,
+  merchantFor,
   resolveToFit,
   searchDomains,
   taskResult,
@@ -139,13 +141,15 @@ async function merchantLayer(
   images: ImageRef[];
   bodyText: string;
 }> {
-  if (!page.html || !isShopify(page.html))
-    return { facts: {}, images: [], bodyText: "" };
   const jsonUrl = productJsonUrl(page.url);
   if (!jsonUrl) return { facts: {}, images: [], bodyText: "" };
+  // A rendered or blocked page can lose Shopify's fingerprint. Probe the platform's
+  // deterministic product endpoint for /products/ URLs; non-Shopify stores simply 404
+  // or return a payload that mapShopifyProduct rejects.
   try {
     const payload = await deps.fetchJson(jsonUrl);
-    return factsFromShopify(mapShopifyProduct(payload), {
+    const product = mapShopifyProduct(payload);
+    return factsFromShopify(product, {
       maxPriceCents: task.maxPriceCents,
       palette: task.palette,
     });
@@ -164,18 +168,40 @@ export async function runSearch(
   const query = buildExaQuery(task);
   const domains = searchDomains(task);
 
-  let hits = await deps.search(query, settings.results, domains);
+  const search = async (
+    count: number,
+    includeDomains: string[],
+    label: string,
+  ): Promise<ExaSearchHit[]> => {
+    try {
+      return await deps.search(query, count, includeDomains);
+    } catch (error) {
+      failures.push({
+        stage: "search",
+        detail: `${label} search failed: ${message(error)}.`,
+      });
+      return [];
+    }
+  };
+
+  let hits = diversifyHits(
+    dedupeHits(await search(settings.results, domains, "Retailer catalogue")),
+  );
   let searchedOpenWeb = false;
-  if (hits.length < settings.minTierHits) {
+  const merchantCount = () =>
+    new Set(hits.map((hit) => merchantFor(hit.url))).size;
+  if (
+    hits.length < settings.minTierHits ||
+    merchantCount() < Math.min(settings.target, 3)
+  ) {
     searchedOpenWeb = true;
     failures.push({
       stage: "search",
-      detail: `Only ${hits.length} result(s) inside the ${tierFor(task.maxPriceCents)} tier, so the open web was searched as well.`,
+      detail: `The retailer catalogue returned ${hits.length} result(s) across ${merchantCount()} merchant(s), so the open web was searched as well.`,
     });
-    const open = await deps.search(query, settings.results, []);
-    hits = [...hits, ...open];
+    const open = await search(settings.results, [], "Open web");
+    hits = diversifyHits(dedupeHits([...hits, ...open]));
   }
-  hits = dedupeHits(hits);
   if (hits.length === 0)
     return taskResult(
       task,
@@ -269,14 +295,31 @@ export async function runSearch(
     dedupeProducts(candidates),
     task,
   );
-  // A tier can answer with pages that all fail the ceiling — a $900 wardrobe asked of
-  // shops whose cheapest is $6,000. That is not a reason to come back empty.
-  if (kept.length === 0 && domains.length > 0 && !searchedOpenWeb) {
+  const keptMerchantCount = () =>
+    new Set(kept.map((product) => product.merchant)).size;
+  const measuredMerchantCount = () =>
+    new Set(
+      kept
+        .filter((product) => product.measurement.dimensions !== null)
+        .map((product) => product.merchant),
+    ).size;
+  // Retrieval can look diverse while every affordable, in-stock survivor comes from one
+  // merchant, or while only one merchant publishes usable dimensions. Expand after the
+  // real filters too, not only when the raw hit list is thin.
+  if (
+    (kept.length === 0 ||
+      keptMerchantCount() < Math.min(settings.target, 3) ||
+      measuredMerchantCount() < Math.min(settings.target, 3)) &&
+    domains.length > 0 &&
+    !searchedOpenWeb
+  ) {
     failures.push({
       stage: "search",
-      detail: `Nothing inside the ${tierFor(task.maxPriceCents)} tier passed the filters, so the open web was searched as well.`,
+      detail: `${kept.length} listing(s) across ${keptMerchantCount()} merchant(s) passed the catalogue filters, with usable dimensions from ${measuredMerchantCount()} merchant(s), so the open web was searched as well.`,
     });
-    await collect(dedupeHits(await deps.search(query, settings.results, [])));
+    const open = await search(settings.results, [], "Open web");
+    hits = diversifyHits(dedupeHits([...hits, ...open]));
+    await collect(diversifyHits(dedupeHits(open)));
     ({ kept, failures: filterFailures } = filterCandidates(
       dedupeProducts(candidates),
       task,
@@ -284,7 +327,10 @@ export async function runSearch(
   }
   failures.push(...filterFailures);
 
-  const ranked = rankCandidates(kept, task);
+  const ranked = diversifyMerchants(
+    rankCandidates(kept, task),
+    settings.target,
+  );
 
   const { kept: sized, failures: sizingFailures } = await resolveToFit({
     candidates: ranked.map((candidate) => candidate.product),
@@ -330,7 +376,10 @@ export async function runSearch(
   });
   failures.push(...sizingFailures);
 
-  const finalists = rankCandidates(sized, task);
+  const finalists = diversifyMerchants(
+    rankCandidates(sized, task),
+    settings.target,
+  );
   if (deps.persist && finalists.length > 0)
     await deps.persist(finalists.map((candidate) => candidate.product));
 
@@ -348,7 +397,7 @@ export async function runSearch(
     task,
     finalists,
     distinct,
-    `Searched ${hits.length} ${task.category} listing(s) in the ${tierFor(task.maxPriceCents)} tier and kept ${finalists.length}, ${measured} of which have dimensions. Sizes are read from merchant pages and are estimates until confirmed.`,
+    `Searched ${hits.length} ${task.category} listing(s) across ${merchantCount()} merchant(s), through the ${tierFor(task.maxPriceCents)} tier, and kept ${finalists.length}; ${measured} have dimensions. Sizes are read from merchant pages and are estimates until confirmed.`,
   );
 }
 

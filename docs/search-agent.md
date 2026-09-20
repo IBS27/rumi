@@ -31,7 +31,9 @@ unknown is still returned, ranked below every sized candidate, and flagged.
 ```
 
 `maxPriceCents` is the only price field: no floor, no target. `palette` is a list of hex
-values from the main agent; colour is scored against it, never filtered by it.
+values from the main agent; colour is scored against it, never filtered by it. `category`
+is an open string supplied by the main agent, not a bedroom-only enum. The `query` names
+the actual item to retrieve, such as `wishbone dining chair` or `outdoor side table`.
 
 ## Output
 
@@ -53,16 +55,26 @@ re-running the search. `failures` records, per stage, why candidates were droppe
 Cheap signals filter first. The one expensive stage — reading a dimension drawing — runs
 last, on ranked survivors, and only until enough candidates fit.
 
-| #   | Stage                                                      | Cost                    | Notes                                                                                   |
-| --- | ---------------------------------------------------------- | ----------------------- | --------------------------------------------------------------------------------------- |
-| 1   | Query and retailer tier                                    | free                    | `[styleTerms] [query] under $X`, with the tier's domains as `includeDomains`            |
-| 2   | Exa `/search`, 12 results                                  | 1 call                  | Under 6 hits inside the tier, the open web is searched too and the fallback is recorded |
-| 3   | Rendered contents, plus a direct fetch of the markup       | 1 call + N cheap GETs   | See _Reading a page_                                                                    |
-| 4   | Merchant data: Shopify JSON, then JSON-LD                  | free                    | Replaces a model for price, variants and stock                                          |
-| 5   | Model extraction, only for what merchant data left missing | ≤ 1 cheap call per page | Skipped entirely when the merchant answered                                             |
-| 6   | Cheap dimension stages                                     | free                    | Structured data, then the page specification                                            |
-| 7   | Filters, dedupe, ranking                                   | free                    | Availability, price, excluded tags, size                                                |
-| 8   | Read drawings in rank order until K fit                    | ≤ 3 vision calls        | `resolveToFit`                                                                          |
+| #   | Stage                                                      | Cost                    | Notes                                                                                                      |
+| --- | ---------------------------------------------------------- | ----------------------- | ---------------------------------------------------------------------------------------------------------- |
+| 1   | Query and cumulative retailer catalogue                    | free                    | `[styleTerms] [query] under $X`; larger budgets retain all cheaper stores                                  |
+| 2   | Search the retailer catalogue                              | 1 call                  | Hits are round-robined by merchant; thin or single-store results trigger an open-web search                |
+| 3   | Rendered contents, plus a direct fetch of the markup       | 1 call + N cheap GETs   | See _Reading a page_                                                                                       |
+| 4   | Merchant data: Shopify JSON, then JSON-LD                  | free                    | Replaces a model for price, variants and stock                                                             |
+| 5   | Model extraction, only for what merchant data left missing | ≤ 1 cheap call per page | Skipped entirely when the merchant answered                                                                |
+| 6   | Cheap dimension stages                                     | free                    | Structured data, then the page specification                                                               |
+| 7   | Filters, dedupe, ranking                                   | free                    | Availability, price, partial-word exclusions and size; colour remains soft                                 |
+| 8   | Diversify merchants, then read drawings until K fit        | ≤ 3 vision calls        | The first choices use different merchants where possible; `resolveToFit` handles the dimension-read budget |
+
+The catalogue spans mass retailers and furniture specialists: IKEA, Target, Walmart,
+Wayfair, Home Depot, Lowe's, Costco, World Market, AllModern, Joss & Main,
+Article, West Elm, CB2, Burrow, Floyd, Room & Board, Crate & Barrel, Pottery Barn,
+Joybird, Castlery, Rugs USA, Ruggable, Lamps Plus and others. Price tiers are cumulative,
+so a $900 ceiling searches value and mid-tier stores. If fewer than three merchants
+surface—or fewer than three surviving merchants publish usable dimensions—the open web
+is queried to discover stores outside the catalogue, including independent Shopify
+storefronts. Amazon is excluded because its indexed product URLs did not reliably open
+for users.
 
 ### Reading a page
 
@@ -78,8 +90,8 @@ slug, which is what separates a gallery photograph from the site's own banner.
 
 ### Merchant data
 
-When the host is Shopify — `cdn.shopify.com` in the markup, or a 200 from
-`/products.json` — price, every variant, stock and image URLs come from that JSON. These
+When the host is Shopify — `cdn.shopify.com` in the markup, or a valid response from
+`/products/{handle}.json` — price, every variant, stock and image URLs come from that JSON. These
 are the merchant's own values, so they replace a model reading a page and remove the
 worst error class: a sale price, a "from" price, or the wrong variant. The variant chosen
 is the cheapest in-stock one within the ceiling whose finish name sits closest to the
@@ -133,6 +145,37 @@ axes we already know is trustworthy on the axis we do not.
   inside the category's plausible range. Exactly one answer means the unit is known; two
   answers mean it stays unknown.
 
+### Showcase-image dimension extraction
+
+When a listing has no complete dimensions in structured data or page text, the agent
+must inspect the listing's own product-gallery images. It downloads the image bytes
+before the vision call; it does not ask the model to follow an image URL or infer scale
+from the furniture's appearance.
+
+The vision prompt has a hard no-guessing rule: it may return only measurements whose
+numbers are visibly printed in the image. It reports all printed measurements with
+their labels, axis, unit, and whether each is an overall product measurement or a
+component measurement. Code then selects one consistent overall width, height, and
+depth, rejects conflicting or implausible readings, and records `evidence.kind` as
+`image` (or `mixed` when text supplied some axes). If the showcase contains no printed
+measurements, the result is `dimensions: null`, `source: "unknown"`.
+
+This means a diagram such as a wardrobe product-size image can produce the overall
+dimensions while ignoring drawer, shelf, opening, and leg measurements. A normal hero
+photograph without printed labels cannot produce dimensions.
+
+Acceptance checks:
+
+- product-gallery images are considered even when their URL or alt text is generic;
+- image bytes are passed to vision, not an unverified remote URL;
+- printed labels are copied verbatim and converted to metres by the shared parser;
+- ordinary photographs and images without printed measurements return `unknown`;
+- a diagram that disagrees with known page dimensions is discarded rather than guessed.
+
+The implementation lives in `convex/extract.ts`, `shared/search/images.ts`, and
+`shared/search/cascade.ts`; the no-text/image-only and contradiction cases are covered
+by `tests/cascade.test.ts` and `tests/extract.test.ts`.
+
 ### Reading a drawing
 
 A product photograph carries no scale and is never a source. A dimension drawing is
@@ -178,6 +221,10 @@ A reading is discarded, never repaired, when:
   | storage  | 0.30–3.00 | 0.20–2.60  | 0.20–0.80 |
   | art      | 0.10–2.50 | 0.10–2.50  | 0.01–0.15 |
 
+Categories outside this tuned set use broad physical sanity bounds. The search remains
+available for any item named by the main agent, while unitless measurements stay unknown
+unless exactly one unit interpretation is safe.
+
 - It contradicts what the page text already said.
 
 A sum check over the component measurements was tried and dropped: parts overlap, so they
@@ -191,8 +238,9 @@ Exa cannot filter by colour, so colour is a score and an exact match is not the 
 piece only has to belong to the palette. Colour is resolved from the variant or finish
 name through a lexicon — `Walnut`, `Cherry`, `Natural Oak`, `Brushed Brass` — which is
 free, deterministic, and what the merchant itself calls the finish. Distance is measured
-in OKLab, which is perceptually even, against the closest palette entry. A colour that
-could not be read stays a neutral grey rather than a guess.
+in OKLab, which is perceptually even, against the closest palette entry. An unread colour
+gets a neutral score rather than being treated as literal grey. Colour contributes only
+10% of the rank and is never a filter.
 
 ## Ranking
 
@@ -202,12 +250,14 @@ normalised title and price proximity, so it cannot fill the whole result.
 | Signal       | Weight | Definition                                                                                                    |
 | ------------ | ------ | ------------------------------------------------------------------------------------------------------------- |
 | Fit          | 0.30   | How much of the allowed footprint the piece uses. Far below it is penalised; above it was already eliminated. |
-| Style        | 0.25   | Overlap of `styleTerms` with title, tags and variant.                                                         |
-| Colour       | 0.20   | OKLab proximity to the palette.                                                                               |
+| Style        | 0.30   | Overlap of `styleTerms` with title, tags and variant.                                                         |
+| Colour       | 0.10   | OKLab proximity to the palette; unread colour is neutral.                                                     |
 | Price        | 0.15   | Rewards sensible use of the ceiling; below a fifth of it, penalised as an accessory.                          |
-| Completeness | 0.10   | `structured` dimensions beat `image` ones; known stock and real photographs beat unknowns.                    |
+| Completeness | 0.15   | `structured` dimensions beat `image` ones; known stock and real photographs beat unknowns.                    |
 
-Candidates without dimensions rank below every candidate that has them.
+Candidates without dimensions rank below every candidate that has them. Product identity
+comes from the main agent's query and the search provider; there is no bedroom-specific
+type dictionary that can block a new category.
 
 ## Fill to K
 
@@ -254,8 +304,9 @@ missing image throws. That is caught per candidate and degrades to unknown dimen
 rather than failing the search.
 
 Live runs against four bedroom briefs — a lamp, a rug, a wardrobe, a print — are the
-working benchmark: at the time of writing, 6 of 10 returned candidates carry a size,
-lamps and case goods reliably, rugs usually, prints never (no stated depth).
+working benchmark. The 2026-09-19 regression run returned 10 sized candidates out of 12
+and exposed two retrieval issues now covered by tests: one merchant could dominate after
+dimension checks, and indexed Amazon URLs could be dead for the user.
 
 Known gaps, recorded as tests rather than hidden:
 

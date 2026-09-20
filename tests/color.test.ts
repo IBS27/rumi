@@ -1,5 +1,10 @@
 import { describe, expect, it } from "bun:test";
-import { colorFromWords, deltaOk, paletteScore } from "../shared/search/color";
+import {
+  colorFromWords,
+  deltaOk,
+  paletteScore,
+  UNKNOWN_COLOR,
+} from "../shared/search/color";
 
 describe("color proximity", () => {
   it("scores an identical color as a perfect match", () => {
@@ -22,6 +27,11 @@ describe("color proximity", () => {
 
   it("gives a neutral score when there is no palette", () => {
     expect(paletteScore("#b78d60", [])).toBe(0.5);
+  });
+
+  it("keeps an unread finish neutral instead of treating it as grey", () => {
+    expect(paletteScore(UNKNOWN_COLOR, ["#f0d2a0"])).toBe(0.5);
+    expect(paletteScore(UNKNOWN_COLOR, ["#112244"])).toBe(0.5);
   });
 
   it("separates black from white", () => {

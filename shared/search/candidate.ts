@@ -5,7 +5,8 @@ import {
   type ProductCandidate,
 } from "../contracts";
 import { z } from "zod";
-import { colorFromWords } from "./color";
+import { colorFromWords, UNKNOWN_COLOR } from "./color";
+export { UNKNOWN_COLOR } from "./color";
 import { merchantFor, productIdFor } from "./index";
 
 // What a listing says about itself, whoever said it. Merchant data and model readings
@@ -33,9 +34,6 @@ export const NO_FACTS: ListingFacts = {
   imageUrl: null,
   images: [],
 };
-
-// Neutral grey: a color we did not read, rather than a color we invented.
-export const UNKNOWN_COLOR = "#9ca3af";
 
 /** Earlier sources win. Merchant data is passed before anything a model produced. */
 export function pickFacts(sources: Partial<ListingFacts>[]): ListingFacts {

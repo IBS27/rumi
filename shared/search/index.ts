@@ -162,12 +162,52 @@ export function dedupeHits(hits: ExaSearchHit[]): ExaSearchHit[] {
   const kept: ExaSearchHit[] = [];
   for (const hit of hits) {
     const canonical = canonicalUrl(hit.url);
-    if (!canonical || seen.has(canonical) || !looksLikeListing(canonical))
+    if (
+      !canonical ||
+      seen.has(canonical) ||
+      !looksLikeListing(canonical) ||
+      isUnsupportedMerchant(canonical)
+    )
       continue;
     seen.add(canonical);
     kept.push({ ...hit, url: canonical });
   }
   return kept;
+}
+
+// Exa can index Amazon product URLs that no longer resolve for users. Do not return a
+// merchant link unless the pipeline can provide a dependable destination.
+export function isUnsupportedMerchant(raw: string): boolean {
+  try {
+    const hostname = new URL(raw).hostname.toLowerCase();
+    return hostname === "amazon.com" || hostname.endsWith(".amazon.com");
+  } catch {
+    return true;
+  }
+}
+
+// Search providers often return a full page from one heavily indexed retailer. Round
+// robin by host before pages are fetched so those results cannot crowd every other shop
+// (and every independent Shopify storefront) out of the extraction budget.
+export function diversifyHits(hits: ExaSearchHit[]): ExaSearchHit[] {
+  const queues = new Map<string, ExaSearchHit[]>();
+  for (const hit of hits) {
+    const merchant = merchantFor(hit.url);
+    const queue = queues.get(merchant) ?? [];
+    queue.push(hit);
+    queues.set(merchant, queue);
+  }
+  const diversified: ExaSearchHit[] = [];
+  let remaining = hits.length;
+  while (remaining > 0) {
+    for (const queue of queues.values()) {
+      const hit = queue.shift();
+      if (!hit) continue;
+      diversified.push(hit);
+      remaining--;
+    }
+  }
+  return diversified;
 }
 
 // Retrieval reads better from a short noun phrase than from a sentence of constraints.
@@ -219,16 +259,32 @@ export function dedupeProducts(
   });
 }
 
+function normalizedText(value: string): string {
+  return ` ${value.toLowerCase().replace(/[^a-z0-9]+/g, " ")} `;
+}
+
+function includesTermPrefix(text: string, term: string): boolean {
+  const normalized = normalizedText(term).trim();
+  return new RegExp(`\\b${normalized}`).test(text);
+}
+
 // Hard constraints only. A product whose dimensions are still unknown survives here:
 // it is resolved later, and ranked last if it stays unknown.
 export function filterCandidates(
   products: ProductCandidate[],
   task: SearchTask,
 ): { kept: ProductCandidate[]; failures: SearchFailure[] } {
-  const excluded = new Set(task.excludeTags.map((tag) => tag.toLowerCase()));
+  const excluded = new Set(
+    task.excludeTags.map((tag) => tag.trim().toLowerCase()).filter(Boolean),
+  );
   const failures: SearchFailure[] = [];
   const kept: ProductCandidate[] = [];
-  const counts = { price: 0, availability: 0, size: 0, tags: 0 };
+  const counts = {
+    price: 0,
+    availability: 0,
+    size: 0,
+    tags: 0,
+  };
   for (const product of products) {
     if (product.availability === "unavailable") {
       counts.availability++;
@@ -238,8 +294,11 @@ export function filterCandidates(
       counts.price++;
       continue;
     }
+    const searchable = normalizedText(
+      `${product.name} ${product.tags.join(" ")} ${product.variantId}`,
+    );
     if (
-      product.tags.some((tag) => excluded.has(tag.toLowerCase())) ||
+      [...excluded].some((tag) => includesTermPrefix(searchable, tag)) ||
       excluded.has(product.category)
     ) {
       counts.tags++;
