@@ -13,19 +13,12 @@ import {
 } from "../contracts";
 import { selectionTotal } from "../budget";
 import { buildSpaceModel, type SpaceModel } from "./space";
-import { reserveZones } from "./zones";
+import { isAccessoryMount, planScope, sameCategory } from "./scope";
+import { mountFor, reserveZones } from "./zones";
 
 export { buildSpaceModel } from "./space";
-export { marginsFor, mountFor, reserveZones } from "./zones";
-
-export const MAX_ZONES = 6;
-export const MAX_SUGGESTIONS = 2;
-
-function sameCategory(a: string, b: string): boolean {
-  const norm = (value: string) => value.toLowerCase().replace(/s\b/g, "").trim();
-  const x = norm(a), y = norm(b);
-  return x === y || x.includes(y) || y.includes(x);
-}
+export { marginsFor, mountFor, reserveZones, scaleMargins } from "./zones";
+export { MAX_ZONES, SPACING_FACTOR, describeScope, planScope } from "./scope";
 
 const RESTRICTION_TAGS: [RegExp, string[]][] = [
   [/no drill|no drilling|no holes|renter|rental/i, ["wall-mounted", "drilling required"]],
@@ -142,25 +135,37 @@ export function buildDesignPlan({
     throw new Error(
       `The room already has a ${duplicate.category}; plan around it instead of adding another.`,
     );
-  // Every want needs a zone. Anything beyond the wants is a suggestion, and
-  // there may be only a few of those.
-  const missing = brief.wants.filter(
-    (want) => !parsed.zones.some((zone) => sameCategory(zone.category, want.category)),
+  // The scope says what the model may add. Every required item needs a zone.
+  // In directed mode, extra floor furniture is capped; accessories follow the
+  // user's answer. In delegated mode the count is the model's judgment.
+  const scope = planScope(brief);
+  const missing = scope.required.filter(
+    (category) =>
+      !parsed.zones.some((zone) => sameCategory(zone.category, category)),
   );
   if (missing.length)
     throw new Error(
-      `The plan leaves out items the user asked for: ${missing.map((want) => want.category).join(", ")}. Add a zone for each.`,
+      `The plan leaves out items the user asked for: ${missing.join(", ")}. Add a zone for each.`,
     );
   const isSuggested = (category: string) =>
-    brief.wants.length > 0 &&
-    !brief.wants.some((want) => sameCategory(want.category, category));
-  const suggestions = parsed.zones.filter((zone) => isSuggested(zone.category));
-  if (suggestions.length > MAX_SUGGESTIONS)
+    scope.mode === "directed" &&
+    !scope.required.some((required) => sameCategory(required, category));
+  const extraFurniture = parsed.zones.filter(
+    (zone) => isSuggested(zone.category) && !isAccessoryMount(mountFor(zone)),
+  );
+  if (extraFurniture.length > scope.maxExtraFurniture)
     throw new Error(
-      `Only ${MAX_SUGGESTIONS} suggested items are allowed beyond the user's wants; drop ${suggestions.length - MAX_SUGGESTIONS}.`,
+      `Only ${scope.maxExtraFurniture} extra floor piece is allowed beyond the user's items; drop ${extraFurniture.map((zone) => zone.category).join(", ")} down to ${scope.maxExtraFurniture}.`,
+    );
+  const accessories = parsed.zones.filter(
+    (zone) => isAccessoryMount(mountFor(zone)) && isSuggested(zone.category) === (scope.mode === "directed"),
+  );
+  if (scope.accessories === "skip" && accessories.length)
+    throw new Error(
+      `The user does not want accessories; drop ${accessories.map((zone) => zone.category).join(", ")}.`,
     );
   const model = buildSpaceModel(room);
-  const reserved = reserveZones(room, model, parsed.zones);
+  const reserved = reserveZones(room, model, parsed.zones, parsed.spacing);
   const zones = reserved.zones.map((zone) => ({
     ...zone,
     suggested: isSuggested(zone.category),
@@ -177,6 +182,7 @@ export function buildDesignPlan({
     roomId: room.id,
     baseRevision: room.revision,
     summary: parsed.summary,
+    spacing: parsed.spacing,
     zones,
     rejected,
     tasks,

@@ -5,13 +5,17 @@ import { syntheticRoomPlan } from "../shared/fixtures/roomplan";
 import { importRoomPlan } from "../shared/capture/roomplan";
 import { placementIssue } from "../shared/geometry";
 import {
+  SPACING_FACTOR,
   allocateBudget,
   buildDesignPlan,
   buildSpaceModel,
+  describeScope,
   evaluateFill,
   excludeTagsFor,
   marginsFor,
+  planScope,
   reserveZones,
+  scaleMargins,
 } from "../shared/planner";
 import {
   freeArea,
@@ -37,6 +41,7 @@ const lampZone = {
 
 const request: ZonePlanRequest = {
   summary: "Add warm lighting and a rug around the existing bed.",
+  spacing: "balanced",
   zones: [
     lampZone,
     {
@@ -367,6 +372,7 @@ describe("accessories", () => {
       products: sampleProducts,
       request: {
         summary: "Accessories only.",
+        spacing: "balanced",
         zones: [
           { ...lampZone, id: "mirror", category: "wall mirror", query: "round mirror", relatedObjectId: null, desiredFootprint: { width: 0.6, depth: 0.05 } },
           { ...lampZone, id: "runner", category: "runner rug", query: "runner rug", relatedObjectId: null, desiredFootprint: { width: 0.7, depth: 2 }, priority: 2 },
@@ -386,6 +392,7 @@ describe("accessories", () => {
       products: sampleProducts,
       request: {
         summary: "One painting.",
+        spacing: "balanced",
         zones: [
           { ...lampZone, id: "art", category: "wall art", query: "canvas", mount: "wall", relatedObjectId: null, desiredFootprint: { width: 1.0, depth: 0.04 }, desiredHeight: 0.7 },
         ],
@@ -513,20 +520,71 @@ describe("design plan", () => {
     expect(plan.tasks[1].miscellaneous).not.toContain("warm dimmable light");
   });
 
-  it("caps suggestions at two beyond the wants", () => {
+  it("allows one extra floor piece beyond the wants, accessories aside", () => {
     const brief = { ...sampleBrief, wants: [{ category: "floor lamp", notes: "" }] };
-    const extra = (id: string, category: string) => ({
-      ...lampZone, id, category, query: category, relatedObjectId: null,
-      desiredFootprint: { width: 0.5, depth: 0.05 }, priority: 2,
+    const extra = (id: string, category: string, mount: "floor" | "wall" = "floor") => ({
+      ...lampZone, id, category, query: category, mount, relatedObjectId: null,
+      desiredFootprint: { width: 0.5, depth: mount === "wall" ? 0.05 : 0.5 }, priority: 2,
     });
     expect(() =>
       buildDesignPlan({
         room: sampleRoom,
         brief,
         products: sampleProducts,
-        request: { ...request, zones: [lampZone, extra("a", "wall art"), extra("b", "mirror"), extra("c", "clock")] },
+        request: { ...request, zones: [lampZone, extra("a", "armchair"), extra("b", "side table")] },
       }),
-    ).toThrow("Only 2 suggested items");
+    ).toThrow("Only 1 extra floor piece");
+    const { plan } = buildDesignPlan({
+      room: sampleRoom,
+      brief,
+      products: sampleProducts,
+      request: { ...request, zones: [lampZone, extra("a", "armchair"), extra("b", "wall art", "wall"), extra("c", "mirror", "wall")] },
+    });
+    expect(plan.zones.filter((zone) => zone.suggested)).toHaveLength(3);
+  });
+
+  it("delegates item choice when no wants are given and refuses accessories on request", () => {
+    const delegated = { ...sampleBrief, wants: [], purpose: "bedroom" };
+    expect(planScope(delegated).mode).toBe("delegated");
+    expect(describeScope(planScope(delegated), "bedroom")).toContain("has not listed items");
+    const { plan } = buildDesignPlan({
+      room: sampleRoom,
+      brief: delegated,
+      products: sampleProducts,
+      request,
+    });
+    // Delegated pieces are the plan, not suggestions.
+    expect(plan.zones.every((zone) => !zone.suggested)).toBe(true);
+    expect(() =>
+      buildDesignPlan({
+        room: sampleRoom,
+        brief: { ...delegated, accessories: "skip" },
+        products: sampleProducts,
+        request,
+      }),
+    ).toThrow("does not want accessories; drop rug");
+  });
+
+  it("scales clearance with spacing but never below the safety minimums", () => {
+    const bed = marginsFor("bed");
+    expect(scaleMargins(bed, "airy").front).toBeCloseTo(0.94, 2);
+    expect(scaleMargins(bed, "cozy").sides).toBeCloseTo(0.51, 2);
+    // A lamp's 0.3 m front clearance is already under the walking minimum, so
+    // cozy keeps it at 0.3 rather than shrinking or inflating it.
+    expect(scaleMargins(marginsFor("floor lamp"), "cozy").front).toBe(0.3);
+    expect(scaleMargins(marginsFor("floor lamp"), "balanced")).toEqual(marginsFor("floor lamp"));
+    // A sofa's 0.75 m front may shrink only to the 0.6 m walking minimum.
+    expect(scaleMargins(marginsFor("sofa"), "cozy").front).toBe(0.64);
+    expect(scaleMargins(marginsFor("rug"), "airy")).toEqual({ front: 0, back: 0, sides: 0 });
+    const model = buildSpaceModel({ ...sampleRoom, objects: [] });
+    const zone = (id: string) => ({
+      ...lampZone, id, category: "bed", query: "bed", anchor: "wall" as const,
+      relatedObjectId: null, desiredFootprint: { width: 1.6, depth: 2 }, desiredHeight: null,
+    });
+    const airy = reserveZones({ ...sampleRoom, objects: [] }, model, [zone("bed")], "airy");
+    const cozy = reserveZones({ ...sampleRoom, objects: [] }, model, [zone("bed")], "cozy");
+    expect(airy.zones[0].margins.sides).toBeGreaterThan(cozy.zones[0].margins.sides);
+    expect(SPACING_FACTOR.airy).toBeGreaterThan(SPACING_FACTOR.cozy);
   });
 
   it("reports whether a found product fits its zone", () => {

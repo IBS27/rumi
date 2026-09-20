@@ -4,7 +4,8 @@ import type {
   ZoneRejection,
   ZoneRequest,
 } from "../contracts";
-import type { ZoneMount } from "../contracts";
+import type { Spacing, ZoneMount } from "../contracts";
+import { SPACING_FACTOR } from "./scope";
 import {
   FURNITURE_GAP,
   WALK_PATH,
@@ -47,6 +48,24 @@ export function marginsFor(category: string): Margins {
     return { front: 0.3, back: 0.02, sides: 0.15 };
   if (/rug/.test(value)) return { front: 0, back: 0, sides: 0 };
   return { front: WALK_PATH, back: 0.05, sides: FURNITURE_GAP };
+}
+
+// A person still needs to get past the piece and open it, whatever the style.
+// A cozy plan may not scale a clearance below the walking minimum, or below
+// the category's own value when that is already smaller (a lamp needs 0.3 m).
+const MIN_FRONT = 0.6;
+const MIN_SIDES = 0.1;
+
+export function scaleMargins(margins: Margins, spacing: Spacing): Margins {
+  const factor = SPACING_FACTOR[spacing];
+  const round = (value: number) => Math.round(value * 100) / 100;
+  const scale = (value: number, minimum: number) =>
+    value === 0 ? 0 : round(Math.max(Math.min(value, minimum), value * factor));
+  return {
+    front: scale(margins.front, MIN_FRONT),
+    back: margins.back,
+    sides: scale(margins.sides, MIN_SIDES),
+  };
 }
 
 function reservationRing(
@@ -411,6 +430,7 @@ export function reserveZones(
   room: RoomSnapshot,
   model: SpaceModel,
   requests: ZoneRequest[],
+  spacing: Spacing = "balanced",
   maxRoomHeight = room.dimensions.height,
 ): { zones: ReservedZone[]; rejected: ZoneRejection[] } {
   const zones: ReservedZone[] = [];
@@ -442,7 +462,10 @@ export function reserveZones(
       else zones.push({ ...result, priority: zones.length + 1 });
       continue;
     }
-    const margins = mount === "under" ? marginsFor("rug") : marginsFor(request.category);
+    const margins = scaleMargins(
+      mount === "under" ? marginsFor("rug") : marginsFor(request.category),
+      spacing,
+    );
     let placed: ReservedZone | null = null;
     const issues = new Map<string, number>();
     let lastIssue = "no free floor space";

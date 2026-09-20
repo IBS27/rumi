@@ -15,9 +15,10 @@ import {
   type RoomSnapshot,
 } from "../shared/contracts";
 import {
-  MAX_SUGGESTIONS,
   buildDesignPlan,
   buildSpaceModel,
+  describeScope,
+  planScope,
 } from "../shared/planner";
 import { freeArea, type SpaceModel } from "../shared/planner/space";
 
@@ -67,11 +68,21 @@ export async function proposeZones(
     .filter((object) => object.owned || object.locked)
     .map((object) => object.category);
   const { object } = await generateObject({
-    model: openai(process.env.RUMI_PLANNER_MODEL ?? process.env.RUMI_AGENT_MODEL ?? "gpt-4o"),
+    model: openai(
+      process.env.RUMI_PLANNER_MODEL ??
+        process.env.RUMI_AGENT_MODEL ??
+        "gpt-5.6-sol",
+    ),
     schema: zonePlanWireSchema,
     // Strict mode makes the provider enforce the schema so a stray string or
-    // missing field is not returned as an unusable object.
-    providerOptions: { openai: { strictJsonSchema: true } },
+    // missing field is not returned as an unusable object. Low reasoning is
+    // enough for a bounded layout choice and keeps the plan card fast.
+    providerOptions: {
+      openai: {
+        strictJsonSchema: true,
+        reasoningEffort: process.env.RUMI_PLANNER_REASONING ?? "low",
+      },
+    },
     abortSignal: AbortSignal.timeout(60000),
     experimental_repairText: async ({ text, error }) => {
       console.warn("planner output did not match schema", {
@@ -82,7 +93,7 @@ export async function proposeZones(
     },
     system: [
       "You are the space planner for rumi, an interior design agent.",
-      "Propose up to 6 zones. Each zone is one piece of furniture the room still needs. category is a product type such as \"floor lamp\", \"wardrobe\", or \"area rug\", never a room or area name. query is a short shopping phrase for that product. Give the purpose, an anchor (wall, corner, center, window, near-object, anywhere), a realistic desired footprint in meters, and an optional height.",
+      "Return spacing (airy, balanced, or cozy) judged from the style, then up to 6 zones. Each zone is one piece of furniture the room still needs. category is a product type such as \"floor lamp\", \"wardrobe\", or \"area rug\", never a room or area name. query is a short shopping phrase for that product. Give the purpose, an anchor (wall, corner, center, window, near-object, anywhere), a realistic desired footprint in meters, and an optional height.",
       "Include accessories when they suit the brief: wall art, mirrors, rugs, table or desk lamps, plants, and similar pieces that take little floor space.",
       "mount says where a piece lives: floor (stands on the floor), wall (hung: art, mirror, wall shelf), surface (sits on top of a table, desk, dresser, or nightstand; relatedObjectId must name that host, either an existing object id or another zone id in this plan), under (a rug that lies under other furniture). Floor space is counted only for floor pieces.",
       "For wall pieces, desiredFootprint.width is the width along the wall and desiredHeight is the hanging height. For surface pieces, desiredFootprint is the base that rests on the host.",
@@ -97,11 +108,13 @@ export async function proposeZones(
       `Categories already covered: ${occupied.length ? occupied.join(", ") : "none"}.`,
       `Brief: ${brief.prompt || "(none)"}. Styles: ${brief.styles.join(", ") || "(none)"}. Palette: ${brief.palette.join(", ") || "(none)"}. Materials: ${brief.materials.join(", ") || "(none)"}. Restrictions: ${brief.restrictions.join(", ") || "(none)"}. Budget: ${brief.budgetCents > 0 ? `$${(brief.budgetCents / 100).toFixed(0)}` : "not specified"}.`,
       brief.inspiration ? `Inspiration: ${brief.inspiration}` : "",
-      brief.wants.length
-        ? `Items the user asked for (each MUST get its own zone, category matching): ${brief.wants
-            .map((want) => `${want.category}${want.notes ? ` (${want.notes})` : ""}`)
-            .join("; ")}. You may add at most ${MAX_SUGGESTIONS} extra accessories that suit the style.`
-        : "The user has not listed items; propose what the room needs.",
+      describeScope(planScope(brief), brief.purpose),
+      brief.wants.some((want) => want.notes)
+        ? `Notes on requested items: ${brief.wants
+            .filter((want) => want.notes)
+            .map((want) => `${want.category}: ${want.notes}`)
+            .join("; ")}.`
+        : "",
       `Instruction: ${instruction}`,
       correction ? `Your previous plan was rejected: ${correction} Fix this.` : "",
     ]
