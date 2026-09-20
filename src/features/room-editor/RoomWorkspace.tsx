@@ -89,7 +89,7 @@ export function RoomWorkspace({
   account?: ReactNode;
   scan?: (
     placement: "start" | "bar",
-    receive: (text: string) => void,
+    receive: (file: File, signal?: AbortSignal) => Promise<void>,
   ) => ReactNode;
   chat: (context: ChatContext) => ReactNode;
 }) {
@@ -211,12 +211,19 @@ export function RoomWorkspace({
     setSelected(null);
     setWalking(false);
   }
-  async function importFile(file?: File) {
+  async function importFile(
+    file?: File,
+    propagate = false,
+    signal?: AbortSignal,
+  ) {
     if (!file) return;
+    signal?.throwIfAborted();
     const request = ++importRequest.current;
     activeImport.current?.abort();
     const controller = new AbortController();
     activeImport.current = controller;
+    const abort = () => controller.abort();
+    signal?.addEventListener("abort", abort, { once: true });
     setBusy(true);
     setError("");
     try {
@@ -224,7 +231,9 @@ export function RoomWorkspace({
         if (file.size > MAX_PACKAGE_BYTES)
           throw new Error("Choose a scan ZIP smaller than 128 MB.");
         const result = await processScan(file, controller.signal);
-        if (request !== importRequest.current) return;
+        controller.signal.throwIfAborted();
+        if (request !== importRequest.current)
+          throw new DOMException("Import superseded.", "AbortError");
         if (result.saved.room.shape !== "polygon")
           throw new Error("This scan has no room layout.");
         const id = Array.from(
@@ -237,7 +246,9 @@ export function RoomWorkspace({
         } catch {
           stored = false;
         }
-        if (request !== importRequest.current) return;
+        controller.signal.throwIfAborted();
+        if (request !== importRequest.current)
+          throw new DOMException("Import superseded.", "AbortError");
         setCapture({ id, blob: file, scan: result.scan, persisted: stored });
         setShowScan(true);
         setView("3d");
@@ -253,7 +264,10 @@ export function RoomWorkspace({
       if (file.size > MAX_CAPTURE_BYTES)
         throw new Error("Choose a JSON file smaller than 10 MB.");
       const text = await file.text();
-      if (request === importRequest.current) loadText(text, file.name);
+      controller.signal.throwIfAborted();
+      if (request !== importRequest.current)
+        throw new DOMException("Import superseded.", "AbortError");
+      loadText(text, file.name);
     } catch (cause) {
       if (request === importRequest.current)
         setError(
@@ -261,7 +275,9 @@ export function RoomWorkspace({
             ? cause.message
             : "Could not import this file.",
         );
+      if (propagate) throw cause;
     } finally {
+      signal?.removeEventListener("abort", abort);
       if (request === importRequest.current) setBusy(false);
     }
   }
@@ -323,20 +339,8 @@ export function RoomWorkspace({
     setHistory((previous) => previous.slice(0, -1));
     setSelected(null);
   }
-  function receive(text: string) {
-    activeImport.current?.abort();
-    ++importRequest.current;
-    setBusy(false);
-    try {
-      loadText(text, "My scanned room");
-    } catch (cause) {
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : "Could not import uploaded room.",
-      );
-      throw cause;
-    }
+  async function receive(file: File, signal?: AbortSignal) {
+    await importFile(file, true, signal);
   }
 
   const originalObject = (id: string) =>

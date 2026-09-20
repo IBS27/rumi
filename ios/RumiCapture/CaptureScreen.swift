@@ -123,13 +123,21 @@ struct CaptureScreen: View {
             Button("Start over") { confirmsDiscard = true }
         case .completed:
             if connection.isBusy {
-                ProgressView("Sending room…")
+                if let progress = connection.uploadProgress {
+                    ProgressView(value: progress) { Text("Sending scan \(Int(progress * 100))%") }
+                } else { ProgressView("Transferring scan…") }
                 Button("Cancel transfer", action: connection.cancel)
             } else if connection.sent {
                 Label("Sent to Rumi", systemImage: "checkmark.circle")
             } else if connection.isConnected {
-                primary("Send to Rumi") { connection.send(bytes: model.completedBytes) }
-                    .disabled(model.isSharing || model.isPreparingSurface)
+                if model.hasSurfacePackage {
+                    primary("Send to Rumi") { connection.sendScan(file: model.completedScanFile) }
+                        .disabled(model.isSharing || model.isPreparingSurface)
+                } else if !model.isPreparingSurface {
+                    Text("Detailed scan unavailable. Retry saving it below, or send only the room layout.").font(.footnote)
+                    Button("Send layout only") { connection.send(bytes: model.completedBytes) }
+                        .disabled(model.isSharing)
+                }
             } else {
                 primary("Connect to Rumi") { showsPairing = true }
                     .disabled(model.isSharing || model.isPreparingSurface)
@@ -206,10 +214,10 @@ struct CaptureScreen: View {
         case .cameraDenied:
             "Rumi needs the camera to scan your room. Enable Camera for Rumi Capture in Settings, then return here and check permission again. If access is restricted, check Screen Time or device-management settings."
         case .completed:
-            "Send the room layout to your paired browser, or export the detailed scan ZIP to include surfaces and room photos. You can also export layout JSON."
+            "Send the complete scan to your paired browser, including captured surfaces, photos, depth, and room layout. Export scan keeps an offline copy."
         case .failed(let message): message
         default:
-            "Open Scan with iPhone in Rumi, then scan its QR code. Move slowly around the room and show the sides of furniture. Send to Rumi transfers the layout; Export scan shares the surfaces and room photos as a ZIP.\n\nYou can also scan offline and connect or export later."
+            "Open Scan with iPhone in Rumi, then scan its QR code. Move slowly around the room and show the sides of furniture. Send to Rumi transfers the complete scan, including surfaces and room photos. Export scan keeps an offline copy.\n\nYou can also scan offline and connect or export later."
         }
     }
 

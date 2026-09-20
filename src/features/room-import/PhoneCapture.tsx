@@ -10,6 +10,7 @@ import { QRCodeSVG } from "qrcode.react";
 import { api } from "../../../convex/_generated/api";
 import type { FunctionReturnType } from "convex/server";
 import { Button, Dialog, Heading, Muted } from "../../ui";
+import { downloadCapture } from "./downloadCapture";
 
 type Pairing = FunctionReturnType<typeof api.captures.create>;
 
@@ -19,14 +20,14 @@ function countdown(ms: number) {
 }
 
 /**
- * Pairs an iPhone with this session and hands back the uploaded room text.
+ * Pairs an iPhone with this session and imports the uploaded layout or complete scan.
  * `children` renders the trigger and receives `open`.
  */
 export function PhoneCapture({
   onReceive,
   children,
 }: {
-  onReceive: (text: string) => void;
+  onReceive: (file: File, signal?: AbortSignal) => Promise<void>;
   children: (open: () => void, busy: boolean) => ReactNode;
 }) {
   const create = useAction(api.captures.create);
@@ -35,6 +36,7 @@ export function PhoneCapture({
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [received, setReceived] = useState(false);
+  const [loading, setLoading] = useState("");
   const [retry, setRetry] = useState(0);
   const [now, setNow] = useState(Date.now);
   const dialog = useRef<HTMLDialogElement>(null);
@@ -56,9 +58,22 @@ export function PhoneCapture({
       .then(async (response) => {
         if (!response.ok)
           throw new Error("The uploaded room could not be downloaded.");
-        const text = await response.text();
+        const file = await downloadCapture(
+          response,
+          session.format,
+          abort.signal,
+          (bytes, total) => {
+            setLoading(
+              total
+                ? `Receiving scan… ${Math.round((bytes / total) * 100)}%`
+                : "Receiving scan…",
+            );
+          },
+        );
         if (!abort.signal.aborted) {
-          receive(text);
+          setLoading("Preparing captured surfaces and photos…");
+          await receive(file, abort.signal);
+          if (abort.signal.aborted) return;
           setReceived(true);
           setError("");
         }
@@ -70,7 +85,7 @@ export function PhoneCapture({
           );
       });
     return () => abort.abort();
-  }, [session?.fileUrl, retry]);
+  }, [session?.fileUrl, session?.format, retry]);
   const [isOpen, setIsOpen] = useState(false);
   useEffect(() => {
     const node = dialog.current;
@@ -207,10 +222,10 @@ export function PhoneCapture({
           ) : pairing ? (
             <p role="status">
               {session?.state === "uploaded"
-                ? "Loading your room…"
+                ? loading || "Receiving your scan…"
                 : session === undefined
                   ? "Connecting…"
-                  : "Phone connected. Finish Scan on your iPhone, review the room, then tap Send to Rumi. Keep this window open."}
+                  : "Phone connected. Finish Scan on your iPhone, review the room, then tap Send to Rumi to transfer the complete scan. Keep this window open."}
             </p>
           ) : null}
           {error && (

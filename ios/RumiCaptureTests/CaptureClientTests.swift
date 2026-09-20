@@ -128,12 +128,61 @@ final class CaptureClientTests: XCTestCase {
         }
         let stub = CaptureTransportStub([])
         let grant = CaptureGrant(sessionId: "test-session", uploadToken: String(repeating: "b", count: 64),
-                                 expiresAt: "2099-01-01T01:00:00Z", maxBytes: 1)
+                                 expiresAt: "2099-01-01T01:00:00Z", maxBytes: 1, maxScanBytes: nil)
         do {
             try await stub.client().upload(Data([1, 2]), pairing: CapturePairing.parse(pairingText()), grant: grant, key: UUID())
             XCTFail("Oversize body should not be sent")
         } catch {}
         let requests = await stub.requests
         XCTAssertTrue(requests.isEmpty)
+    }
+}
+
+extension CaptureClientTests {
+    func testCompleteScanUsesDiskUploadAndKeepsBearerOffStorage() async throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let bytes = Data([0x50, 0x4b, 3, 4, 5])
+        try bytes.write(to: file)
+        defer { try? FileManager.default.removeItem(at: file) }
+        let scan = try ScanTransfer.read(file)
+        let grant = CaptureGrant(sessionId: "test-session", uploadToken: String(repeating: "b", count: 64),
+                                 expiresAt: "2099-01-01T00:00:00Z", maxBytes: 10485760, maxScanBytes: 134217728)
+        let stub = CaptureTransportStub([
+            .response(200, "{\"uploaded\":false,\"storageId\":null,\"uploadUrl\":\"https://utmost-cow-946.convex.cloud/api/storage/upload?token=test\",\"contentType\":\"application/zip; rumi-session=test-session\"}"),
+            .response(503, "{}"), .response(200, uploadResponse)
+        ])
+        let client = CaptureClient(transport: { try await stub.send($0) }, fileTransport: { request, url, progress in
+            XCTAssertEqual(try Data(contentsOf: url), bytes)
+            XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Content-Type"), "application/zip; rumi-session=test-session")
+            progress(1)
+            return (Data("{\"storageId\":\"scan-file\"}".utf8), HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+        }, sleep: { await stub.sleep($0) })
+        let key = UUID()
+        try await client.uploadScan(scan, pairing: CapturePairing.parse(pairingText()), grant: grant, key: key,
+                                    onStored: { XCTAssertEqual($0, "scan-file") }, progress: { _ in })
+        let requests = await stub.requests
+        XCTAssertEqual(requests.map { $0.url!.path }, ["/capture/v1/scan/start", "/capture/v1/scan/complete", "/capture/v1/scan/complete"])
+        XCTAssertEqual(requests[1].httpBody, requests[2].httpBody)
+        let body = try XCTUnwrap(JSONSerialization.jsonObject(with: requests[0].httpBody!) as? [String: Any])
+        XCTAssertEqual(body["digest"] as? String, scan.digest)
+        XCTAssertEqual(body["size"] as? Int, bytes.count)
+        XCTAssertEqual(body["idempotencyKey"] as? String, key.uuidString)
+    }
+
+    func testScanRetryResumesStoredFileAndRejectsUntrustedUploadURL() async throws {
+        let scan = ScanTransfer(url: URL(fileURLWithPath: "/not-read-on-resume"), digest: "digest", size: 5)
+        let grant = CaptureGrant(sessionId: "test-session", uploadToken: String(repeating: "b", count: 64),
+                                 expiresAt: "2099-01-01T00:00:00Z", maxBytes: 10485760, maxScanBytes: 134217728)
+        let resume = CaptureTransportStub([.response(200, "{\"uploaded\":false,\"storageId\":\"existing-file\",\"uploadUrl\":null}"), .response(200, uploadResponse)])
+        let client = CaptureClient(transport: { try await resume.send($0) }, fileTransport: { _, _, _ in
+            XCTFail("A stored scan must not be uploaded twice"); throw CaptureError.rejected
+        })
+        try await client.uploadScan(scan, pairing: CapturePairing.parse(pairingText()), grant: grant, key: UUID(), onStored: { _ in }, progress: { _ in })
+        let bad = CaptureTransportStub([.response(200, "{\"uploaded\":false,\"storageId\":null,\"uploadUrl\":\"https://evil.example/api/storage/upload\"}")])
+        do {
+            try await bad.client().uploadScan(scan, pairing: CapturePairing.parse(pairingText()), grant: grant, key: UUID(), onStored: { _ in }, progress: { _ in })
+            XCTFail("Untrusted storage destination must be rejected")
+        } catch CaptureError.invalidResponse {} catch { XCTFail("Unexpected error: \(error)") }
     }
 }
