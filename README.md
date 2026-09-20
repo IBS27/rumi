@@ -1,6 +1,6 @@
 # rumi
 
-React, Vite, TypeScript, Tailwind, React Three Fiber/Drei, Zustand, Zod, and a Convex schema. The frontend is a static two-column placeholder: sidebar section descriptions beside an empty 3D room area. There is no branding or functional interface.
+React, Vite, TypeScript, Tailwind, React Three Fiber/Drei, Zustand, Zod, and a Convex schema. The frontend opens a RoomPlan scan (import, sample, or iPhone pairing) and shows it in a 3D room review with a floating scan list and inline measurement editor. The UI kit and its rules live in `src/ui/`.
 
 ## Run locally
 
@@ -21,7 +21,7 @@ Tests use Bun's built-in runner, with no separate test configuration. `tests/con
 
 ## Team ownership
 
-Feature directories reserve space for future frontend work. `src/features/workspace/Sidebar.tsx` displays descriptions of the planned sidebar sections. `src/features/room-editor/RoomPlaceholder.tsx` describes the future 3D canvas. `src/App.tsx` places them side by side; neither has controls or live data.
+Feature directories reserve space for future frontend work. `src/features/room-setup/` holds the start screen, `src/features/room-editor/` the room review (viewer, scan dock, object editor), and `src/features/room-import/` phone pairing. Build new screens from `src/ui` (see `src/ui/README.md`).
 
 | Owner           | Files                                                                                  | Responsibility                                     |
 | --------------- | -------------------------------------------------------------------------------------- | -------------------------------------------------- |

@@ -1,0 +1,359 @@
+<section class="design" id="d3" data-title="Instrument">
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&display=swap');
+#d3{--void:#141618;--panel:#1F2327;--raised:#282D32;--line:#363C43;--line-soft:#2C3136;--text:#E7E2D9;--muted:#9C978E;--dim:#6F6B64;--accent:#8FC9A8;--accent-ink:#0F1A15;--accent-soft:rgba(143,201,168,.16);--warn:#D9A65A;--warn-soft:rgba(217,166,90,.16);--r-ctl:3px;--r-panel:6px;
+  box-sizing:border-box;font-family:'Geist',sans-serif;font-size:13px;line-height:1.45;color:var(--text);background:#0E1012;font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased;padding:48px 24px;}
+#d3 *,#d3 *::before,#d3 *::after{box-sizing:inherit}
+#d3 .note{max-width:68ch;margin:0 auto 32px;color:var(--muted);font-size:14px;line-height:1.55}
+#d3 .note b{color:var(--text);font-weight:500}
+#d3 .screen{margin:0 auto 56px;max-width:1280px}
+#d3 .frame{position:relative;width:1280px;max-width:100%;min-height:760px;height:760px;background:var(--void);border:1px solid var(--line-soft);border-radius:8px;overflow:hidden;display:flex;flex-direction:column}
+#d3 button,#d3 input,#d3 select,#d3 textarea{font:inherit;color:inherit;background:none;border:0;margin:0;padding:0}
+#d3 :is(button,input,select,textarea,a,[tabindex]):focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+#d3 svg text{font-family:inherit}
+
+/* top bar */
+#d3 .bar{height:40px;flex:none;display:flex;align-items:center;gap:6px;padding:0 10px 0 14px;background:var(--panel);border-bottom:1px solid var(--line-soft);font-size:12px}
+#d3 .wordmark{font-weight:600;font-size:15px;letter-spacing:-.01em;color:var(--text);margin-right:10px}
+#d3 .bar .crumb{color:var(--muted)}
+#d3 .bar .crumb b{color:var(--text);font-weight:500}
+#d3 .bar .sep{width:1px;height:16px;background:var(--line);margin:0 6px}
+#d3 .bar .grow{flex:1}
+#d3 .status{color:var(--muted);display:inline-flex;align-items:center;gap:6px}
+#d3 .status::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--accent)}
+#d3 .btn{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 9px;border-radius:var(--r-ctl);background:var(--raised);border:1px solid var(--line);color:var(--text);font-size:12px;font-weight:500;cursor:pointer;white-space:nowrap}
+#d3 .btn:hover{border-color:#4A515A}
+#d3 .btn.quiet{background:none;border-color:transparent;color:var(--muted)}
+#d3 .btn.quiet:hover{color:var(--text);background:var(--raised)}
+#d3 .btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+#d3 .btn.danger{color:#E0A3A3}
+#d3 .btn.sm{height:22px;padding:0 7px;font-size:11px}
+#d3 .avatar{width:24px;height:24px;border-radius:50%;background:#3B4A55;color:var(--text);display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:500;margin-left:4px}
+#d3 .kbd{display:inline-block;min-width:16px;padding:0 4px;height:16px;line-height:15px;text-align:center;border:1px solid var(--line);border-bottom-width:2px;border-radius:3px;font-size:10px;color:var(--muted);background:var(--panel)}
+
+/* viewer */
+#d3 .viewer{position:relative;flex:1;min-height:0;background:var(--void);overflow:hidden}
+#d3 .iso{position:absolute;inset:0;width:100%;height:100%}
+#d3 .iso .grid line{stroke:#1F2428;stroke-width:1}
+#d3 .iso-empty .grid line{stroke:#1B1F23}
+#d3 .iso .axes line,#d3 .iso .gizmo line{stroke:var(--muted);stroke-width:1.2}
+#d3 .iso .axes line.z,#d3 .iso .gizmo line.z{stroke:var(--accent)}
+#d3 .iso .gizmo circle{fill:var(--accent)}
+#d3 .iso .floor{fill:#1A1E22}
+#d3 .iso .floor-edge{fill:none;stroke:#4A525B;stroke-width:1.2}
+#d3 .iso .wall{fill:#1C2024;stroke:#3C434B;stroke-width:1}
+#d3 .iso .wall-l{fill:#181C20}
+#d3 .iso .lip polygon{fill:#262B31;stroke:#4A525B;stroke-width:1}
+#d3 .iso .corner{stroke:#3C434B;stroke-width:1}
+#d3 .iso .door line,#d3 .iso .door polyline{fill:none;stroke:#5C646E;stroke-width:1;stroke-dasharray:3 3}
+#d3 .iso .obj .f-top{fill:#343A41}
+#d3 .iso .obj .f-front{fill:#272C31}
+#d3 .iso .obj .f-right{fill:#2D3338}
+#d3 .iso .obj polygon{stroke:#7C848E;stroke-width:1;stroke-linejoin:round}
+#d3 .iso .obj.est polygon{stroke-dasharray:3 2.5}
+#d3 .iso .obj.sel .f-top{fill:rgba(143,201,168,.42)}
+#d3 .iso .obj.sel .f-front{fill:rgba(143,201,168,.18)}
+#d3 .iso .obj.sel .f-right{fill:rgba(143,201,168,.28)}
+#d3 .iso .obj.sel polygon{stroke:var(--accent);stroke-width:1.4}
+#d3 .iso .obj.new .f-top{fill:rgba(143,201,168,.34)}
+#d3 .iso .obj.new .f-front{fill:rgba(143,201,168,.14)}
+#d3 .iso .obj.new .f-right{fill:rgba(143,201,168,.22)}
+#d3 .iso .obj.new polygon{stroke:var(--accent)}
+#d3 .iso .obj.warn .f-top{fill:rgba(217,166,90,.38)}
+#d3 .iso .obj.warn .f-front{fill:rgba(217,166,90,.14)}
+#d3 .iso .obj.warn .f-right{fill:rgba(217,166,90,.24)}
+#d3 .iso .obj.warn polygon{stroke:var(--warn);stroke-width:1.3}
+#d3 .iso .obj.ghost polygon{fill:none;stroke:var(--accent);stroke-dasharray:4 3;stroke-width:1}
+#d3 .iso .clash{fill:rgba(217,166,90,.55);stroke:none}
+#d3 .iso .rug{fill:rgba(143,201,168,.15);stroke:var(--accent);stroke-width:1;stroke-dasharray:1 3;stroke-linecap:round}
+#d3 .iso .print{fill:rgba(143,201,168,.2);stroke:var(--accent);stroke-width:1}
+#d3 .iso .arc-lamp path{fill:none;stroke:var(--accent);stroke-width:1.6;stroke-linecap:round}
+#d3 .iso .arc-lamp ellipse{fill:rgba(143,201,168,.35);stroke:var(--accent);stroke-width:1}
+#d3 .iso .pin line{stroke:#7C848E;stroke-width:1}
+#d3 .iso .pin text{fill:var(--text);font-size:11px;font-weight:500;paint-order:stroke;stroke:#141618;stroke-width:3px;stroke-linejoin:round}
+#d3 .iso .pin .tag{fill:var(--muted);font-weight:400;font-size:10px}
+#d3 .iso .obj.sel .pin text{fill:var(--accent)}
+#d3 .iso .obj.sel .pin .tag{fill:var(--muted)}
+#d3 .iso .obj.sel .pin line{stroke:var(--accent)}
+#d3 .iso .obj.warn .pin text{fill:var(--warn)}
+#d3 .iso .obj.warn .pin .tag{fill:var(--warn)}
+#d3 .iso .obj.warn .pin line{stroke:var(--warn)}
+#d3 .iso .obj.new .pin text{fill:var(--accent)}
+#d3 .iso .obj.kept .pin .tag,#d3 .iso .obj.new .pin .tag{fill:var(--muted)}
+#d3 .iso .ghost-pin text{fill:var(--accent);font-weight:400}
+#d3 .iso .new-pin text{fill:var(--accent)}
+#d3 .iso .dim line{stroke:#5C646E;stroke-width:1}
+#d3 .iso .dim text{fill:var(--muted);font-size:11px;paint-order:stroke;stroke:#141618;stroke-width:3px}
+#d3 .iso .seldim line{stroke:var(--accent)}
+#d3 .iso .seldim text{fill:var(--accent)}
+#d3 .obj-hit{position:absolute;inset:0;background:none;border:0;cursor:default;pointer-events:none}
+
+/* floating panels */
+#d3 .panel{position:absolute;background:var(--panel);border:1px solid var(--line-soft);border-radius:var(--r-panel);box-shadow:0 1px 0 rgba(255,255,255,.03) inset,0 8px 24px rgba(0,0,0,.35);display:flex;flex-direction:column;min-height:0}
+#d3 .panel-h{display:flex;align-items:center;gap:8px;padding:8px 10px 6px 12px;font-weight:500;font-size:12px;border-bottom:1px solid var(--line-soft)}
+#d3 .panel-h .count{color:var(--muted);font-weight:400}
+#d3 .panel-h .grow{flex:1}
+#d3 .panel-b{padding:6px 0;overflow:auto;min-height:0}
+#d3 .dock{left:12px;top:12px;bottom:50px;width:264px}
+#d3 .dock .row{display:grid;grid-template-columns:18px 1fr auto;align-items:center;gap:6px;padding:4px 10px 4px 8px;font-size:12px;cursor:pointer;color:var(--text)}
+#d3 .dock .row:hover{background:var(--raised)}
+#d3 .dock .row.active{background:var(--accent-soft);color:var(--accent);box-shadow:inset 2px 0 0 var(--accent)}
+#d3 .dock .row .dims{color:var(--muted);font-size:11px;white-space:nowrap}
+#d3 .dock .row.active .dims{color:var(--accent);opacity:.85}
+#d3 .dock .row .mark{width:10px;height:10px;border-radius:2px;border:1.5px solid #7C848E;justify-self:center}
+#d3 .dock .row .mark.est{border-style:dashed}
+#d3 .dock .row .mark.wall{width:12px;height:0;border-width:1.5px 0 0;border-radius:0}
+#d3 .dock .sub .count{color:var(--dim);font-weight:400}
+#d3 .dock .edit{background:var(--raised);border-top:1px solid var(--line-soft);border-bottom:1px solid var(--line-soft);padding:5px 0 0;margin-bottom:2px}
+#d3 .dock .edit .field{grid-template-columns:34px 1fr;padding:3px 10px}
+#d3 .dock .edit .hint{padding:2px 10px 4px 52px}
+#d3 .dock .edit .check,#d3 .dock .edit .switch{padding:4px 10px}
+#d3 .dock .edit .actions{padding:6px 10px 8px;border-top:0}
+#d3 .dock .row.active .mark{border-color:var(--accent)}
+#d3 .dock .sub{padding:6px 12px 3px;color:var(--muted);font-size:11px;border-top:1px solid var(--line-soft);margin-top:6px}
+#d3 .dock .facts{padding:6px 12px 6px;border-top:1px solid var(--line-soft);margin-top:6px;display:grid;grid-template-columns:1fr auto;gap:2px 12px;font-size:12px}
+#d3 .dock .facts dt{color:var(--muted);margin:0}
+#d3 .dock .facts dd{margin:0;text-align:right}
+#d3 .legend{padding:8px 12px 10px;display:flex;flex-direction:column;gap:4px;color:var(--muted);font-size:11px;border-top:1px solid var(--line-soft);margin-top:auto}
+#d3 .legend span{display:flex;align-items:center;gap:8px}
+#d3 .legend i{width:14px;height:0;border-top:1.5px solid #9AA2AC}
+#d3 .legend i.est{border-top-style:dashed}
+
+/* inspector */
+#d3 .field{display:grid;grid-template-columns:76px 1fr;align-items:center;gap:8px;padding:3px 12px;font-size:12px}
+#d3 .field>label,#d3 .field>span:first-child{color:var(--muted)}
+#d3 .in{height:24px;background:var(--void);border:1px solid var(--line);border-radius:var(--r-ctl);padding:0 7px;font-size:12px;width:100%;display:flex;align-items:center;color:var(--text)}
+#d3 .in.select{justify-content:space-between;cursor:pointer;color:var(--text)}
+#d3 .in.select svg{color:var(--muted)}
+#d3 .in.unit{justify-content:space-between}
+#d3 .in.unit em{font-style:normal;color:var(--dim);font-size:11px}
+#d3 .trip{display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px}
+#d3 .trip .in{padding:0 5px;gap:4px}
+#d3 .trip .in b{font-weight:400;color:var(--dim);font-size:10px;width:8px}
+#d3 .hint{padding:2px 12px 6px 96px;color:var(--dim);font-size:11px}
+#d3 .hint.est{color:var(--warn)}
+#d3 .group{padding:6px 0;border-top:1px solid var(--line-soft)}
+#d3 .group:first-child{border-top:0}
+#d3 .check{display:flex;align-items:center;gap:8px;padding:5px 12px;font-size:12px;cursor:pointer}
+#d3 .check .box{width:14px;height:14px;border:1px solid #7C848E;border-radius:3px;display:inline-flex;align-items:center;justify-content:center;background:var(--void);color:var(--accent-ink)}
+#d3 .check .box.on{background:var(--accent);border-color:var(--accent)}
+#d3 .check .box svg{display:none}
+#d3 .check .box.on svg{display:block}
+#d3 .switch{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:5px 12px;font-size:12px;cursor:pointer}
+#d3 .switch .desc{color:var(--dim);font-size:11px;display:block}
+#d3 .tog{width:28px;height:16px;border-radius:8px;background:#3B424A;border:1px solid var(--line);position:relative;flex:none;cursor:pointer}
+#d3 .tog::after{content:"";position:absolute;top:2px;left:2px;width:10px;height:10px;border-radius:50%;background:#C9C4BB}
+#d3 .tog.on{background:var(--accent);border-color:var(--accent)}
+#d3 .tog.on::after{left:14px;background:var(--accent-ink)}
+#d3 .actions{display:flex;gap:6px;padding:8px 12px 10px;border-top:1px solid var(--line-soft)}
+#d3 .actions .grow{flex:1}
+
+/* bottom cluster */
+#d3 .hud{position:absolute;left:12px;bottom:12px;display:flex;align-items:center;gap:8px}
+#d3 .hud.right{left:auto;right:12px}
+#d3 .seg{display:inline-flex;background:var(--panel);border:1px solid var(--line-soft);border-radius:4px;padding:2px;gap:2px}
+#d3 .seg button{height:22px;padding:0 9px;border-radius:2px;font-size:12px;color:var(--muted);cursor:pointer}
+#d3 .seg button[aria-pressed=true]{background:var(--raised);color:var(--text);box-shadow:0 0 0 1px var(--line)}
+#d3 .togs{display:inline-flex;align-items:center;gap:12px;background:var(--panel);border:1px solid var(--line-soft);border-radius:4px;padding:2px 10px;height:28px;font-size:12px}
+#d3 .togs label{display:inline-flex;align-items:center;gap:6px;cursor:pointer}
+#d3 .keys{display:inline-flex;gap:10px;color:var(--dim);font-size:11px;align-items:center}
+#d3 .keys span{display:inline-flex;align-items:center;gap:4px}
+#d3 .sample-flag{position:absolute;left:50%;bottom:16px;transform:translateX(-50%);background:var(--panel);border:1px solid var(--line-soft);border-radius:4px;padding:3px 10px;font-size:11px;color:var(--muted)}
+
+/* start */
+#d3 .start-wrap{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:28px;padding:40px}
+#d3 .start{width:440px;background:var(--panel);border:1px solid var(--line-soft);border-radius:var(--r-panel);box-shadow:0 8px 24px rgba(0,0,0,.35);padding:22px 22px 16px}
+#d3 .start h1{font-size:18px;font-weight:500;margin:0 0 4px;letter-spacing:-.01em}
+#d3 .start p{margin:0 0 16px;color:var(--muted);font-size:13px}
+#d3 .choice{display:grid;grid-template-columns:32px 1fr auto;align-items:center;gap:10px;width:100%;text-align:left;padding:10px 10px;border-radius:4px;border:1px solid transparent;cursor:pointer}
+#d3 .choice:hover{background:var(--raised)}
+#d3 .choice.primary{background:var(--raised);border-color:var(--line)}
+#d3 .choice .ic{width:32px;height:32px;border-radius:4px;background:var(--void);border:1px solid var(--line);display:inline-flex;align-items:center;justify-content:center;color:var(--muted)}
+#d3 .choice.primary .ic{color:var(--accent);border-color:rgba(143,201,168,.4)}
+#d3 .choice b{display:block;font-weight:500;font-size:13px}
+#d3 .choice small{display:block;color:var(--muted);font-size:11.5px;line-height:1.4;margin-top:1px}
+#d3 .choice .kbd{justify-self:end}
+#d3 .drop{margin:12px -22px -16px;padding:10px 22px;border-top:1px dashed var(--line);color:var(--dim);font-size:11.5px;display:flex;justify-content:space-between}
+#d3 .pair{width:272px;background:var(--panel);border:1px solid var(--line-soft);border-radius:var(--r-panel);box-shadow:0 8px 24px rgba(0,0,0,.35);padding:14px 16px 12px}
+#d3 .pair h2{font-size:13px;font-weight:500;margin:0 0 10px;display:flex;justify-content:space-between;align-items:center}
+#d3 .pair h2 span{color:var(--muted);font-weight:400}
+#d3 .qr{display:block;width:180px;height:180px;margin:0 auto 10px;border-radius:4px}
+#d3 .qr .qr-bg{fill:#EDE9E1}
+#d3 .qr rect:not(.qr-bg){fill:#15181B}
+#d3 .pair p{margin:0 0 10px;color:var(--muted);font-size:12px;text-align:center;line-height:1.4}
+#d3 .pair .row{display:flex;justify-content:space-between;align-items:center;font-size:12px;color:var(--muted)}
+#d3 .pair .row b{font-weight:500;color:var(--text)}
+
+/* design workspace */
+#d3 .chat{left:12px;top:12px;bottom:56px;width:320px}
+#d3 .brief{padding:10px 12px;border-bottom:1px solid var(--line-soft);font-size:12px;line-height:1.45;background:var(--raised);border-radius:var(--r-panel) var(--r-panel) 0 0}
+#d3 .brief span{display:block;color:var(--muted);font-size:11px;margin-bottom:2px}
+#d3 .msgs{flex:1;overflow:auto;padding:10px 12px;display:flex;flex-direction:column;gap:12px;font-size:12.5px;line-height:1.5}
+#d3 .msg{display:grid;grid-template-columns:22px 1fr;gap:8px}
+#d3 .msg .who{position:static;display:inline-flex;width:22px;height:22px;border-radius:50%;align-items:center;justify-content:center;font-size:10px;font-weight:500;background:#3B4A55}
+#d3 .msg.agent .who{background:var(--accent);color:var(--accent-ink)}
+#d3 .msg p{margin:0 0 6px}
+#d3 .msg p:last-child{margin:0}
+#d3 .msg .q{border-left:2px solid var(--accent);padding-left:8px;color:var(--text)}
+#d3 .msg .meta{color:var(--dim);font-size:11px;margin-bottom:2px}
+#d3 .composer{border-top:1px solid var(--line-soft);padding:8px 8px 8px 12px;display:grid;grid-template-columns:1fr auto;gap:8px;align-items:end}
+#d3 .composer textarea{resize:none;height:44px;font-size:12.5px;line-height:1.4;color:var(--text)}
+#d3 .composer textarea::placeholder{color:var(--dim)}
+#d3 .composer .btn{height:26px;width:26px;padding:0;justify-content:center}
+#d3 .composer .hintline{grid-column:1/-1;color:var(--dim);font-size:11px;display:flex;gap:10px}
+
+#d3 .products{right:12px;top:12px;width:300px}
+#d3 .budget{padding:10px 12px 10px;border-bottom:1px solid var(--line-soft)}
+#d3 .budget .nums{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px}
+#d3 .budget .nums b{font-weight:500;font-size:15px}
+#d3 .budget .nums span{color:var(--muted);font-size:12px}
+#d3 .meter{height:4px;background:#33393F;border-radius:2px;overflow:hidden}
+#d3 .meter i{display:block;height:100%;width:66%;background:var(--accent);border-radius:2px}
+#d3 .budget small{display:block;color:var(--dim);font-size:11px;margin-top:6px}
+#d3 .prod{display:grid;grid-template-columns:1fr auto;gap:2px 10px;padding:7px 12px;font-size:12px;border-bottom:1px solid var(--line-soft);cursor:pointer}
+#d3 .prod:last-child{border-bottom:0}
+#d3 .prod:hover{background:var(--raised)}
+#d3 .prod.warned{box-shadow:inset 2px 0 0 var(--warn)}
+#d3 .prod .n{font-weight:500;display:flex;align-items:center;gap:6px}
+#d3 .prod .n .lk{color:var(--muted);display:inline-flex}
+#d3 .prod .p{text-align:right;font-weight:500}
+#d3 .prod .m{color:var(--muted);font-size:11px;grid-column:1}
+#d3 .prod .s{color:var(--muted);font-size:11px;text-align:right}
+#d3 .prod .s.low{color:var(--warn)}
+#d3 .prod .note{grid-column:1/-1;color:var(--warn);font-size:11px;margin-top:2px}
+#d3 .products .foot{padding:8px 12px;border-top:1px solid var(--line-soft);display:flex;gap:6px}
+
+#d3 .fitbar{position:absolute;left:50%;bottom:52px;transform:translateX(-50%);display:flex;align-items:center;gap:10px;background:var(--panel);border:1px solid rgba(217,166,90,.45);border-radius:var(--r-panel);padding:6px 8px 6px 10px;font-size:12px;box-shadow:0 8px 24px rgba(0,0,0,.35)}
+#d3 .fitbar .ico{color:var(--warn);display:inline-flex}
+#d3 .fitbar .t b{font-weight:500;display:block}
+#d3 .fitbar .t span{color:var(--muted);font-size:11px}
+
+/* narrow */
+@media (max-width:960px){
+  #d3 .frame{height:auto;min-height:760px}
+  #d3 .dock{width:236px}
+  #d3 .chat{width:280px}
+  #d3 .products{width:280px}
+  #d3 .start-wrap{flex-direction:column;gap:16px;padding:24px}
+  #d3 .fitbar{left:auto;right:12px;transform:none;max-width:520px}
+}
+@media (prefers-reduced-motion:no-preference){#d3 .tog::after{transition:left .12s ease}}
+</style>
+<aside class="note">Rumi as a precision editor: the 3D room is the whole window and everything else floats over it as compact graphite panels, lighter than the viewer so depth reads without shadows doing the work. One typeface, Geist, with tabular numerals so dimensions and prices line up in columns. Palette: void <b>#141618</b>, panel <b>#1F2327</b>, raised <b>#282D32</b>, warm-neutral text <b>#E7E2D9</b>, celadon <b>#8FC9A8</b> for selection and new items, amber <b>#D9A65A</b> only for fit conflicts. Estimated dimensions are drawn with dashed edges in the viewer and named as estimated in every list.</aside>
+
+<article class="screen" data-screen="Start">
+<div class="frame">
+<header class="bar"><span class="wordmark">rumi</span><span class="grow"></span><button class="btn quiet">Sign in</button></header>
+<div class="viewer">
+<svg class="iso iso-empty" viewBox="0 0 900 560" aria-hidden="true"><g class="grid"><line x1="450.0" y1="-164.0" x2="-353.6" y2="300.0"/><line x1="475.1" y1="-149.5" x2="-328.5" y2="314.5"/><line x1="500.2" y1="-135.0" x2="-303.4" y2="329.0"/><line x1="525.3" y1="-120.5" x2="-278.3" y2="343.5"/><line x1="550.5" y1="-106.0" x2="-253.2" y2="358.0"/><line x1="575.6" y1="-91.5" x2="-228.1" y2="372.5"/><line x1="600.7" y1="-77.0" x2="-203.0" y2="387.0"/><line x1="625.8" y1="-62.5" x2="-177.8" y2="401.5"/><line x1="650.9" y1="-48.0" x2="-152.7" y2="416.0"/><line x1="676.0" y1="-33.5" x2="-127.6" y2="430.5"/><line x1="701.1" y1="-19.0" x2="-102.5" y2="445.0"/><line x1="726.3" y1="-4.5" x2="-77.4" y2="459.5"/><line x1="751.4" y1="10.0" x2="-52.3" y2="474.0"/><line x1="776.5" y1="24.5" x2="-27.2" y2="488.5"/><line x1="801.6" y1="39.0" x2="-2.1" y2="503.0"/><line x1="826.7" y1="53.5" x2="23.1" y2="517.5"/><line x1="851.8" y1="68.0" x2="48.2" y2="532.0"/><line x1="876.9" y1="82.5" x2="73.3" y2="546.5"/><line x1="902.1" y1="97.0" x2="98.4" y2="561.0"/><line x1="927.2" y1="111.5" x2="123.5" y2="575.5"/><line x1="952.3" y1="126.0" x2="148.6" y2="590.0"/><line x1="977.4" y1="140.5" x2="173.7" y2="604.5"/><line x1="1002.5" y1="155.0" x2="198.9" y2="619.0"/><line x1="1027.6" y1="169.5" x2="224.0" y2="633.5"/><line x1="1052.7" y1="184.0" x2="249.1" y2="648.0"/><line x1="1077.8" y1="198.5" x2="274.2" y2="662.5"/><line x1="1103.0" y1="213.0" x2="299.3" y2="677.0"/><line x1="1128.1" y1="227.5" x2="324.4" y2="691.5"/><line x1="1153.2" y1="242.0" x2="349.5" y2="706.0"/><line x1="1178.3" y1="256.5" x2="374.7" y2="720.5"/><line x1="1203.4" y1="271.0" x2="399.8" y2="735.0"/><line x1="1228.5" y1="285.5" x2="424.9" y2="749.5"/><line x1="1253.6" y1="300.0" x2="450.0" y2="764.0"/><line x1="450.0" y1="-164.0" x2="1253.6" y2="300.0"/><line x1="424.9" y1="-149.5" x2="1228.5" y2="314.5"/><line x1="399.8" y1="-135.0" x2="1203.4" y2="329.0"/><line x1="374.7" y1="-120.5" x2="1178.3" y2="343.5"/><line x1="349.5" y1="-106.0" x2="1153.2" y2="358.0"/><line x1="324.4" y1="-91.5" x2="1128.1" y2="372.5"/><line x1="299.3" y1="-77.0" x2="1103.0" y2="387.0"/><line x1="274.2" y1="-62.5" x2="1077.8" y2="401.5"/><line x1="249.1" y1="-48.0" x2="1052.7" y2="416.0"/><line x1="224.0" y1="-33.5" x2="1027.6" y2="430.5"/><line x1="198.9" y1="-19.0" x2="1002.5" y2="445.0"/><line x1="173.7" y1="-4.5" x2="977.4" y2="459.5"/><line x1="148.6" y1="10.0" x2="952.3" y2="474.0"/><line x1="123.5" y1="24.5" x2="927.2" y2="488.5"/><line x1="98.4" y1="39.0" x2="902.1" y2="503.0"/><line x1="73.3" y1="53.5" x2="876.9" y2="517.5"/><line x1="48.2" y1="68.0" x2="851.8" y2="532.0"/><line x1="23.1" y1="82.5" x2="826.7" y2="546.5"/><line x1="-2.1" y1="97.0" x2="801.6" y2="561.0"/><line x1="-27.2" y1="111.5" x2="776.5" y2="575.5"/><line x1="-52.3" y1="126.0" x2="751.4" y2="590.0"/><line x1="-77.4" y1="140.5" x2="726.3" y2="604.5"/><line x1="-102.5" y1="155.0" x2="701.1" y2="619.0"/><line x1="-127.6" y1="169.5" x2="676.0" y2="633.5"/><line x1="-152.7" y1="184.0" x2="650.9" y2="648.0"/><line x1="-177.8" y1="198.5" x2="625.8" y2="662.5"/><line x1="-203.0" y1="213.0" x2="600.7" y2="677.0"/><line x1="-228.1" y1="227.5" x2="575.6" y2="691.5"/><line x1="-253.2" y1="242.0" x2="550.5" y2="706.0"/><line x1="-278.3" y1="256.5" x2="525.3" y2="720.5"/><line x1="-303.4" y1="271.0" x2="500.2" y2="735.0"/><line x1="-328.5" y1="285.5" x2="475.1" y2="749.5"/><line x1="-353.6" y1="300.0" x2="450.0" y2="764.0"/></g><g class="axes"><line x1="450" y1="300" x2="480.1368" y2="317.4"/><line x1="450" y1="300" x2="419.8632" y2="317.4"/><line class="z" x1="450" y1="300" x2="450" y2="265.2"/></g></svg>
+<div class="start-wrap">
+  <div class="start">
+    <h1>Open a room</h1>
+    <p>Scan a room with your iPhone, or open one you already captured.</p>
+    <button class="choice primary"><span class="ic"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="4.5" y="1.5" width="7" height="13" rx="1.5"/><path d="M7 12.5h2"/></svg></span><span><b>Scan with iPhone</b><small>Pairs this browser with the Rumi app and streams the capture here.</small></span><span class="kbd">S</span></button>
+    <button class="choice"><span class="ic"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 1.5h5l3 3v10H4z"/><path d="M9 1.5v3h3"/></svg></span><span><b>Import a scan</b><small>A RoomPlan JSON export. Walls and furniture are read as captured.</small></span><span class="kbd">I</span></button>
+    <button class="choice"><span class="ic"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M8 1.8 13.5 5v6L8 14.2 2.5 11V5z"/><path d="M2.5 5 8 8l5.5-3M8 8v6.2"/></svg></span><span><b>Open the sample room</b><small>The corner living room, 18.4 m². Sample data, not a scan of your room.</small></span><span class="kbd">O</span></button>
+    <div class="drop"><span>Or drop a RoomPlan JSON file anywhere in this window.</span><span>Rooms are saved on this browser.</span></div>
+  </div>
+  <div class="pair" role="dialog" aria-label="Pair your iPhone">
+    <h2>Pair your iPhone</h2>
+    <svg class="qr" viewBox="-1 -1 23 23" aria-label="Pairing code placeholder"><rect x="-1" y="-1" width="23" height="23" class="qr-bg"/><rect x="0" y="0" width="1" height="1"/><rect x="1" y="0" width="1" height="1"/><rect x="2" y="0" width="1" height="1"/><rect x="3" y="0" width="1" height="1"/><rect x="4" y="0" width="1" height="1"/><rect x="5" y="0" width="1" height="1"/><rect x="6" y="0" width="1" height="1"/><rect x="0" y="1" width="1" height="1"/><rect x="6" y="1" width="1" height="1"/><rect x="0" y="2" width="1" height="1"/><rect x="2" y="2" width="1" height="1"/><rect x="3" y="2" width="1" height="1"/><rect x="4" y="2" width="1" height="1"/><rect x="6" y="2" width="1" height="1"/><rect x="0" y="3" width="1" height="1"/><rect x="2" y="3" width="1" height="1"/><rect x="3" y="3" width="1" height="1"/><rect x="4" y="3" width="1" height="1"/><rect x="6" y="3" width="1" height="1"/><rect x="0" y="4" width="1" height="1"/><rect x="2" y="4" width="1" height="1"/><rect x="3" y="4" width="1" height="1"/><rect x="4" y="4" width="1" height="1"/><rect x="6" y="4" width="1" height="1"/><rect x="0" y="5" width="1" height="1"/><rect x="6" y="5" width="1" height="1"/><rect x="0" y="6" width="1" height="1"/><rect x="1" y="6" width="1" height="1"/><rect x="2" y="6" width="1" height="1"/><rect x="3" y="6" width="1" height="1"/><rect x="4" y="6" width="1" height="1"/><rect x="5" y="6" width="1" height="1"/><rect x="6" y="6" width="1" height="1"/><rect x="14" y="0" width="1" height="1"/><rect x="15" y="0" width="1" height="1"/><rect x="16" y="0" width="1" height="1"/><rect x="17" y="0" width="1" height="1"/><rect x="18" y="0" width="1" height="1"/><rect x="19" y="0" width="1" height="1"/><rect x="20" y="0" width="1" height="1"/><rect x="14" y="1" width="1" height="1"/><rect x="20" y="1" width="1" height="1"/><rect x="14" y="2" width="1" height="1"/><rect x="16" y="2" width="1" height="1"/><rect x="17" y="2" width="1" height="1"/><rect x="18" y="2" width="1" height="1"/><rect x="20" y="2" width="1" height="1"/><rect x="14" y="3" width="1" height="1"/><rect x="16" y="3" width="1" height="1"/><rect x="17" y="3" width="1" height="1"/><rect x="18" y="3" width="1" height="1"/><rect x="20" y="3" width="1" height="1"/><rect x="14" y="4" width="1" height="1"/><rect x="16" y="4" width="1" height="1"/><rect x="17" y="4" width="1" height="1"/><rect x="18" y="4" width="1" height="1"/><rect x="20" y="4" width="1" height="1"/><rect x="14" y="5" width="1" height="1"/><rect x="20" y="5" width="1" height="1"/><rect x="14" y="6" width="1" height="1"/><rect x="15" y="6" width="1" height="1"/><rect x="16" y="6" width="1" height="1"/><rect x="17" y="6" width="1" height="1"/><rect x="18" y="6" width="1" height="1"/><rect x="19" y="6" width="1" height="1"/><rect x="20" y="6" width="1" height="1"/><rect x="0" y="14" width="1" height="1"/><rect x="1" y="14" width="1" height="1"/><rect x="2" y="14" width="1" height="1"/><rect x="3" y="14" width="1" height="1"/><rect x="4" y="14" width="1" height="1"/><rect x="5" y="14" width="1" height="1"/><rect x="6" y="14" width="1" height="1"/><rect x="0" y="15" width="1" height="1"/><rect x="6" y="15" width="1" height="1"/><rect x="0" y="16" width="1" height="1"/><rect x="2" y="16" width="1" height="1"/><rect x="3" y="16" width="1" height="1"/><rect x="4" y="16" width="1" height="1"/><rect x="6" y="16" width="1" height="1"/><rect x="0" y="17" width="1" height="1"/><rect x="2" y="17" width="1" height="1"/><rect x="3" y="17" width="1" height="1"/><rect x="4" y="17" width="1" height="1"/><rect x="6" y="17" width="1" height="1"/><rect x="0" y="18" width="1" height="1"/><rect x="2" y="18" width="1" height="1"/><rect x="3" y="18" width="1" height="1"/><rect x="4" y="18" width="1" height="1"/><rect x="6" y="18" width="1" height="1"/><rect x="0" y="19" width="1" height="1"/><rect x="6" y="19" width="1" height="1"/><rect x="0" y="20" width="1" height="1"/><rect x="1" y="20" width="1" height="1"/><rect x="2" y="20" width="1" height="1"/><rect x="3" y="20" width="1" height="1"/><rect x="4" y="20" width="1" height="1"/><rect x="5" y="20" width="1" height="1"/><rect x="6" y="20" width="1" height="1"/><rect x="8" y="0" width="1" height="1"/><rect x="11" y="0" width="1" height="1"/><rect x="12" y="0" width="1" height="1"/><rect x="9" y="1" width="1" height="1"/><rect x="10" y="1" width="1" height="1"/><rect x="12" y="1" width="1" height="1"/><rect x="10" y="2" width="1" height="1"/><rect x="10" y="3" width="1" height="1"/><rect x="11" y="3" width="1" height="1"/><rect x="12" y="3" width="1" height="1"/><rect x="8" y="4" width="1" height="1"/><rect x="10" y="4" width="1" height="1"/><rect x="8" y="5" width="1" height="1"/><rect x="10" y="5" width="1" height="1"/><rect x="8" y="6" width="1" height="1"/><rect x="9" y="6" width="1" height="1"/><rect x="10" y="6" width="1" height="1"/><rect x="11" y="6" width="1" height="1"/><rect x="12" y="6" width="1" height="1"/><rect x="8" y="7" width="1" height="1"/><rect x="12" y="7" width="1" height="1"/><rect x="2" y="8" width="1" height="1"/><rect x="4" y="8" width="1" height="1"/><rect x="5" y="8" width="1" height="1"/><rect x="8" y="8" width="1" height="1"/><rect x="11" y="8" width="1" height="1"/><rect x="12" y="8" width="1" height="1"/><rect x="14" y="8" width="1" height="1"/><rect x="15" y="8" width="1" height="1"/><rect x="17" y="8" width="1" height="1"/><rect x="20" y="8" width="1" height="1"/><rect x="5" y="9" width="1" height="1"/><rect x="8" y="9" width="1" height="1"/><rect x="9" y="9" width="1" height="1"/><rect x="10" y="9" width="1" height="1"/><rect x="11" y="9" width="1" height="1"/><rect x="15" y="9" width="1" height="1"/><rect x="16" y="9" width="1" height="1"/><rect x="19" y="9" width="1" height="1"/><rect x="1" y="10" width="1" height="1"/><rect x="2" y="10" width="1" height="1"/><rect x="8" y="10" width="1" height="1"/><rect x="10" y="10" width="1" height="1"/><rect x="12" y="10" width="1" height="1"/><rect x="13" y="10" width="1" height="1"/><rect x="16" y="10" width="1" height="1"/><rect x="20" y="10" width="1" height="1"/><rect x="4" y="11" width="1" height="1"/><rect x="6" y="11" width="1" height="1"/><rect x="7" y="11" width="1" height="1"/><rect x="8" y="11" width="1" height="1"/><rect x="9" y="11" width="1" height="1"/><rect x="10" y="11" width="1" height="1"/><rect x="15" y="11" width="1" height="1"/><rect x="17" y="11" width="1" height="1"/><rect x="18" y="11" width="1" height="1"/><rect x="20" y="11" width="1" height="1"/><rect x="1" y="12" width="1" height="1"/><rect x="2" y="12" width="1" height="1"/><rect x="5" y="12" width="1" height="1"/><rect x="6" y="12" width="1" height="1"/><rect x="7" y="12" width="1" height="1"/><rect x="13" y="12" width="1" height="1"/><rect x="14" y="12" width="1" height="1"/><rect x="16" y="12" width="1" height="1"/><rect x="19" y="12" width="1" height="1"/><rect x="20" y="12" width="1" height="1"/><rect x="8" y="13" width="1" height="1"/><rect x="9" y="13" width="1" height="1"/><rect x="11" y="13" width="1" height="1"/><rect x="13" y="13" width="1" height="1"/><rect x="16" y="13" width="1" height="1"/><rect x="18" y="13" width="1" height="1"/><rect x="8" y="14" width="1" height="1"/><rect x="10" y="14" width="1" height="1"/><rect x="11" y="14" width="1" height="1"/><rect x="13" y="14" width="1" height="1"/><rect x="15" y="14" width="1" height="1"/><rect x="16" y="14" width="1" height="1"/><rect x="18" y="14" width="1" height="1"/><rect x="19" y="14" width="1" height="1"/><rect x="20" y="14" width="1" height="1"/><rect x="9" y="15" width="1" height="1"/><rect x="12" y="15" width="1" height="1"/><rect x="13" y="15" width="1" height="1"/><rect x="15" y="15" width="1" height="1"/><rect x="20" y="15" width="1" height="1"/><rect x="8" y="16" width="1" height="1"/><rect x="9" y="16" width="1" height="1"/><rect x="12" y="16" width="1" height="1"/><rect x="17" y="16" width="1" height="1"/><rect x="18" y="16" width="1" height="1"/><rect x="20" y="16" width="1" height="1"/><rect x="9" y="17" width="1" height="1"/><rect x="11" y="17" width="1" height="1"/><rect x="15" y="17" width="1" height="1"/><rect x="17" y="17" width="1" height="1"/><rect x="11" y="18" width="1" height="1"/><rect x="18" y="18" width="1" height="1"/><rect x="19" y="18" width="1" height="1"/><rect x="20" y="18" width="1" height="1"/><rect x="10" y="19" width="1" height="1"/><rect x="11" y="19" width="1" height="1"/><rect x="14" y="19" width="1" height="1"/><rect x="15" y="19" width="1" height="1"/><rect x="8" y="20" width="1" height="1"/><rect x="9" y="20" width="1" height="1"/><rect x="10" y="20" width="1" height="1"/><rect x="12" y="20" width="1" height="1"/><rect x="15" y="20" width="1" height="1"/><rect x="18" y="20" width="1" height="1"/><rect x="19" y="20" width="1" height="1"/><rect x="20" y="20" width="1" height="1"/></svg>
+    <p>Open Rumi on your iPhone and scan this code.</p>
+    <div class="row"><span>Code expires in <b>4:59</b></span><button class="btn quiet sm">Cancel</button></div>
+  </div>
+</div>
+<div class="hud right"><div class="keys"><span><span class="kbd">S</span> scan</span><span><span class="kbd">I</span> import</span><span><span class="kbd">O</span> sample</span></div></div>
+</div>
+</div>
+</article>
+
+<article class="screen" data-screen="Room review">
+<div class="frame">
+<header class="bar"><span class="wordmark">rumi</span><span class="crumb"><b>The corner living room</b></span><span class="sep"></span><span class="crumb">Sample room</span><span class="grow"></span><span class="status">Saved on this browser</span><span class="sep"></span><button class="btn quiet"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4 3 7l3 3"/><path d="M3 7h6.5a3.5 3.5 0 0 1 0 7H8"/></svg>Undo</button><button class="btn"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v8M5 7l3 3 3-3"/><path d="M3 13h10"/></svg>Download room</button><span class="avatar">SI</span></header>
+<div class="viewer">
+<svg class="iso" viewBox="0 0 900 560" aria-label="Isometric room stand-in"><g transform="translate(129 0)"><defs><clipPath id="d3-rr-floor"><polygon points="387.0,218.0 648.2,368.8 515.1,445.6 454.8,410.9 409.6,436.9 208.7,320.9"/></clipPath></defs><polygon class="wall" points="387.0,218.0 648.2,368.8 648.2,218.0 387.0,67.2"/><polygon class="wall wall-l" points="387.0,218.0 208.7,320.9 208.7,170.1 387.0,67.2"/><polygon class="floor" points="387.0,218.0 648.2,368.8 515.1,445.6 454.8,410.9 409.6,436.9 208.7,320.9"/><g class="grid" clip-path="url(#d3-rr-floor)"><line x1="412.1" y1="232.5" x2="233.8" y2="335.4"/><line x1="437.2" y1="247.0" x2="258.9" y2="349.9"/><line x1="462.3" y1="261.5" x2="284.0" y2="364.4"/><line x1="487.5" y1="276.0" x2="309.1" y2="378.9"/><line x1="512.6" y1="290.5" x2="334.3" y2="393.4"/><line x1="537.7" y1="305.0" x2="359.4" y2="407.9"/><line x1="562.8" y1="319.5" x2="384.5" y2="422.4"/><line x1="587.9" y1="334.0" x2="409.6" y2="436.9"/><line x1="613.0" y1="348.5" x2="434.7" y2="451.5"/><line x1="638.1" y1="363.0" x2="459.8" y2="466.0"/><line x1="361.9" y1="232.5" x2="623.1" y2="383.3"/><line x1="336.8" y1="247.0" x2="598.0" y2="397.8"/><line x1="311.7" y1="261.5" x2="572.8" y2="412.3"/><line x1="286.5" y1="276.0" x2="547.7" y2="426.8"/><line x1="261.4" y1="290.5" x2="522.6" y2="441.3"/><line x1="236.3" y1="305.0" x2="497.5" y2="455.8"/><line x1="211.2" y1="319.5" x2="472.4" y2="470.3"/></g><polygon class="floor-edge" points="387.0,218.0 648.2,368.8 515.1,445.6 454.8,410.9 409.6,436.9 208.7,320.9"/><g class="lip"><polygon points="648.2,368.8 515.1,445.6 515.1,435.2 648.2,358.4"/><polygon points="515.1,445.6 454.8,410.9 454.8,400.4 515.1,435.2"/><polygon points="454.8,410.9 409.6,436.9 409.6,426.5 454.8,400.4"/><polygon points="208.7,320.9 304.1,376.0 304.1,365.6 208.7,310.5"/><polygon points="349.3,402.1 409.6,436.9 409.6,426.5 349.3,391.7"/></g><g class="door"><polyline points="349.3,349.9 354.8,353.6 359.5,357.6 363.2,361.9 365.9,366.5 367.5,371.2 368.1,376.0 367.5,380.9 365.9,385.6 363.2,390.2 359.5,394.5 354.8,398.5 349.3,402.1"/><line x1="304.1" y1="376.0" x2="349.3" y2="349.9"/></g><line class="corner" x1="387.0" y1="218.0" x2="387.0" y2="67.2"/><g class="obj scan"><polygon class="f-front" points="348.3,257.7 453.8,318.6 453.8,271.1 348.3,210.2"/><polygon class="f-right" points="501.5,291.1 453.8,318.6 453.8,271.1 501.5,243.5"/><polygon class="f-top" points="396.0,182.6 501.5,243.5 453.8,271.1 348.3,210.2"/><g class="pin" transform="translate(424.9,212.8)"><line x1="0" y1="14" x2="0" y2="2"/><text x="0" y="-5" text-anchor="middle">Sofa</text></g></g><g class="obj sel est"><polygon class="f-front" points="324.2,300.6 379.5,332.6 379.5,308.2 324.2,276.3"/><polygon class="f-right" points="409.6,315.1 379.5,332.6 379.5,308.2 409.6,290.8"/><polygon class="f-top" points="354.4,258.9 409.6,290.8 379.5,308.2 324.2,276.3"/><g class="pin" transform="translate(366.9,269.5)"><line x1="0" y1="14" x2="0" y2="2"/><text x="0" y="-16" text-anchor="middle">Coffee table</text><text class="tag" x="0" y="-4" text-anchor="middle">estimated</text></g></g><g class="obj scan est"><polygon class="f-front" points="236.3,310.8 251.4,319.5 251.4,209.3 236.3,200.6"/><polygon class="f-right" points="291.6,296.3 251.4,319.5 251.4,209.3 291.6,186.1"/><polygon class="f-top" points="276.5,177.4 291.6,186.1 251.4,209.3 236.3,200.6"/><g class="pin" transform="translate(263.9,179.4)"><line x1="0" y1="14" x2="0" y2="2"/><text x="0" y="-5" text-anchor="middle">Bookshelf</text></g></g><g class="obj scan est"><polygon class="f-front" points="493.0,307.6 510.6,317.8 510.6,225.0 493.0,214.8"/><polygon class="f-right" points="528.1,307.6 510.6,317.8 510.6,225.0 528.1,214.8"/><polygon class="f-top" points="510.6,204.7 528.1,214.8 510.6,225.0 493.0,214.8"/><g class="pin" transform="translate(510.6,200.8)"><line x1="0" y1="14" x2="0" y2="2"/><text x="0" y="-5" text-anchor="middle">Floor lamp</text></g></g><g class="obj scan"><polygon class="f-front" points="497.5,345.6 540.2,370.3 540.2,325.0 497.5,300.4"/><polygon class="f-right" points="585.4,344.1 540.2,370.3 540.2,325.0 585.4,298.9"/><polygon class="f-top" points="542.7,274.3 585.4,298.9 540.2,325.0 497.5,300.4"/><g class="pin" transform="translate(541.5,285.6)"><line x1="0" y1="14" x2="0" y2="2"/><text x="0" y="-5" text-anchor="middle">Armchair</text></g></g><g class="dim"><line x1="188.6" y1="332.6" x2="449.8" y2="483.4"/><text x="319.2" y="423.0" text-anchor="middle">5.20 m</text></g><g class="dim"><line x1="668.3" y1="380.4" x2="490.0" y2="483.4"/><text x="613.1" y="435.9" text-anchor="middle">3.55 m</text></g><g class="dim"><line x1="673.3" y1="368.8" x2="673.3" y2="218.0"/><text x="703.3" y="293.4" text-anchor="middle">2.60 m</text></g><g class="dim seldim"><line x1="315.2" y1="305.9" x2="370.4" y2="337.8"/><text x="336.8" y="335.8" text-anchor="middle">1.10</text></g><g class="dim seldim"><line x1="418.6" y1="320.4" x2="388.5" y2="337.8"/><text x="429.6" y="341.1" text-anchor="middle">0.60</text></g><g class="dim seldim"><line x1="388.5" y1="337.8" x2="388.5" y2="313.4"/><text x="412.5" y="315.6" text-anchor="middle">0.42</text></g><g class="gizmo"><line x1="324.21500000000003" y1="300.65" x2="341.7948" y2="310.8"/><line x1="324.21500000000003" y1="300.65" x2="306.6352" y2="310.8"/><line class="z" x1="324.21500000000003" y1="300.65" x2="324.21500000000003" y2="280.34999999999997"/><circle cx="324.21500000000003" cy="300.65" r="2.5"/></g></g></svg>
+<div class="sample-flag">Sample capture. Objects with dashed edges are estimated.</div>
+
+<aside class="panel dock" aria-label="Room contents">
+  <div class="panel-h">Objects <span class="count">5</span><span class="grow"></span><button class="btn quiet sm">Add</button></div>
+  <div class="panel-b">
+    <div class="row"><span class="mark"></span><span>Sofa</span><span class="dims">2.10 × 0.95 × 0.82</span></div>
+    <div class="row active" aria-current="true"><span class="mark est"></span><span>Coffee table</span><span class="dims">1.10 × 0.60 × 0.42</span></div>
+    <div class="edit" aria-label="Edit Coffee table">
+      <div class="field"><span>Size</span><div class="trip"><span class="in"><b>W</b>1.10</span><span class="in"><b>D</b>0.60</span><span class="in"><b>H</b>0.42</span></div></div>
+      <div class="hint est">Estimated by the scan.</div>
+      <label class="check"><span class="box"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3.5 8.5 3 3 6-7"/></svg></span>Measurements confirmed</label>
+      <label class="switch"><span>Keep in place</span><span class="tog on" role="switch" aria-checked="true" tabindex="0"></span></label>
+      <div class="actions"><button class="btn sm primary">Save changes</button><button class="btn sm quiet">Reset to scan</button><span class="grow"></span><button class="btn sm quiet danger">Remove</button></div>
+    </div>
+    <div class="row"><span class="mark est"></span><span>Bookshelf</span><span class="dims">0.80 × 0.30 × 1.90</span></div>
+    <div class="row"><span class="mark"></span><span>Armchair</span><span class="dims">0.85 × 0.90 × 0.78</span></div>
+    <div class="row"><span class="mark est"></span><span>Floor lamp</span><span class="dims">0.35 × 0.35 × 1.60</span></div>
+    <div class="sub">Walls <span class="count">6 segments</span></div>
+    <div class="row"><span class="mark wall"></span><span>Back wall</span><span class="dims">5.20 m</span></div>
+    <div class="row"><span class="mark wall"></span><span>Right wall</span><span class="dims">2.65 m</span></div>
+    <div class="row"><span class="mark wall"></span><span>Notch, short side</span><span class="dims">1.20 m</span></div>
+    <div class="row"><span class="mark wall"></span><span>Notch, long side</span><span class="dims">0.90 m</span></div>
+    <div class="row"><span class="mark wall"></span><span>Front wall, doorway</span><span class="dims">4.00 m</span></div>
+    <div class="row"><span class="mark wall"></span><span>Left wall</span><span class="dims">3.55 m</span></div>
+    <dl class="facts"><dt>Floor area</dt><dd>18.4 m²</dd><dt>Extents</dt><dd>5.20 × 3.55 × 2.60 m</dd></dl>
+  </div>
+  <div class="legend"><span><i></i>Confirmed measurement</span><span><i class="est"></i>Estimated by the scan</span></div>
+</aside>
+
+
+<div class="hud">
+  <div class="seg" role="group" aria-label="View"><button aria-pressed="true">3D view</button><button aria-pressed="false">Floor plan</button></div>
+  <div class="togs"><label><span class="tog on" role="switch" aria-checked="true" tabindex="0"></span>Walls</label><label><span class="tog on" role="switch" aria-checked="true" tabindex="0"></span>Dimensions</label></div>
+</div>
+<div class="hud right"><div class="keys"><span><span class="kbd">G</span> move</span><span><span class="kbd">R</span> rotate</span><span><span class="kbd">F</span> frame</span><span><span class="kbd">⌫</span> remove</span></div></div>
+</div>
+</div>
+</article>
+
+<article class="screen" data-screen="Design workspace">
+<div class="frame">
+<header class="bar"><span class="wordmark">rumi</span><span class="crumb"><b>The corner living room</b></span><span class="sep"></span><span class="crumb">Design 1</span><span class="grow"></span><span class="status">Saved on this browser</span><span class="sep"></span><button class="btn quiet"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4 3 7l3 3"/><path d="M3 7h6.5a3.5 3.5 0 0 1 0 7H8"/></svg>Undo</button><button class="btn"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v8M5 7l3 3 3-3"/><path d="M3 13h10"/></svg>Download room</button><span class="avatar">SI</span></header>
+<div class="viewer">
+<svg class="iso" viewBox="0 0 900 560" aria-label="Isometric room stand-in"><defs><clipPath id="d3-dw-floor"><polygon points="417.0,218.0 678.2,368.8 545.1,445.6 484.8,410.9 439.6,436.9 238.7,320.9"/></clipPath></defs><polygon class="wall" points="417.0,218.0 678.2,368.8 678.2,218.0 417.0,67.2"/><polygon class="wall wall-l" points="417.0,218.0 238.7,320.9 238.7,170.1 417.0,67.2"/><polygon class="floor" points="417.0,218.0 678.2,368.8 545.1,445.6 484.8,410.9 439.6,436.9 238.7,320.9"/><g class="grid" clip-path="url(#d3-dw-floor)"><line x1="442.1" y1="232.5" x2="263.8" y2="335.4"/><line x1="467.2" y1="247.0" x2="288.9" y2="349.9"/><line x1="492.3" y1="261.5" x2="314.0" y2="364.4"/><line x1="517.5" y1="276.0" x2="339.1" y2="378.9"/><line x1="542.6" y1="290.5" x2="364.3" y2="393.4"/><line x1="567.7" y1="305.0" x2="389.4" y2="407.9"/><line x1="592.8" y1="319.5" x2="414.5" y2="422.4"/><line x1="617.9" y1="334.0" x2="439.6" y2="436.9"/><line x1="643.0" y1="348.5" x2="464.7" y2="451.5"/><line x1="668.1" y1="363.0" x2="489.8" y2="466.0"/><line x1="391.9" y1="232.5" x2="653.1" y2="383.3"/><line x1="366.8" y1="247.0" x2="628.0" y2="397.8"/><line x1="341.7" y1="261.5" x2="602.8" y2="412.3"/><line x1="316.5" y1="276.0" x2="577.7" y2="426.8"/><line x1="291.4" y1="290.5" x2="552.6" y2="441.3"/><line x1="266.3" y1="305.0" x2="527.5" y2="455.8"/><line x1="241.2" y1="319.5" x2="502.4" y2="470.3"/></g><polygon class="floor-edge" points="417.0,218.0 678.2,368.8 545.1,445.6 484.8,410.9 439.6,436.9 238.7,320.9"/><g class="lip"><polygon points="678.2,368.8 545.1,445.6 545.1,435.2 678.2,358.4"/><polygon points="545.1,445.6 484.8,410.9 484.8,400.4 545.1,435.2"/><polygon points="484.8,410.9 439.6,436.9 439.6,426.5 484.8,400.4"/><polygon points="238.7,320.9 334.1,376.0 334.1,365.6 238.7,310.5"/><polygon points="379.3,402.1 439.6,436.9 439.6,426.5 379.3,391.7"/></g><g class="door"><polyline points="379.3,349.9 384.8,353.6 389.5,357.6 393.2,361.9 395.9,366.5 397.5,371.2 398.1,376.0 397.5,380.9 395.9,385.6 393.2,390.2 389.5,394.5 384.8,398.5 379.3,402.1"/><line x1="334.1" y1="376.0" x2="379.3" y2="349.9"/></g><line class="corner" x1="417.0" y1="218.0" x2="417.0" y2="67.2"/><polygon class="rug" points="381.8,258.0 482.3,316.0 412.0,356.6 311.5,298.6"/><polygon class="print" points="464.7,173.1 489.8,187.6 489.8,147.0 464.7,132.5"/><g class="pin new-pin" transform="translate(477.3,125.7)"><line x1="0" y1="14" x2="0" y2="2"/><text x="0" y="-5" text-anchor="middle">Quiet forms print</text></g><g class="obj scan kept"><polygon class="f-front" points="378.3,257.7 483.8,318.6 483.8,271.1 378.3,210.2"/><polygon class="f-right" points="531.5,291.1 483.8,318.6 483.8,271.1 531.5,243.5"/><polygon class="f-top" points="426.0,182.6 531.5,243.5 483.8,271.1 378.3,210.2"/><g class="pin" transform="translate(429.6,198.5)"><line x1="0" y1="14" x2="0" y2="2"/><text x="0" y="-16" text-anchor="middle">Sofa</text><text class="tag" x="0" y="-4" text-anchor="middle">kept in place</text></g></g><g class="obj scan est"><polygon class="f-front" points="354.2,300.6 409.5,332.6 409.5,308.2 354.2,276.3"/><polygon class="f-right" points="439.6,315.1 409.5,332.6 409.5,308.2 439.6,290.8"/><polygon class="f-top" points="384.4,258.9 439.6,290.8 409.5,308.2 354.2,276.3"/></g><g class="obj scan est"><polygon class="f-front" points="266.3,310.8 281.4,319.5 281.4,209.3 266.3,200.6"/><polygon class="f-right" points="321.6,296.3 281.4,319.5 281.4,209.3 321.6,186.1"/><polygon class="f-top" points="306.5,177.4 321.6,186.1 281.4,209.3 266.3,200.6"/></g><g class="obj new"><polygon class="f-front" points="522.5,306.2 537.5,314.9 537.5,312.0 522.5,303.3"/><polygon class="f-right" points="552.6,306.2 537.5,314.9 537.5,312.0 552.6,303.3"/><polygon class="f-top" points="537.5,294.6 552.6,303.3 537.5,312.0 522.5,303.3"/><g class="pin" transform="translate(537.5,179.1)"><line x1="0" y1="14" x2="0" y2="2"/><text x="0" y="-16" text-anchor="middle">Arc floor lamp</text><text class="tag" x="0" y="-4" text-anchor="middle">locked by you</text></g></g><g class="obj scan"><polygon class="f-front" points="527.5,345.6 570.2,370.3 570.2,325.0 527.5,300.4"/><polygon class="f-right" points="615.4,344.1 570.2,370.3 570.2,325.0 615.4,298.9"/><polygon class="f-top" points="572.7,274.3 615.4,298.9 570.2,325.0 527.5,300.4"/></g><g class="obj ghost"><polygon class="f-front" points="261.3,331.1 321.6,365.9 321.6,334.0 261.3,299.2"/><polygon class="f-right" points="341.7,354.3 321.6,365.9 321.6,334.0 341.7,322.4"/><polygon class="f-top" points="281.4,287.6 341.7,322.4 321.6,334.0 261.3,299.2"/></g><g class="obj warn"><polygon class="f-front" points="372.8,395.5 433.1,430.3 433.1,398.4 372.8,363.6"/><polygon class="f-right" points="453.2,418.7 433.1,430.3 433.1,398.4 453.2,386.8"/><polygon class="f-top" points="392.9,352.0 453.2,386.8 433.1,398.4 372.8,363.6"/><g class="pin" transform="translate(413.0,361.2)"><line x1="0" y1="14" x2="0" y2="2"/><text x="0" y="-16" text-anchor="middle">Low oak cabinet</text><text class="tag" x="0" y="-4" text-anchor="middle">blocks door by 0.18 m</text></g></g><g class="arc-lamp"><path d="M 537.5472 303.26 L 537.5472 201.75999999999996 Q 497.5472 167.75999999999996 459.6938 193.35"/><ellipse cx="459.6938" cy="199.35" rx="11" ry="5"/></g><polygon class="clash" points="392.9,351.4 401.9,356.6 381.8,368.2 372.8,363.0"/><g class="pin ghost-pin" transform="translate(301.5,296.8)"><line x1="0" y1="14" x2="0" y2="2"/><text x="0" y="-4" text-anchor="middle">Suggested spot</text></g></svg>
+
+<aside class="panel chat" aria-label="Conversation with the agent">
+  <div class="brief"><span>Your brief</span>Warm, minimal living room. Keep the sofa. No drilling. Budget $600.</div>
+  <div class="msgs">
+    <div class="msg"><span class="who">SI</span><div><div class="meta">You</div><p>Go with a warm, minimal look and keep the sofa where it is. I rent, so nothing that needs drilling. Stay under $600.</p></div></div>
+    <div class="msg agent"><span class="who">r</span><div><div class="meta">Rumi</div>
+      <p>Four items, $396 total. The rug anchors the sofa and coffee table, the arc lamp lights the seating without a side table, the low cabinet gives you closed storage by the door, and the print hangs above the sofa on adhesive strips, so nothing goes into the wall.</p>
+      <p>Chose the wool rug over the jute one to stay under budget; the arc lamp reaches over the sofa without a side table.</p>
+      <p>One thing to check: the cabinet blocks the door swing by 0.18 m in its current spot. I can move it left of the door instead.</p>
+      <p class="q">Where are the outlets? If there is one on the back wall I can keep the lamp cord out of the walkway.</p>
+    </div></div>
+  </div>
+  <form class="composer"><textarea placeholder="Tell Rumi what to change" rows="2"></textarea><button class="btn primary" type="button" aria-label="Send"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13V3M4 7l4-4 4 4"/></svg></button><div class="hintline"><span><span class="kbd">↵</span> send</span><span><span class="kbd">⇧↵</span> new line</span></div></form>
+</aside>
+
+<aside class="panel products" aria-label="Products and budget">
+  <div class="budget">
+    <div class="nums"><b>$396 selected</b><span>$204 of $600 left</span></div>
+    <div class="meter" role="meter" aria-valuemin="0" aria-valuemax="600" aria-valuenow="396" aria-label="Budget used"><i></i></div>
+    <small>Prices are estimates until checkout. Payments are paused.</small>
+  </div>
+  <div class="panel-b">
+    <div class="prod"><span class="n">Arc floor lamp <span class="lk" title="Locked by you"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="7" width="9" height="6.5" rx="1"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"/></svg></span></span><span class="p">$79</span><span class="m">Studio sample catalog. 0.30 × 1.80 m</span><span class="s">In stock</span></div>
+    <div class="prod"><span class="n">Woven wool rug</span><span class="p">$129</span><span class="m">Studio sample catalog. 2.00 × 1.40 m</span><span class="s">In stock</span></div>
+    <div class="prod warned"><span class="n">Low oak cabinet</span><span class="p">$149</span><span class="m">Studio sample catalog. 1.20 × 0.40 × 0.55 m</span><span class="s">In stock</span><span class="note">Blocks the doorway swing by 0.18 m</span></div>
+    <div class="prod"><span class="n">Quiet forms print</span><span class="p">$39</span><span class="m">Studio sample catalog. 0.50 × 0.70 m</span><span class="s low">Low stock</span></div>
+  </div>
+  <div class="foot"><span class="status" style="font-size:11px">Sofa kept in place</span><span class="grow" style="flex:1"></span><button class="btn sm">Swap an item</button></div>
+</aside>
+
+<div class="fitbar" role="status"><span class="ico"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2.2 14.3 13H1.7z"/><path d="M8 6.5v3M8 11.6v.2"/></svg></span><span class="t"><b>Cabinet blocks the doorway swing by 0.18 m</b><span>Suggested spot: left of the door, against the same wall.</span></span><button class="btn sm primary">Move to suggested spot</button><button class="btn sm quiet">Keep here</button></div>
+
+<div class="hud">
+  <div class="seg" role="group" aria-label="View"><button aria-pressed="true">Walkthrough</button><button aria-pressed="false">Overhead</button></div>
+  <div class="togs"><label><span class="tog on" role="switch" aria-checked="true" tabindex="0"></span>Fit checks</label><label><span class="tog" role="switch" aria-checked="false" tabindex="0"></span>Existing only</label></div>
+</div>
+<div class="hud right"><div class="keys"><span><span class="kbd">W A S D</span> walk</span><span><span class="kbd">L</span> lock item</span></div></div>
+</div>
+</div>
+</article>
+</section>

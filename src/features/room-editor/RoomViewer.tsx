@@ -37,11 +37,11 @@ function Surface({
       receiveShadow
     >
       <meshStandardMaterial
-        color={value.kind === "floor" ? "#d2b898" : "#eee9de"}
+        color={value.kind === "floor" ? "#f7f6f2" : "#f1ece2"}
         side={DoubleSide}
         roughness={0.95}
       />
-      <Edges color={value.kind === "floor" ? "#ac9071" : "#c7c0b2"} />
+      <Edges color={value.kind === "floor" ? "#b9c0bc" : "#d9cfbc"} />
     </mesh>
   );
 }
@@ -72,20 +72,20 @@ function Furniture({
       >
         <boxGeometry args={[width, height, depth]} />
         <meshStandardMaterial
-          color={selected ? "#567453" : object.color}
+          color={selected ? "#1e6b63" : object.color}
           roughness={0.85}
         />
-        <Edges color={selected ? "#2e4a2b" : "#81776a"} />
+        <Edges color={selected ? "#124f49" : "#5a5044"} />
       </mesh>
       {selected && (
         <Html
           position={[0, height + 0.2, 0]}
           center
-          className="scene-label"
+          className="rounded-lg bg-chalk px-2.5 py-1.5 text-xs whitespace-nowrap text-teal-deep shadow-lift"
           style={{ pointerEvents: "none" }}
         >
-          <span>{object.name}</span>
-          <small>
+          <span className="block font-semibold">{object.name}</span>
+          <small className="block text-[10px] text-mute tabular-nums">
             {width.toFixed(2)} × {depth.toFixed(2)} × {height.toFixed(2)} m
           </small>
         </Html>
@@ -159,7 +159,10 @@ class ViewerBoundary extends Component<
   }
   render() {
     return this.state.failed ? (
-      <div className="viewer-fallback" role="alert">
+      <div
+        className="grid h-full place-items-center p-8 text-center text-mute"
+        role="alert"
+      >
         The 3D view could not start. Enable WebGL or try another browser. Your
         room measurements remain available in the object list.
       </div>
@@ -192,13 +195,13 @@ export function RoomViewer({
         onPointerMissed={() => onSelect(null)}
         aria-label="Interactive 3D room. Use the object list to select furniture with the keyboard."
         fallback={
-          <div className="viewer-fallback">
+          <div className="grid h-full place-items-center p-8 text-center text-mute">
             WebGL is unavailable. Room measurements are still available in the
             object list.
           </div>
         }
       >
-        <color attach="background" args={["#f3f1eb"]} />
+        <color attach="background" args={["#dce6dd"]} />
         <ambientLight intensity={1.5} />
         <directionalLight
           position={[3, 10, 5]}
@@ -226,7 +229,7 @@ export function RoomViewer({
               <Line
                 key={opening.id}
                 points={points}
-                color={opening.kind === "window" ? "#688a9b" : "#8e795f"}
+                color={opening.kind === "window" ? "#5b7c99" : "#124f49"}
                 lineWidth={2}
               />
             );
@@ -253,7 +256,7 @@ export function RoomViewer({
                   center
                   position={point}
                   style={{ pointerEvents: "none" }}
-                  className="wall-label"
+                  className="rounded bg-chalk/95 px-1.5 py-0.5 text-[10px] whitespace-nowrap text-teal-deep tabular-nums"
                 >
                   {(
                     Math.max(...corners.map((p) => p.x)) -
