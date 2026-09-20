@@ -8,9 +8,8 @@ Built at **HackMIT 2026** · [Project submission](https://plume.hackmit.org/proj
 
 **Powered by**
 
-| [![OpenAI](docs/images/logos/openai-badge.svg)](https://openai.com/) |        [![Exa](docs/images/logos/exa-badge.svg)](https://exa.ai/)        |                    [![Convex](docs/images/logos/convex-badge.svg)](https://www.convex.dev/)                     | [![Clerk](docs/images/logos/clerk-badge.svg)](https://clerk.com/) |
-| :------------------------------------------------------------------: | :----------------------------------------------------------------------: | :-------------------------------------------------------------------------------------------------------------: | :---------------------------------------------------------------: |
-|  [![React](docs/images/logos/react-badge.svg)](https://react.dev/)   | [![Three.js](docs/images/logos/threejs-badge.svg)](https://threejs.org/) | [![Apple RoomPlan](docs/images/logos/apple-badge.svg)](https://developer.apple.com/augmented-reality/roomplan/) |                                                                   |
+| [![OpenAI](docs/images/logos/openai-badge.svg)](https://openai.com/) | [![Exa](docs/images/logos/exa-badge.svg)](https://exa.ai/) | [![Convex](docs/images/logos/convex-badge.svg)](https://www.convex.dev/) | [![Clerk](docs/images/logos/clerk-badge.svg)](https://clerk.com/) | [![React](docs/images/logos/react-badge.svg)](https://react.dev/) | [![Three.js](docs/images/logos/threejs-badge.svg)](https://threejs.org/) | [![Apple RoomPlan](docs/images/logos/apple-badge.svg)](https://developer.apple.com/augmented-reality/roomplan/) |
+| :------------------------------------------------------------------: | :--------------------------------------------------------: | :----------------------------------------------------------------------: | :---------------------------------------------------------------: | :---------------------------------------------------------------: | :----------------------------------------------------------------------: | :-------------------------------------------------------------------------------------------------------------: |
 
 **Built with help from**
 
