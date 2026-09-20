@@ -324,7 +324,7 @@ export const spacingSchema = z.enum(["airy", "balanced", "cozy"]);
 export const zonePlanRequestSchema = z.object({
   summary: clipped(600),
   spacing: spacingSchema,
-  zones: z.array(zoneRequestSchema).min(1).max(6),
+  zones: z.array(zoneRequestSchema).min(1).max(8),
 });
 // The same shape with no transforms or bounds, for structured model output.
 // The model fills this; zonePlanRequestSchema then clips and validates it.
@@ -382,9 +382,9 @@ export const designPlanSchema = z.object({
   baseRevision: z.number().int().nonnegative(),
   summary: z.string(),
   spacing: spacingSchema,
-  zones: z.array(reservedZoneSchema).max(6),
+  zones: z.array(reservedZoneSchema).max(8),
   rejected: z.array(zoneRejectionSchema),
-  tasks: z.array(searchTaskSchema).max(6),
+  tasks: z.array(searchTaskSchema).max(8),
 });
 export const zoneFillSchema = z.object({
   zoneId: idSchema,

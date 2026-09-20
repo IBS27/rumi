@@ -90,6 +90,26 @@ function reservationRing(
   );
 }
 
+// The strip a person needs in front of the piece. Unlike side clearance, a
+// wall may never cut into it.
+function frontRing(
+  center: Point2,
+  width: number,
+  depth: number,
+  rotationY: number,
+  margins: Margins,
+): Ring {
+  const shift = depth / 2 + margins.front / 2;
+  const c = Math.cos(rotationY),
+    s = Math.sin(rotationY);
+  return rectangleRing(
+    { x: center.x + shift * s, z: center.z + shift * c },
+    width,
+    Math.max(margins.front, 0.01),
+    rotationY,
+  );
+}
+
 function candidatePositions(
   model: SpaceModel,
   request: ZoneRequest,
@@ -207,12 +227,18 @@ type Reservation = { zoneId: string; body: Ring; withMargins: Ring };
 
 function fits(
   model: SpaceModel,
+  body: Ring,
+  front: Ring,
   ring: Ring,
   reserved: Reservation[],
   mount: ZoneMount,
   hostId: string | null,
 ): string | null {
-  if (!ringInside(ring, model.floor)) return "outside the floor";
+  // The piece and the room in front of it must be inside the floor. Side
+  // clearance may be cut by a wall: a nightstand can stand against one.
+  if (!ringInside(body, model.floor)) return "outside the floor";
+  if (mount !== "under" && !ringInside(front, model.floor))
+    return "faces a wall";
   // A rug lies under furniture. It only needs to be on the floor and clear of
   // the door swing, the same exemption placementIssue gives it.
   if (mount === "under") {
@@ -231,8 +257,15 @@ function fits(
   );
   if (clearance) return clearance.reason;
   for (const other of reserved) {
-    const target = other.zoneId === hostId ? other.body : other.withMargins;
-    if (ringsOverlap(ring, target)) return "overlaps another reserved zone";
+    // Two clearances may overlap: that is a shared walkway. A body may not
+    // enter another piece's clearance, and no clearance may cover a body.
+    // A companion (host given) may also stand inside its host's clearance.
+    if (ringsOverlap(body, other.body)) return "overlaps another reserved zone";
+    if (other.zoneId === hostId) continue;
+    if (ringsOverlap(body, other.withMargins))
+      return "stands in another piece's clearance";
+    if (ringsOverlap(ring, other.body))
+      return "its clearance would cover another piece";
   }
   return null;
 }
@@ -480,13 +513,9 @@ export function reserveZones(
           candidate.rotationY,
           margins,
         );
-        // Against a host, only the piece itself must stay clear of the host's
-        // body; its own clearance may share the host's clearance.
         const body = rectangleRing(candidate.position, width, depth, candidate.rotationY);
-        const probe = request.relatedObjectId && zones.some((z) => z.id === request.relatedObjectId)
-          ? body
-          : ring;
-        const issue = fits(model, probe, reserved, mount, request.relatedObjectId);
+        const front = frontRing(candidate.position, width, depth, candidate.rotationY, margins);
+        const issue = fits(model, body, front, ring, reserved, mount, request.relatedObjectId);
         if (issue) {
           issues.set(issue, (issues.get(issue) ?? 0) + 1);
           continue;

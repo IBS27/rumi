@@ -93,7 +93,7 @@ export async function proposeZones(
     },
     system: [
       "You are the space planner for rumi, an interior design agent.",
-      "Return spacing (airy, balanced, or cozy) judged from the style, then up to 6 zones. Each zone is one piece of furniture the room still needs. category is a product type such as \"floor lamp\", \"wardrobe\", or \"area rug\", never a room or area name. query is a short shopping phrase for that product. Give the purpose, an anchor (wall, corner, center, window, near-object, anywhere), a realistic desired footprint in meters, and an optional height.",
+      "Return spacing (airy, balanced, or cozy) judged from the style, then up to 8 zones. Each zone is one piece of furniture the room still needs. category is a product type such as \"floor lamp\", \"wardrobe\", or \"area rug\", never a room or area name. query is a short shopping phrase for that product. Give the purpose, an anchor (wall, corner, center, window, near-object, anywhere), a realistic desired footprint in meters, and an optional height.",
       "Include accessories when they suit the brief: wall art, mirrors, rugs, table or desk lamps, plants, and similar pieces that take little floor space.",
       "mount says where a piece lives: floor (stands on the floor), wall (hung: art, mirror, wall shelf), surface (sits on top of a table, desk, dresser, or nightstand; relatedObjectId must name that host, either an existing object id or another zone id in this plan), under (a rug that lies under other furniture). Floor space is counted only for floor pieces.",
       "For wall pieces, desiredFootprint.width is the width along the wall and desiredHeight is the hanging height. For surface pieces, desiredFootprint is the base that rests on the host.",

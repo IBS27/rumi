@@ -289,6 +289,32 @@ describe("accessories", () => {
     expect(lamp.clearanceRules[0]).toContain("follows the chosen host product");
   });
 
+  it("lets two pieces share a walkway: clearances may overlap, bodies may not", () => {
+    const room = { ...sampleRoom, objects: [] };
+    const empty = buildSpaceModel(room);
+    const piece = (id: string, category: string, width: number, depth: number, priority: number) => ({
+      ...lampZone, id, category, query: category, anchor: "wall" as const,
+      relatedObjectId: null, desiredFootprint: { width, depth }, desiredHeight: null, priority,
+    });
+    // A bed (0.6 m side clearance) and a wardrobe (0.75 m front clearance) in
+    // a 4.8 × 4.2 m room: their clearances meet in the middle as one walkway.
+    const { zones, rejected } = reserveZones(room, empty, [
+      piece("bed", "bed", 1.6, 2.0, 1),
+      piece("wardrobe", "wardrobe", 1.8, 0.6, 2),
+      piece("desk", "desk", 1.2, 0.6, 3),
+      piece("chair", "armchair", 0.8, 0.8, 4),
+    ]);
+    expect(rejected).toEqual([]);
+    expect(zones).toHaveLength(4);
+    // No two bodies overlap.
+    const bodies = zones.map((zone) =>
+      rectangleRing({ x: zone.position.x, z: zone.position.z }, zone.footprint.width, zone.footprint.depth, zone.rotationY),
+    );
+    for (let i = 0; i < bodies.length; i++)
+      for (let j = i + 1; j < bodies.length; j++)
+        expect(ringsOverlap(bodies[i], bodies[j])).toBe(false);
+  });
+
   it("lets a nightstand stand in a planned bed's side clearance, then hosts a lamp", () => {
     const room = { ...sampleRoom, objects: [] };
     const empty = buildSpaceModel(room);

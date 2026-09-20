@@ -313,7 +313,7 @@ function buildAgentTools(
       inputSchema: z.object({
         zoneIds: z
           .array(z.string())
-          .max(6)
+          .max(8)
           .optional()
           .describe(
             "Zone ids to search. Leave empty to search exactly the items the user kept on the plan card.",

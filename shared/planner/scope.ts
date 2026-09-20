@@ -15,7 +15,7 @@ export interface PlanScope {
   maxZones: number;
 }
 
-export const MAX_ZONES = 6;
+export const MAX_ZONES = 8;
 
 export function planScope(brief: DesignBrief): PlanScope {
   const required = brief.wants.map((want) => want.category);
@@ -60,7 +60,7 @@ export function describeScope(scope: PlanScope, purpose: string): string {
     "Set spacing from the style: airy for minimalist, Scandinavian, or Japandi rooms that breathe; cozy for eclectic, maximalist, or boho rooms that layer pieces; balanced otherwise. Airy plans hold fewer, larger pieces with generous clearance; cozy plans hold more pieces closer together.";
   if (scope.mode === "delegated")
     return [
-      `The user has not listed items. Choose the furniture ${room} needs for its purpose and style, sized to the free floor space. Start with the piece that defines the room, then what makes it usable, then comfort. How many pieces is your call; do not fill every meter.`,
+      `The user has not listed items. Choose the furniture ${room} needs for its purpose and style, sized to the free floor space. Start with the piece that defines the room, then what makes it usable (storage, a surface, seating), then comfort and light. A furnished room usually has 4 to 6 floor pieces plus accessories; propose the full set the purpose calls for and let the code drop what does not fit, rather than leaving obvious needs out. Clearances may share walkways, so pieces can sit closer than their clearances suggest.`,
       spacing,
       accessories,
     ].join(" ");
