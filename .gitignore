@@ -18,6 +18,9 @@ convex/_generated/
 .prettiercache
 *.log
 
+# Local live-search scenario output
+scenario-results.json
+
 # Browser tests and saved authentication
 test-results/
 playwright-report/
