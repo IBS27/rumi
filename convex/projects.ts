@@ -12,7 +12,11 @@ import {
   query,
 } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
-import { roomSchema, briefSchema } from "../shared/contracts";
+import {
+  roomSchema,
+  briefSchema,
+  type DesignBrief,
+} from "../shared/contracts";
 
 const projectDoc = v.object({
   ...schema.tables.projects.validator.fields,
@@ -140,6 +144,12 @@ export const create = mutation({
   },
 });
 
+export function normalizeBrief(brief: DesignBrief): DesignBrief {
+  return brief.budgetCents >= Number.MAX_SAFE_INTEGER / 2
+    ? { ...brief, budgetCents: 0 }
+    : brief;
+}
+
 export function emptyBrief() {
   return briefSchema.parse({
     prompt: "",
@@ -168,7 +178,7 @@ export const context = query({
     return {
       project,
       room: room?.snapshot ?? null,
-      brief: room?.brief ?? project.brief ?? emptyBrief(),
+      brief: normalizeBrief(room?.brief ?? project.brief ?? emptyBrief()),
     };
   },
 });
@@ -220,7 +230,7 @@ export const updateBrief = internalMutation({
     if (!project) throw new Error("This project does not exist.");
     const room = project.roomId ? await ctx.db.get(project.roomId) : null;
     const brief = briefSchema.parse({
-      ...(room?.brief ?? project.brief ?? emptyBrief()),
+      ...normalizeBrief(room?.brief ?? project.brief ?? emptyBrief()),
       ...Object.fromEntries(
         Object.entries(patch).filter(([, value]) => value !== undefined),
       ),

@@ -111,7 +111,10 @@ export function applyProposal(
     if (issue) throw new Error(issue);
     next = { ...next, objects: [...next.objects, object] };
   }
-  if (selectionTotal(next, products) > brief.budgetCents)
+  if (
+    brief.budgetCents > 0 &&
+    selectionTotal(next, products) > brief.budgetCents
+  )
     throw new Error("This selection exceeds your budget.");
   return roomSchema.parse({ ...next, revision: room.revision + 1 });
 }

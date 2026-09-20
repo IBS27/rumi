@@ -128,6 +128,7 @@ const TRACKING_PARAM =
   /^(utm_|ref$|ref_|lang$|locale$|cid$|gclid$|fbclid$|mc_|srsltid$|_pos$|_sid$|_ss$)/i;
 const PRODUCT_PATH =
   /\/(products?|p|pdp|dp|item|items|prod)\/|\d{4,}|\.html?$/i;
+const NUMERIC_CATEGORY_PATH = /^\/\d{2,}\/[^/]+\.html?\/?$/i;
 const CATEGORY_SEGMENT =
   /^(collections?|categor(?:y|ies)|search|shop-all|in-stock.*|new-arrivals|browse|all-.+|c)$/i;
 
@@ -148,6 +149,7 @@ export function looksLikeListing(raw: string): boolean {
   try {
     const url = new URL(raw);
     const path = url.pathname + url.search;
+    if (NUMERIC_CATEGORY_PATH.test(url.pathname)) return false;
     if (PRODUCT_PATH.test(path)) return true;
     return !url.pathname
       .split("/")
@@ -175,12 +177,17 @@ export function dedupeHits(hits: ExaSearchHit[]): ExaSearchHit[] {
   return kept;
 }
 
-// Exa can index Amazon product URLs that no longer resolve for users. Do not return a
-// merchant link unless the pipeline can provide a dependable destination.
+// Exa can index stale Amazon links and foreign storefronts whose prices are not USD.
+// Do not return them under the catalog's USD contract.
 export function isUnsupportedMerchant(raw: string): boolean {
   try {
     const hostname = new URL(raw).hostname.toLowerCase();
-    return hostname === "amazon.com" || hostname.endsWith(".amazon.com");
+    const topLevelDomain = hostname.split(".").at(-1) ?? "";
+    return (
+      hostname === "amazon.com" ||
+      hostname.endsWith(".amazon.com") ||
+      (topLevelDomain.length === 2 && topLevelDomain !== "us")
+    );
   } catch {
     return true;
   }
@@ -294,7 +301,7 @@ export function filterCandidates(
       counts.availability++;
       continue;
     }
-    if (product.priceCents > task.maxPriceCents) {
+    if (task.maxPriceCents > 0 && product.priceCents > task.maxPriceCents) {
       counts.price++;
       continue;
     }

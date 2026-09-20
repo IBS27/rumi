@@ -59,10 +59,12 @@ export interface PipelineOptions {
 export const DEFAULTS: PipelineOptions = {
   results: 12,
   minTierHits: 6,
-  target: 3,
+  target: 1,
   maxVision: 3,
   maxExtractions: 8,
 };
+
+const MIN_MERCHANTS_FOR_COMPARISON = 2;
 
 interface PageFacts {
   productId: string;
@@ -73,6 +75,19 @@ interface PageFacts {
 
 function message(error: unknown): string {
   return error instanceof Error ? error.message : "unknown error";
+}
+
+const BROWSE_PAGE_SIGNALS = [
+  /\bfilters?\b/i,
+  /\bsort by\b/i,
+  /\bcompare products\b/i,
+  /\bsearch within results\b/i,
+  /\bclear filters\b/i,
+];
+
+function looksLikeBrowsePage(page: PageContent): boolean {
+  const text = `${page.title ?? ""}\n${page.text}`;
+  return BROWSE_PAGE_SIGNALS.filter((signal) => signal.test(text)).length >= 2;
 }
 
 // Retail pages are rendered in the browser: a raw fetch returns navigation and
@@ -204,7 +219,7 @@ export async function runSearch(
     new Set(hits.map((hit) => merchantFor(hit.url))).size;
   if (
     hits.length < settings.minTierHits ||
-    merchantCount() < Math.min(settings.target, 3)
+    merchantCount() < MIN_MERCHANTS_FOR_COMPARISON
   ) {
     searchedOpenWeb = true;
     failures.push({
@@ -235,6 +250,13 @@ export async function runSearch(
     for (const url of urls) seenUrls.add(url);
     const pages = await gatherPages(urls, deps, failures);
     for (const page of pages) {
+      if (looksLikeBrowsePage(page)) {
+        failures.push({
+          stage: "search",
+          detail: `Dropped category or explore page: ${page.url}.`,
+        });
+        continue;
+      }
       const merchant = await merchantLayer(page, task, deps);
       const jsonLd = page.html ? parseProductJsonLd(page.html) : null;
       const structured = factsFromJsonLd(jsonLd);
@@ -320,8 +342,8 @@ export async function runSearch(
   // real filters too, not only when the raw hit list is thin.
   if (
     (kept.length === 0 ||
-      keptMerchantCount() < Math.min(settings.target, 3) ||
-      measuredMerchantCount() < Math.min(settings.target, 3)) &&
+      keptMerchantCount() < MIN_MERCHANTS_FOR_COMPARISON ||
+      measuredMerchantCount() < MIN_MERCHANTS_FOR_COMPARISON) &&
     domains.length > 0 &&
     !searchedOpenWeb
   ) {
@@ -408,11 +430,15 @@ export async function runSearch(
   const miscellaneous = task.miscellaneous.length
     ? ` Additional requested specs (${task.miscellaneous.join(", ")}) influenced retrieval and ranking; only page-confirmed matches should be presented as verified.`
     : "";
+  const priceScope =
+    task.maxPriceCents > 0
+      ? `through the ${tierFor(task.maxPriceCents)} tier`
+      : "with no price ceiling";
   return taskResult(
     task,
     finalists,
     distinct,
-    `Searched ${hits.length} ${task.category} listing(s) across ${merchantCount()} merchant(s), through the ${tierFor(task.maxPriceCents)} tier, and kept ${finalists.length}; ${measured} have dimensions. Sizes are read from merchant pages and are estimates until confirmed.${miscellaneous}`,
+    `Searched ${hits.length} ${task.category} listing(s) across ${merchantCount()} merchant(s), ${priceScope}, and kept ${finalists.length}; ${measured} have dimensions. Sizes are read from merchant pages and are estimates until confirmed.${miscellaneous}`,
   );
 }
 

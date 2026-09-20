@@ -76,6 +76,14 @@ describe("team handoff", () => {
     expect(room.revision).toBe(1);
     expect(sampleRoom.objects).toHaveLength(2);
   });
+  it("does not enforce a budget when none was specified", () => {
+    const room = applyProposal(sampleRoom, sampleProposal, sampleProducts, {
+      ...sampleBrief,
+      budgetCents: 0,
+    });
+    expect(room.objects).toHaveLength(sampleRoom.objects.length + 1);
+  });
+
   it("rejects stale proposals and duplicate instances", () => {
     const room = applyProposal(
       sampleRoom,
