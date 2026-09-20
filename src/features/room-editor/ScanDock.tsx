@@ -1,4 +1,4 @@
-import type { ComponentType } from "react";
+import { useState, type ComponentType } from "react";
 import {
   Armchair,
   Bath,
@@ -7,7 +7,10 @@ import {
   Flame,
   Frame,
   Lamp,
+  ArrowLeft,
+  ArrowRight,
   Monitor,
+  PanelLeft,
   Refrigerator,
   Sofa,
   Table,
@@ -22,7 +25,7 @@ import {
   type RoomObject,
 } from "../../../shared/contracts";
 import { floorArea } from "../../../shared/capture/surfaces";
-import { FloatingPanel, Heading, Muted, cx } from "../../ui";
+import { Button, FloatingPanel, Heading, Muted, cx } from "../../ui";
 import { ObjectEditor } from "./ObjectEditor";
 
 type Category = z.infer<typeof categorySchema>;
@@ -87,6 +90,25 @@ function ObjectRow({
   );
 }
 
+function DockToggle({ open, onToggle }: { open: boolean; onToggle: () => void }) {
+  const label = open ? "Hide the scan list" : "Show the scan list";
+  const Arrow = open ? ArrowLeft : ArrowRight;
+  return (
+    <Button
+      size="sm"
+      variant="quiet"
+      className="group size-7 shrink-0 p-1 text-mute"
+      aria-label={label}
+      aria-expanded={open}
+      title={label}
+      onClick={onToggle}
+    >
+      <PanelLeft size={17} className="group-hover:hidden" />
+      <Arrow size={17} className="hidden group-hover:block" />
+    </Button>
+  );
+}
+
 /** Floating summary of the scan with the selectable object list. */
 export function ScanDock({
   hidden = false,
@@ -109,21 +131,36 @@ export function ScanDock({
   onRemove: (id: string) => void;
   captureWarnings?: string[];
 }) {
+  const [open, setOpen] = useState(true);
   const confirmed = room.objects.filter(
     (item) => item.measurementSource === "confirmed",
   ).length;
+  // The dock slides out for the walkthrough (`hidden`) or when collapsed here.
+  const away = hidden || !open;
   return (
+    <>
+      {!hidden && !open && (
+        <FloatingPanel
+          aria-label="What the scan found"
+          className="top-28 lg:top-4 left-4 p-1.5"
+        >
+          <DockToggle open={false} onToggle={() => setOpen(true)} />
+        </FloatingPanel>
+      )}
     <FloatingPanel
       aria-label="What the scan found"
-      inert={hidden}
-      aria-hidden={hidden}
+      inert={away}
+      aria-hidden={away}
       className={cx(
         "top-28 lg:top-4 left-4 flex max-h-[calc(100%-128px)] lg:max-h-[calc(100%-32px)] w-[252px] flex-col overflow-auto transition-[translate,opacity] duration-400 ease-in-out motion-reduce:transition-none",
-        hidden &&
+        away &&
           "-translate-x-[calc(100%+32px)] opacity-0 pointer-events-none",
       )}
     >
-      <Heading>What the scan found</Heading>
+      <div className="flex items-center justify-between gap-2">
+        <Heading>What the scan found</Heading>
+        <DockToggle open onToggle={() => setOpen(false)} />
+      </div>
       {captureWarnings?.map((warning, index) => (
         <Muted key={index} className="mt-2 text-xs">
           {warning}
@@ -192,5 +229,6 @@ export function ScanDock({
         </span>
       </div>
     </FloatingPanel>
+    </>
   );
 }
