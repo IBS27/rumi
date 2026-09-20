@@ -1,6 +1,6 @@
 # Rumi room capture
 
-A SwiftUI iPhone app that pairs with Rumi by QR code and scans one room with RoomPlan and ARKit in one session. Send the room layout to the paired browser, or use **Export scan** to share a ZIP with surface geometry, photos, and depth for a textured room view. **Export layout JSON** preserves the original Apple JSON. Offline scanning remains available. No native login or third-party dependencies are required. See [surface capture](../docs/surface-capture.md) for the package format and device verification requirements. All app files live under `ios/`.
+A SwiftUI iPhone app that pairs with Rumi by QR code and scans one room with RoomPlan and ARKit in one session. Use **Send to Rumi** to transfer the complete scan to the paired browser automatically, including surface geometry, photos, depth, confidence, and room layout. **Export scan** keeps a ZIP backup; **Send layout only** is an explicit fallback when detailed capture is unavailable. **Export layout JSON** preserves the original Apple JSON. Offline scanning remains available. No native login or third-party dependencies are required. See [surface capture](../docs/surface-capture.md) for the package format and device verification requirements. All app files live under `ios/`.
 
 ## Requirements
 
@@ -141,3 +141,9 @@ One room at a time. No multi-room merging, individual furniture mesh editing, me
 - [Processed preview behavior](<https://developer.apple.com/documentation/roomplan/roomcaptureviewdelegate/captureview(shouldpresent:error:)>).
 - [CapturedRoom](https://developer.apple.com/documentation/roomplan/capturedroom).
 - [Surface dimensions](https://developer.apple.com/documentation/roomplan/capturedroom/surface/dimensions) and [surface transform](https://developer.apple.com/documentation/roomplan/capturedroom/surface/transform).
+
+## Complete-transfer verification
+
+The updated **Send to Rumi** hashes and uploads the saved ZIP from disk, reports upload progress, and retains its file ID for confirmation retries. It requires the updated backend advertising `maxScanBytes`. Deploy the compatible optional schema fields and scan endpoints before installing this app. The Swift changes and new transport tests in this task have not been compiled or run on Fedora.
+
+On the LiDAR iPhone, scan and send a furnished room. Confirm the browser automatically shows captured surfaces without a manual file import, then reload and download it. Test a scan above 10 MiB, cancel/retry during upload, lost completion responses, expired pairing, and a detailed-capture failure that offers **Send layout only** without silently discarding shape data. Run `CaptureClientTests` in Xcode before that device handoff.

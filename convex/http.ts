@@ -7,6 +7,9 @@ import {
   claimBodySchema,
   hashToken,
   MAX_ROOM_BYTES,
+  MAX_SCAN_BYTES,
+  scanUploadSchema,
+  scanCompleteSchema,
 } from "../shared/capture/pairing";
 import { importRoomPlan } from "../shared/capture/roomplan";
 
@@ -76,6 +79,8 @@ function errorResponse(error: unknown): Response {
     ALREADY_CLAIMED: 409,
     ALREADY_UPLOADED: 409,
     RATE_LIMITED: 429,
+    INVALID_SCAN: 422,
+    INVALID_REQUEST: 400,
   };
   const status =
     error instanceof RequestError ? error.status : (statuses[code] ?? 500);
@@ -128,6 +133,7 @@ http.route({
           uploadToken,
           expiresAt: new Date(expiresAt).toISOString(),
           maxBytes: MAX_ROOM_BYTES,
+          maxScanBytes: MAX_SCAN_BYTES,
         },
         { headers: { "Cache-Control": "no-store" } },
       );
@@ -190,4 +196,46 @@ http.route({
     }
   }),
 });
+for (const path of ["start", "complete"] as const) {
+  http.route({
+    path: `/capture/v1/scan/${path}`,
+    method: "POST",
+    handler: httpAction(async (ctx, request) => {
+      try {
+        const uploadHash = await hashToken(token(request));
+        let input: unknown;
+        try {
+          input = JSON.parse(await readBody(request, 2048));
+        } catch (error) {
+          if (error instanceof RequestError) throw error;
+          throw new RequestError("INVALID_REQUEST", 400);
+        }
+        if (path === "start") {
+          const body = scanUploadSchema.safeParse(input);
+          if (!body.success) throw new RequestError("INVALID_REQUEST", 400);
+          const result = await ctx.runMutation(
+            internal.captures.startScanUpload,
+            { ...body.data, uploadHash },
+          );
+          return Response.json(result, {
+            headers: { "Cache-Control": "no-store" },
+          });
+        }
+        const body = scanCompleteSchema.safeParse(input);
+        if (!body.success) throw new RequestError("INVALID_REQUEST", 400);
+        const status = await ctx.runAction(internal.capturePackages.accept, {
+          ...body.data,
+          uploadHash,
+        });
+        if (status === "invalid") throw new RequestError("INVALID_SCAN", 422);
+        return Response.json(
+          { sessionId: body.data.sessionId, status },
+          { headers: { "Cache-Control": "no-store" } },
+        );
+      } catch (error) {
+        return errorResponse(error);
+      }
+    }),
+  });
+}
 export default http;
