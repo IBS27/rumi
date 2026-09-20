@@ -7,6 +7,7 @@ import {
   specSummaryText,
 } from "../shared/chat/spec";
 import { inferPurpose } from "../shared/chat/purpose";
+import { shouldForcePlanSpace } from "../shared/chat/planning";
 
 const empty = (): DesignBrief =>
   briefSchema.parse({
@@ -18,6 +19,32 @@ const empty = (): DesignBrief =>
   });
 
 describe("spec status", () => {
+  it("routes explicit and acknowledged layout retries back through planning", () => {
+    expect(shouldForcePlanSpace("plan", "Start planning. now", "")).toBe(
+      true,
+    );
+    expect(
+      shouldForcePlanSpace(
+        "plan",
+        "ok",
+        "The bed could not be reserved. I can try a smaller bed.",
+      ),
+    ).toBe(true);
+    expect(
+      shouldForcePlanSpace(
+        "plan",
+        "The shelf is gone, so the bed fits now",
+        "The bed couldn't fit because of space constraints.",
+      ),
+    ).toBe(true);
+    expect(shouldForcePlanSpace("spec", "Start planning now", "")).toBe(
+      false,
+    );
+    expect(shouldForcePlanSpace("plan", "I like oak", "Looks good.")).toBe(
+      false,
+    );
+  });
+
   it("recognizes a room purpose stated in a casual furniture request", () => {
     expect(inferPurpose("I need some furniture for my bedroom")).toBe(
       "bedroom",

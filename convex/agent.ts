@@ -39,6 +39,7 @@ import {
   specStatusLine,
   specSummaryText,
 } from "../shared/chat/spec";
+import { shouldForcePlanSpace } from "../shared/chat/planning";
 
 const SYSTEM_PROMPT = `You are the room designer for rumi. You build rooms from real web products.
 - Start with getRoomContext. Respect owned and locked objects.
@@ -802,6 +803,7 @@ async function runAgent(
     },
   ],
   selectedObjectId: string | null = null,
+  forcePlanSpace = false,
 ): Promise<{
   text: string;
   room: RoomSnapshot | null;
@@ -873,6 +875,18 @@ async function runAgent(
     system: SYSTEM_PROMPT,
     prompt,
     tools,
+    prepareStep: forcePlanSpace
+      ? ({ stepNumber }) =>
+          stepNumber === 0
+            ? {
+                activeTools: ["planSpace"],
+                toolChoice: {
+                  type: "tool" as const,
+                  toolName: "planSpace" as const,
+                },
+              }
+            : undefined
+      : undefined,
     stopWhen: [
       stepCountIs(10),
       hasToolCall("askOptions"),
@@ -1003,6 +1017,24 @@ export const runForProject = internalAction({
         .join("\n");
       const reply = messages.find((message) => message._id === messageId);
       const stage: ProjectPhase = project.phase ?? "spec";
+      const completed = messages.filter((message) => message.status === "done");
+      let latestUserIndex = -1;
+      for (let index = completed.length - 1; index >= 0; index--) {
+        if (completed[index].role !== "user") continue;
+        latestUserIndex = index;
+        break;
+      }
+      const latestUser =
+        latestUserIndex >= 0 ? completed[latestUserIndex].content : "";
+      const previousAssistant = [...completed]
+        .slice(0, latestUserIndex)
+        .reverse()
+        .find((message) => message.role === "assistant")?.content ?? "";
+      const forcePlanSpace = shouldForcePlanSpace(
+        stage,
+        latestUser,
+        previousAssistant,
+      );
       const roomDoc = project.roomId
         ? await ctx.runQuery(internal.rooms.getRoom, { roomId: project.roomId })
         : null;
@@ -1026,6 +1058,7 @@ export const runForProject = internalAction({
         },
         reply?.activity ?? undefined,
         reply?.selectedObjectId ?? null,
+        forcePlanSpace,
       );
       // A choice written as a text list is not clickable. Turn it into the
       // card the model should have used.
