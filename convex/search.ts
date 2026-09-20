@@ -59,24 +59,31 @@ function searchDeps(persist: (products: ProductCandidate[]) => Promise<void>) {
 export const searchProducts = internalAction({
   returns: zodToConvex(searchTaskResultSchema),
   args: { task: zodToConvex(searchTaskSchema) },
-  handler: async (ctx, args): Promise<SearchTaskResult> =>
-    await runSearch(
+  handler: async (ctx, args): Promise<SearchTaskResult> => {
+    const result = await runSearch(
       searchTaskSchema.parse(args.task),
       searchDeps(async (products) => {
         await ctx.runMutation(internal.products.upsertProducts, { products });
       }),
-    ),
+    );
+    return { ...result, candidates: result.candidates.slice(0, 1) };
+  },
 });
 
 // One call per planned room, so the main agent does not spend a tool step per category.
 export const searchCategories = internalAction({
   returns: zodToConvex(z.array(searchTaskResultSchema)),
   args: { tasks: zodToConvex(z.array(searchTaskSchema).min(1).max(8)) },
-  handler: async (ctx, args): Promise<SearchTaskResult[]> =>
-    await runSearches(
+  handler: async (ctx, args): Promise<SearchTaskResult[]> => {
+    const results = await runSearches(
       z.array(searchTaskSchema).parse(args.tasks),
       searchDeps(async (products) => {
         await ctx.runMutation(internal.products.upsertProducts, { products });
       }),
-    ),
+    );
+    return results.map((result) => ({
+      ...result,
+      candidates: result.candidates.slice(0, 1),
+    }));
+  },
 });

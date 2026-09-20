@@ -12,14 +12,40 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 
+const activityValidator = v.object({
+  id: v.string(),
+  tool: v.string(),
+  label: v.string(),
+  detail: v.optional(v.string()),
+  status: v.union(v.literal("running"), v.literal("done"), v.literal("error")),
+});
+
+const planningActivity = () => [
+  {
+    id: "planning",
+    tool: "planning",
+    label: "Planning",
+    status: "running" as const,
+  },
+];
+
 const messageDoc = v.object({
   ...schema.tables.messages.validator.fields,
   _id: v.id("messages"),
   _creationTime: v.number(),
 });
+const productCard = v.object({
+  id: v.string(),
+  name: v.string(),
+  merchant: v.string(),
+  sourceUrl: v.string(),
+  imageUrl: v.union(v.string(), v.null()),
+  priceCents: v.number(),
+});
 const listedMessage = v.object({
   ...messageDoc.fields,
   imageUrl: v.union(v.string(), v.null()),
+  recommendation: v.union(productCard, v.null()),
 });
 
 export const list = query({
@@ -52,11 +78,30 @@ export const list = query({
       .paginate(paginationOpts);
     const page = await Promise.all(
       messages.page.map(async (message) => {
-        if (!message.imageId) return { ...message, imageUrl: null };
-        const image = await ctx.db.get(message.imageId);
+        const [image, product] = await Promise.all([
+          message.imageId ? ctx.db.get(message.imageId) : null,
+          message.recommendationProductId
+            ? ctx.db
+                .query("products")
+                .withIndex("by_catalog_id", (q) =>
+                  q.eq("id", message.recommendationProductId!),
+                )
+                .unique()
+            : null,
+        ]);
         return {
           ...message,
           imageUrl: image ? await ctx.storage.getUrl(image.storageId) : null,
+          recommendation: product
+            ? {
+                id: product.id,
+                name: product.name,
+                merchant: product.merchant,
+                sourceUrl: product.sourceUrl,
+                imageUrl: product.imageUrl,
+                priceCents: product.priceCents,
+              }
+            : null,
         };
       }),
     );
@@ -90,6 +135,7 @@ export async function postUserTurn(
     projectId,
     role: "assistant",
     content: "",
+    activity: planningActivity(),
     status: "pending",
     createdAt: now + 1,
   });
@@ -162,6 +208,33 @@ export const answer = mutation({
   },
 });
 
+export const updateProgress = internalMutation({
+  returns: v.null(),
+  args: {
+    messageId: v.id("messages"),
+    content: v.string(),
+    activity: v.array(activityValidator),
+    recommendationProductId: v.optional(v.union(v.string(), v.null())),
+  },
+  handler: async (
+    ctx,
+    { messageId, content, activity, recommendationProductId },
+  ) => {
+    const message = await ctx.db.get(messageId);
+    if (!message || message.status !== "pending") return;
+    const project = await ctx.db.get(message.projectId);
+    if (!project || project.activeMessageId !== messageId) return;
+    await ctx.db.patch(messageId, {
+      content: content.slice(0, 16000),
+      activity: activity.slice(-20),
+      // Omission preserves the card; null explicitly clears a previous result.
+      ...(recommendationProductId !== undefined
+        ? { recommendationProductId: recommendationProductId ?? undefined }
+        : {}),
+    });
+  },
+});
+
 export const complete = internalMutation({
   returns: v.null(),
   args: {
@@ -172,7 +245,19 @@ export const complete = internalMutation({
   handler: async (ctx, { messageId, content, status }) => {
     const message = await ctx.db.get(messageId);
     if (!message || message.status !== "pending") return;
-    await ctx.db.patch(messageId, { content, status });
+    await ctx.db.patch(messageId, {
+      content,
+      status,
+      activity: message.activity?.map((item) => ({
+        ...item,
+        status:
+          item.status === "running"
+            ? status === "error"
+              ? ("error" as const)
+              : ("done" as const)
+            : item.status,
+      })),
+    });
     const project = await ctx.db.get(message.projectId);
     if (project?.activeMessageId === messageId)
       await ctx.db.patch(project._id, { activeMessageId: undefined });
@@ -230,6 +315,7 @@ export const retry = mutation({
       projectId: project._id,
       role: "assistant",
       content: "",
+      activity: planningActivity(),
       status: "pending",
       createdAt: Date.now(),
     });

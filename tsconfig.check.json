@@ -1,4 +1,11 @@
 {
   "extends": "./tsconfig.json",
-  "include": ["shared", "tests", "convex/schema.ts", "convex/extract.ts"]
+  "include": [
+    "shared",
+    "src",
+    "tests",
+    "convex/schema.ts",
+    "convex/extract.ts",
+    "convex/assetGeneration.ts"
+  ]
 }

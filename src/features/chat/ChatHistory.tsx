@@ -78,7 +78,7 @@ export function ChatHistory({
             <Button
               size="sm"
               variant="quiet"
-              className="size-7 shrink-0 p-1 text-mute opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+              className="size-7 shrink-0 p-1 text-mute [@media(hover:hover)]:opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
               aria-label={`Rename ${project.title}`}
               disabled={busy}
               onClick={() => {
@@ -92,7 +92,7 @@ export function ChatHistory({
             <Button
               size="sm"
               variant="quiet"
-              className="size-7 shrink-0 p-1 text-mute opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+              className="size-7 shrink-0 p-1 text-mute [@media(hover:hover)]:opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
               aria-label={`Delete ${project.title}`}
               disabled={busy}
               onClick={() => {

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { parametricModelSchema } from "../assets/model";
 
 export const idSchema = z.string().min(1);
 export const vectorSchema = z.object({
@@ -64,10 +65,14 @@ export const assetSchema = z
     accuracy: z.enum(["approximate", "manufacturer"]),
     scale: z.number().positive(),
     rotation: vectorSchema,
+    // Parametric scenes are generated from product photos and rendered directly by
+    // Three.js. Existing GLB/manufacturer assets continue to use url.
+    scene: parametricModelSchema.nullable().optional(),
   })
   .refine(
-    (value) => value.status !== "ready" || value.url !== null,
-    "Ready assets require a URL",
+    (value) =>
+      value.status !== "ready" || value.url !== null || value.scene != null,
+    "Ready assets require a URL or parametric scene",
   );
 export const productSchema = z.object({
   id: idSchema,
@@ -194,7 +199,11 @@ export const hexColorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/);
 export const searchTaskSchema = z.object({
   query: z.string().trim().min(1).max(200),
   category: searchCategorySchema,
-  maxPriceCents: z.number().int().nonnegative(),
+  maxPriceCents: z
+    .number()
+    .int()
+    .nonnegative()
+    .describe("Maximum price in cents. Use 0 when the user gave no budget."),
   maxFootprint: footprintSchema.nullable(),
   maxHeight: z.number().positive().nullable(),
   styleTerms: z.array(z.string()),

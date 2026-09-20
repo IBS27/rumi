@@ -23,6 +23,9 @@ Tests use Bun's built-in runner, with no separate test configuration. `tests/con
 
 Feature directories reserve space for future frontend work. `src/features/room-setup/` holds the start screen, `src/features/room-editor/` the room review (viewer, scan dock, object editor), and `src/features/room-import/` phone pairing. Build new screens from `src/ui` (see `src/ui/README.md`).
 
+The image-to-3D pipeline stores bounded parametric scenes that the room viewer can
+render at their catalog dimensions. See [the asset-generation specification](docs/asset-generation.md).
+
 | Owner           | Files                                                                                  | Responsibility                                     |
 | --------------- | -------------------------------------------------------------------------------------- | -------------------------------------------------- |
 | Search 1        | `src/features/search/`, future `convex/search/`                                        | Discovery, product normalization, catalog adapters |
@@ -59,7 +62,7 @@ Both pairs can begin locally with the shared contracts and fixtures. For live in
 - Share the scaffold through Git and give all teammates repository access.
 - Invite teammates to the dedicated `rumi` team and configure each developer's development deployment in the existing project.
 - Assign ownership of backend functions and schema changes; deploy merged code to the shared production backend.
-- Choose the live model/search and 3D asset providers, then configure their credentials on the backend. Never put provider secrets in `VITE_` variables.
+- Configure search and asset-model credentials on the backend. The parametric asset job defaults to GPT-6 Astra. Never put provider secrets in `VITE_` variables.
 - Add authentication and authenticated room persistence before storing real user data.
 
 The live providers, authentication, backend functions, and hosting pipeline are not configured by this scaffold. Payments remain paused.

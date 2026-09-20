@@ -10,7 +10,10 @@ import { selectionTotal } from "../budget";
 // Replace this adapter with a Convex action. Both sides keep these contracts.
 export function fixtureSearch(input: SearchRequest): SearchResult {
   const { room, brief, query } = searchRequestSchema.parse(input);
-  const remaining = brief.budgetCents - selectionTotal(room, sampleProducts);
+  const remaining =
+    brief.budgetCents > 0
+      ? brief.budgetCents - selectionTotal(room, sampleProducts)
+      : Number.POSITIVE_INFINITY;
   const words = query
     .toLowerCase()
     .split(/\W+/)
