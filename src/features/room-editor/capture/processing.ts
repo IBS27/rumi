@@ -1,7 +1,14 @@
 import type { SavedRoom } from "../../../../shared/capture/roomplan";
 import type { TexturedScan } from "../../../../shared/capture/texture";
+import type { ReconstructionInput } from "../../../../shared/reconstruction/contracts";
 
-type ImportResult = { kind: "import"; saved: SavedRoom; scan: TexturedScan };
+type ImportResult = {
+  kind: "import";
+  saved: SavedRoom;
+  scan: TexturedScan;
+  evidence?: ReconstructionInput;
+  evidenceError?: string;
+};
 type ExportResult = { kind: "export"; bytes: ArrayBuffer };
 async function process(
   blob: Blob,

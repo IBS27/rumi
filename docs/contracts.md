@@ -62,3 +62,31 @@ footprint. See [image-to-3D assets](asset-generation.md).
 ## Detailed capture package
 
 The native-to-web `rumi.capture` v1 ZIP carries the unchanged final RoomPlan JSON, ARKit mesh buffers, JPEGs, camera calibration, depth, and confidence. `shared/capture/package.ts` validates it. [Surface capture](surface-capture.md) defines units, binary layouts, coordinate transforms, limits, local persistence, and the boundary between measured surfaces and editable furniture. This does not change `RoomSnapshot`. The [pairing contract](room-capture-pairing.md#complete-scan-transfer) adds an optional direct-storage ZIP transfer alongside the original JSON endpoint.
+
+## Reconstructed room appearance
+
+`shared/reconstruction/contracts.ts` defines versioned reconstruction evidence and
+validated scenes. Evidence includes the original captured room, calibrated reduced
+photos, and classified triangle samples in the same normalized meter coordinates.
+Optional `surfaceObservations` attach depth-tested RGB samples to exact surface
+IDs, front/back faces, photo indices and sample counts. They describe photographed
+appearance under capture lighting, not calibrated material reflectance. Old
+evidence without these observations remains valid.
+A reconstructed scene preserves existing surface and furniture IDs and can add up to
+48 photo-supported objects. Discovered objects carry calibrated placement estimates,
+dimensions, photo references, evidence and confidence. They become owned, editable
+room objects with estimated measurements and `detectionSource: "photo"`.
+Attached details belong to their parent's assembly. Optional `renderBounds` expands
+its visual box without changing scanned measurements; normalized part coordinates
+remain X/Z [-0.5, 0.5], Y [0, 1] inside that visual box. Expansion must contain the
+measured box and cannot extend more than two meters per side.
+Surface colors may be null when unknown. Optional material detail carries a
+procedural pattern, repeat dimensions in meters, and roughness. Optional surface
+regions use local XY polygons and front/back/both faces; the renderer clips them
+to measured boundaries and openings. Appearance revision 5 regenerates earlier
+scenes without changing evidence version 1 or deleting old scenes.
+Saved rooms optionally retain `reconstructionObjectIds`, including removed IDs,
+so cached results do not overwrite edits or restore deleted discoveries. This
+metadata also travels in exported ZIPs. Older saved rooms remain valid.
+Both overview and first person consume the scene. See
+[simulated room reconstruction](room-reconstruction-simulation.md).

@@ -1,4 +1,8 @@
 import {
+  mergeDiscoveredObjects,
+  discoveredRoomObject,
+} from "../../../shared/reconstruction/contracts";
+import {
   lazy,
   Suspense,
   useCallback,
@@ -11,6 +15,10 @@ import {
 import { z } from "zod";
 import { MAX_PACKAGE_BYTES } from "../../../shared/capture/package";
 import type { TexturedScan } from "../../../shared/capture/texture";
+import type {
+  ReconstructionInput,
+  ReconstructedScene,
+} from "../../../shared/reconstruction/contracts";
 import { processScan, downloadScan } from "./capture/processing";
 import { readScan, saveScan } from "./capture/storage";
 import { Download, MessageCircle, Undo2, Upload } from "lucide-react";
@@ -58,6 +66,9 @@ type ScanResource = {
   scan?: TexturedScan;
   error?: string;
   persisted?: boolean;
+  evidence?: ReconstructionInput;
+  evidenceError?: string;
+  scene?: ReconstructedScene;
 };
 
 function readSaved(key: string): Workspace | null {
@@ -84,6 +95,7 @@ export function RoomWorkspace({
   account,
   scan,
   chat,
+  reconstruct,
 }: {
   identity?: string;
   account?: ReactNode;
@@ -92,6 +104,10 @@ export function RoomWorkspace({
     receive: (file: File, signal?: AbortSignal) => Promise<void>,
   ) => ReactNode;
   chat: (context: ChatContext) => ReactNode;
+  reconstruct?: (
+    input: ReconstructionInput,
+    onReady: (scene: ReconstructedScene) => void,
+  ) => ReactNode;
 }) {
   const key = `rumi.room.v1.${identity}`;
   const [workspace, setWorkspace] = useState<Workspace | null>(() =>
@@ -110,8 +126,10 @@ export function RoomWorkspace({
   const walkInput = useRef<WalkInput>({ pressed: new Set() });
   const root = useRef<HTMLDivElement>(null);
   const [wallsVisible, setWallsVisible] = useState(true);
+  const [cutaway, setCutaway] = useState(true);
   const [dimensionsVisible, setDimensionsVisible] = useState(false);
   const [showScan, setShowScan] = useState(true);
+  const [showSimulation, setShowSimulation] = useState(true);
   const [capture, setCapture] = useState<ScanResource | null>(null);
   const activeImport = useRef<AbortController | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -119,7 +137,10 @@ export function RoomWorkspace({
   const room = workspace?.room;
   const scanId = workspace?.scanId;
   const resource = capture?.id === scanId ? capture : null;
-  const scanVisible = showScan && view === "3d" && !!resource?.scan;
+  const simulationVisible =
+    showSimulation && view === "3d" && !!resource?.scene;
+  const scanVisible =
+    !simulationVisible && showScan && view === "3d" && !!resource?.scan;
   const original = workspace?.original;
   const originalRoom = useMemo(
     () => (original ? importRoomPlan(original) : undefined),
@@ -132,7 +153,13 @@ export function RoomWorkspace({
       .then(async (blob) => {
         const result = await processScan(blob, controller.signal);
         if (!controller.signal.aborted)
-          setCapture({ id: scanId, blob, scan: result.scan });
+          setCapture({
+            id: scanId,
+            blob,
+            scan: result.scan,
+            evidence: result.evidence,
+            evidenceError: result.evidenceError,
+          });
       })
       .catch((cause: unknown) => {
         if (!controller.signal.aborted)
@@ -249,8 +276,16 @@ export function RoomWorkspace({
         controller.signal.throwIfAborted();
         if (request !== importRequest.current)
           throw new DOMException("Import superseded.", "AbortError");
-        setCapture({ id, blob: file, scan: result.scan, persisted: stored });
+        setCapture({
+          id,
+          blob: file,
+          scan: result.scan,
+          persisted: stored,
+          evidence: result.evidence,
+          evidenceError: result.evidenceError,
+        });
         setShowScan(true);
+        setShowSimulation(true);
         setView("3d");
         setWalking(false);
         commit({ ...result.saved, room: result.saved.room, scanId: id });
@@ -344,7 +379,10 @@ export function RoomWorkspace({
   }
 
   const originalObject = (id: string) =>
-    originalRoom?.objects.find((item) => item.id === id);
+    originalRoom?.objects.find((item) => item.id === id) ??
+    resource?.scene?.discoveredObjects
+      ?.filter((item) => item.objectId === id)
+      .map(discoveredRoomObject)[0];
   const chatToggle = (
     <Button
       aria-pressed={chatOpen}
@@ -484,7 +522,12 @@ export function RoomWorkspace({
             aria-label="Room view"
             data-view={walking ? "first-person" : view}
           >
-            <div className="absolute inset-0">
+            <div
+              className={cx(
+                "absolute inset-0",
+                chatOpen && !walking && "lg:right-[376px]",
+              )}
+            >
               <Suspense
                 fallback={
                   <div className="grid h-full place-items-center text-mute">
@@ -497,33 +540,44 @@ export function RoomWorkspace({
                   selected={walking ? null : selected}
                   onSelect={setSelected}
                   top={view === "plan"}
-                  wallsVisible={walking || wallsVisible}
+                  wallsVisible={wallsVisible}
+                  cutaway={cutaway}
                   dimensionsVisible={!walking && dimensionsVisible}
                   walkthrough={walking ? walkthrough : null}
                   walkInput={walkInput}
                   walkSession={walkSession}
                   scan={scanVisible ? resource?.scan : undefined}
+                  reconstruction={
+                    simulationVisible ? resource?.scene : undefined
+                  }
                   onScanError={scanError}
                 />
               </Suspense>
             </div>
 
-            {error && (
-              <Notice tone="error" floating onDismiss={() => setError("")}>
-                {error}
-              </Notice>
-            )}
-            {resource?.error && (
-              <Notice tone="warn" floating>
-                {resource.error}
-              </Notice>
-            )}
-            {scanId && !resource && (
-              <Notice tone="info" floating>
-                Preparing captured surfaces… You can use the room layout while
-                it loads.
-              </Notice>
-            )}
+            {resource?.evidence &&
+              !room.capture.synthetic &&
+              !resource.scene &&
+              reconstruct && (
+                <div key={resource.id} hidden={walking}>
+                  {reconstruct(resource.evidence, (scene) => {
+                    if (!workspace || workspace.scanId !== resource.id) return;
+                    const merged = mergeDiscoveredObjects(
+                      workspace.room,
+                      scene,
+                      workspace.reconstructionObjectIds,
+                    );
+                    persist({ ...workspace, ...merged });
+                    setCapture((current) =>
+                      current?.id === resource.id
+                        ? { ...current, scene }
+                        : current,
+                    );
+                    setShowSimulation(true);
+                    setShowScan(false);
+                  })}
+                </div>
+              )}
 
             <ScanDock
               hidden={walking}
@@ -563,41 +617,73 @@ export function RoomWorkspace({
               onWalk={enterWalk}
               onView={setView}
               walls={wallsVisible}
+              cutaway={{ visible: cutaway, onChange: setCutaway }}
               onWalls={setWallsVisible}
               dimensions={dimensionsVisible}
               onDimensions={setDimensionsVisible}
               className={clearChat}
+              simulation={
+                resource?.scene && view === "3d"
+                  ? {
+                      visible: showSimulation,
+                      onChange: (value) => {
+                        setShowSimulation(value);
+                        if (value) setShowScan(false);
+                      },
+                    }
+                  : undefined
+              }
               scan={
                 resource?.scan && view === "3d"
                   ? {
                       visible: showScan,
                       onChange: (value) => {
                         setShowScan(value);
+                        if (value) setShowSimulation(false);
                         if (value) setSelected(null);
                       },
                     }
                   : undefined
               }
-            />
+            >
+              {error && (
+                <Notice tone="error" onDismiss={() => setError("")}>
+                  {error}
+                </Notice>
+              )}
+              {resource?.error && <Notice tone="warn">{resource.error}</Notice>}
+              {resource?.evidenceError && (
+                <Notice tone="warn">{resource.evidenceError}</Notice>
+              )}
+              {resource?.evidence &&
+                !room.capture.synthetic &&
+                !reconstruct &&
+                !resource.scene && (
+                  <Notice>
+                    Sign in to create a simulated room from this scan.
+                  </Notice>
+                )}
+              {scanId && !resource && (
+                <Notice tone="info">
+                  Preparing captured surfaces… You can use the room layout while
+                  it loads.
+                </Notice>
+              )}
+            </ViewerTools>
 
             <div
               inert={walking}
               aria-hidden={walking}
               className={cx(
                 walking && "translate-y-20 opacity-0 pointer-events-none",
-                "transition-[translate,opacity] duration-400 motion-reduce:transition-none absolute bottom-4 z-10 flex gap-3 rounded-full bg-chalk/80 px-2.5 py-[5px] text-[11px] text-[#3f5049]",
+                "transition-[translate,opacity] duration-400 motion-reduce:transition-none absolute left-4 bottom-4 z-10 flex justify-center",
                 clearChat,
               )}
             >
-              <span>
-                {scanVisible && resource?.scan
-                  ? `Original captured surfaces. ${Math.round((resource.scan.texturedFaceCount / resource.scan.faceCount) * 100)}% of triangles textured. Edits appear in the layout view.`
-                  : `Walls are from the scan. Ceiling height ${room.dimensions.height.toFixed(2)} m.`}
-              </span>
-              <span>
+              <span className="text-center text-[11px] text-mute">
                 {view === "plan"
-                  ? "Scroll to zoom, drag to pan."
-                  : "Drag to orbit, scroll to zoom, right-drag to pan."}
+                  ? "Scroll to zoom · Drag to pan"
+                  : "Drag to orbit · Scroll to zoom · Right-drag to pan"}
               </span>
             </div>
             {chatDock}

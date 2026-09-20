@@ -3,8 +3,9 @@ import { MockLanguageModelV2 } from "ai/test";
 import { generateParametricModel } from "../convex/assetGeneration";
 import { parametricModelSchema } from "../shared/assets/model";
 import { assetSchema } from "../shared/contracts";
-import { Box3, BoxGeometry, Group, Mesh, Vector3 } from "three";
+import { Box3, Group, Mesh, Vector3 } from "three";
 import { ParametricModel } from "../src/features/room-editor/ParametricModel";
+import { roundedPartGeometry } from "../src/features/room-editor/reconstruction/geometry";
 
 function model(...answers: unknown[]) {
   const prompts: unknown[] = [];
@@ -142,18 +143,29 @@ describe("image-to-3D assets", () => {
       const element = ParametricModel({ model: scene, dimensions });
       const rendered = element.props as {
         scale?: [number, number, number];
-        children: Array<{
+        children: {
           props: {
-            position: [number, number, number];
-            rotation: [number, number, number];
-            children: Array<{ props: { args: [number, number, number] } }>;
+            children: Array<{
+              props: {
+                position: [number, number, number];
+                rotation: [number, number, number];
+                children: Array<{
+                  props: {
+                    size: [number, number, number];
+                    meters: [number, number, number];
+                    fabric: boolean;
+                  };
+                }>;
+              };
+            }>;
           };
-        }>;
+        };
       };
-      const part = rendered.children[0].props;
+      const part = rendered.children.props.children[0].props;
       const group = new Group();
       if (rendered.scale) group.scale.fromArray(rendered.scale);
-      const geometry = new BoxGeometry(...part.children[0].props.args);
+      const { size: partSize, meters, fabric } = part.children[0].props;
+      const geometry = roundedPartGeometry(partSize, meters, fabric);
       const mesh = new Mesh(geometry);
       mesh.position.fromArray(part.position);
       mesh.rotation.set(...part.rotation);

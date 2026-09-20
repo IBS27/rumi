@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { materialDetailSchema } from "./materials";
 
 const physicalDimensionsSchema = z.object({
   width: z.number().positive(),
@@ -58,11 +59,12 @@ export const parametricPartSchema = z.object({
   rotation: rotationSchema.default({ x: 0, y: 0, z: 0 }),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
   material: materialKindSchema,
+  detail: materialDetailSchema.nullable().optional(),
 });
 
 // Rows of Three.js's XYZ Euler rotation. Compute the support of each primitive
 // along the room axes after rotation, before applying the outer catalog scale.
-function rotatedHalfExtents(part: z.infer<typeof parametricPartSchema>) {
+export function rotatedHalfExtents(part: z.infer<typeof parametricPartSchema>) {
   const cx = Math.cos(part.rotation.x),
     sx = Math.sin(part.rotation.x);
   const cy = Math.cos(part.rotation.y),

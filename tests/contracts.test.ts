@@ -40,6 +40,7 @@ describe("team handoff", () => {
   });
   it("creates Convex table validators from the shared contracts", () => {
     expect(Object.keys(schema.tables)).toEqual([
+      "roomReconstructions",
       "rooms",
       "products",
       "assets",

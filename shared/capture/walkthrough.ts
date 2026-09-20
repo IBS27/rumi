@@ -2,11 +2,17 @@ import { Euler, Matrix4, Quaternion, Vector3 } from "three";
 import polygonClipping, { type Polygon } from "polygon-clipping";
 import type { CapturedRoom } from "../contracts";
 import { worldCorners } from "./roomplan";
+import { surfaceShape } from "./surfaces";
 
 type Point = { x: number; z: number };
 export type WalkPosition = Point & { y: number };
 type Floor = { points: Point[]; y: number; boundary: Point[][] };
-type Obstacle = { points: Point[]; bottom: number; top: number };
+type Obstacle = {
+  points: Point[];
+  bottom: number;
+  top: number;
+  floorY?: number;
+};
 export type Walkthrough = {
   floors: Floor[];
   obstacles: Obstacle[];
@@ -82,6 +88,7 @@ function clearance(model: Walkthrough, p: Point, floor: Floor): number {
   );
   for (const obstacle of model.obstacles) {
     if (
+      (obstacle.floorY !== undefined && obstacle.floorY !== floor.y) ||
       obstacle.top <= floor.y + 0.08 ||
       obstacle.bottom >= floor.y + EYE_HEIGHT + 0.15
     )
@@ -128,14 +135,48 @@ export function createWalkthrough(room: CapturedRoom): Walkthrough {
     }
     floor.boundary = boundary;
   }
-  const obstacles: Obstacle[] = room.walls.map((wall) => {
+  const obstacles: Obstacle[] = room.walls.flatMap((wall): Obstacle[] => {
     const corners = worldCorners(wall);
-    // Solid wall footprints also keep the user inside at exterior doorways.
-    return {
+    const solid: Obstacle = {
       points: hull(corners),
       bottom: Math.min(...corners.map((p) => p.y)),
       top: Math.max(...corners.map((p) => p.y)),
     };
+    const doorways = room.openings.filter(
+      (opening) => opening.parentId === wall.id && opening.kind !== "window",
+    );
+    if (!doorways.length) return [solid];
+    const matrix = new Matrix4().fromArray(wall.transform);
+    return [...new Set(floors.map((floor) => floor.y))].flatMap((floorY) => {
+      const passable = doorways.filter((opening) => {
+        const points = worldCorners(opening);
+        return (
+          Math.min(...points.map((p) => p.y)) <= floorY + 0.08 &&
+          Math.max(...points.map((p) => p.y)) >= floorY + EYE_HEIGHT + 0.15
+        );
+      });
+      if (!passable.length) return [{ ...solid, floorY }];
+      // Project only the jambs into the walking footprint. Projecting the whole
+      // wall (or its lintel) into XZ closes every internal doorway. Extend cuts
+      // vertically for this collision-only projection once headroom is checked.
+      const cuts = passable.map((opening) => ({
+        ...opening,
+        polygonCorners: [],
+        dimensions: {
+          ...opening.dimensions,
+          height: Math.max(wall.dimensions.height, room.dimensions.height) * 4,
+        },
+      }));
+      return surfaceShape(wall, cuts).map((shape) => ({
+        ...solid,
+        floorY,
+        points: hull(
+          shape
+            .getPoints()
+            .map((p) => new Vector3(p.x, p.y, 0).applyMatrix4(matrix)),
+        ),
+      }));
+    });
   });
   for (const object of room.objects) {
     const { width, height, depth } = object.dimensions;
