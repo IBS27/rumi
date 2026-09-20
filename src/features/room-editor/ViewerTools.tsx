@@ -14,6 +14,7 @@ export function ViewerTools({
   dimensions,
   onDimensions,
   className,
+  scan,
 }: {
   view: ViewMode;
   hidden?: boolean;
@@ -25,6 +26,7 @@ export function ViewerTools({
   onDimensions: (on: boolean) => void;
   /** Placement override, e.g. to clear a chat panel on the right. */
   className?: string;
+  scan?: { visible: boolean; onChange: (value: boolean) => void };
 }) {
   return (
     <div
@@ -58,6 +60,15 @@ export function ViewerTools({
       >
         Walls
       </Chip>
+      {scan && (
+        <Chip
+          pressed={scan.visible}
+          onChange={scan.onChange}
+          className="bg-chalk/85 shadow-lift border-transparent"
+        >
+          Captured surfaces
+        </Chip>
+      )}
       <Chip
         pressed={dimensions}
         onChange={onDimensions}

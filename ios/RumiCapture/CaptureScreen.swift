@@ -52,6 +52,9 @@ struct CaptureScreen: View {
                 if let message = model.exportMessage {
                     Text(message).font(.footnote).foregroundStyle(.secondary)
                 }
+                if let message = model.surfaceMessage {
+                    Text(message).font(.footnote).foregroundStyle(.secondary)
+                }
                 connectionStatus
                 actions
             }
@@ -111,6 +114,8 @@ struct CaptureScreen: View {
             ProgressView("Starting camera…")
             Button("Start over") { confirmsDiscard = true }
         case .scanning:
+            Text("Move slowly around furniture and show its sides. Photos capture its appearance; hidden surfaces remain unknown.")
+                .font(.footnote).foregroundStyle(.secondary)
             primary("Finish Scan", action: model.finish)
             Button("Start over") { confirmsDiscard = true }
         case .processing:
@@ -124,13 +129,23 @@ struct CaptureScreen: View {
                 Label("Sent to Rumi", systemImage: "checkmark.circle")
             } else if connection.isConnected {
                 primary("Send to Rumi") { connection.send(bytes: model.completedBytes) }
-                    .disabled(model.isSharing)
+                    .disabled(model.isSharing || model.isPreparingSurface)
             } else {
                 primary("Connect to Rumi") { showsPairing = true }
-                    .disabled(model.isSharing)
+                    .disabled(model.isSharing || model.isPreparingSurface)
             }
-            Button("Export JSON", action: model.export).disabled(model.isSharing || connection.isBusy)
-            Button("Start another scan", action: requestStartOver).disabled(model.isSharing || connection.isBusy)
+            if model.isPreparingSurface {
+                ProgressView("Saving surfaces and photos. Keep Rumi open.")
+            } else if model.hasSurfacePackage {
+                Button("Export scan", action: model.exportScan).disabled(model.isSharing || connection.isBusy)
+                Button("Export layout JSON", action: model.export).disabled(model.isSharing || connection.isBusy)
+            } else {
+                Button("Export layout JSON", action: model.export).disabled(model.isSharing || connection.isBusy)
+                if model.controller != nil {
+                    Button("Retry saving detailed scan", action: model.retrySurfacePackage).disabled(model.isSharing || connection.isBusy)
+                }
+            }
+            Button("Start another scan", action: requestStartOver).disabled(model.isSharing || connection.isBusy || model.isPreparingSurface)
         case .failed:
             primary("Start another scan", action: requestStartOver)
         }
@@ -149,7 +164,7 @@ struct CaptureScreen: View {
         if !model.lifecycle.isCapturing, model.lifecycle.phase != .requestingPermission,
            model.lifecycle.phase != .welcome, model.lifecycle.phase != .completed || connection.isConnected {
             Button(connection.isConnected ? "Connect to another session" : "Connect to Rumi") { showsPairing = true }
-                .disabled(model.isSharing || connection.isBusy)
+                .disabled(model.isSharing || connection.isBusy || model.isPreparingSurface)
         }
     }
 
@@ -191,10 +206,10 @@ struct CaptureScreen: View {
         case .cameraDenied:
             "Rumi needs the camera to scan your room. Enable Camera for Rumi Capture in Settings, then return here and check permission again. If access is restricted, check Screen Time or device-management settings."
         case .completed:
-            "Review your room, then send it to Rumi in your browser. You can also export the JSON file."
+            "Send the room layout to your paired browser, or export the detailed scan ZIP to include surfaces and room photos. You can also export layout JSON."
         case .failed(let message): message
         default:
-            "Open Scan with iPhone in the Rumi web app, then connect by scanning its QR code. Scan your room, review it, and tap Send to Rumi.\n\nYou can also start a scan offline and connect or export the JSON later."
+            "Open Scan with iPhone in Rumi, then scan its QR code. Move slowly around the room and show the sides of furniture. Send to Rumi transfers the layout; Export scan shares the surfaces and room photos as a ZIP.\n\nYou can also scan offline and connect or export later."
         }
     }
 

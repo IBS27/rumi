@@ -91,7 +91,7 @@ export function StartScreen({
           disabled={busy}
           onClick={onImport}
         >
-          A RoomPlan JSON file from your phone or another app.
+          A Rumi scan ZIP with captured surfaces, or a RoomPlan JSON layout.
         </StartAction>
         <StartAction
           icon={<House />}
