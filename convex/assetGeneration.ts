@@ -108,7 +108,9 @@ async function selectProductViews(
 
   const expected = Math.min(MAX_SELECTED_IMAGES, loaded.length);
   if (object.selected.length !== expected)
-    throw new Error(`Image selection returned ${object.selected.length}; expected ${expected}.`);
+    throw new Error(
+      `Image selection returned ${object.selected.length}; expected ${expected}.`,
+    );
   if (new Set(object.selected.map((entry) => entry.index)).size !== expected)
     throw new Error("Image selection returned a duplicate gallery image.");
   if (new Set(object.selected.map((entry) => entry.role)).size !== expected)
@@ -120,9 +122,13 @@ async function selectProductViews(
       (entry) => entry.index === object.dimensionImageIndex,
     );
     if (!dimension || dimension.role !== "dimensions")
-      throw new Error("The dimension drawing was not included in the selected images.");
+      throw new Error(
+        "The dimension drawing was not included in the selected images.",
+      );
   } else if (object.selected.some((entry) => entry.role === "dimensions")) {
-    throw new Error("Image selection labelled a dimension view inconsistently.");
+    throw new Error(
+      "Image selection labelled a dimension view inconsistently.",
+    );
   }
 
   return object.selected.map((entry) => ({

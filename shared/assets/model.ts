@@ -91,7 +91,10 @@ export const parametricModelSchema = z
         path: ["sourceViews"],
         message: "Source views must describe each source image in order",
       });
-    if (new Set(model.sourceViews.map((view) => view.role)).size !== model.sourceViews.length)
+    if (
+      new Set(model.sourceViews.map((view) => view.role)).size !==
+      model.sourceViews.length
+    )
       ctx.addIssue({
         code: "custom",
         path: ["sourceViews"],

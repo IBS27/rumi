@@ -53,9 +53,13 @@ export const generateForProduct = internalAction({
     if (!product) throw new Error(`No product exists for ${productId}.`);
     const dimensions = product.measurement.dimensions;
     if (!dimensions)
-      throw new Error("Resolved product dimensions are required before 3D generation.");
+      throw new Error(
+        "Resolved product dimensions are required before 3D generation.",
+      );
     if (product.images.length === 0)
-      throw new Error("At least one product photo is required for 3D generation.");
+      throw new Error(
+        "At least one product photo is required for 3D generation.",
+      );
 
     const scene = await generateParametricModel(
       openai(process.env.RUMI_ASSET_MODEL ?? DEFAULT_ASSET_MODEL),

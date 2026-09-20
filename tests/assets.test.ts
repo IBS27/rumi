@@ -111,7 +111,9 @@ describe("image-to-3D assets", () => {
     const reconstructionContent = (
       vision.prompts[1] as { content: { type: string }[] }[]
     )[0].content;
-    expect(reconstructionContent.filter((part) => part.type === "file")).toHaveLength(4);
+    expect(
+      reconstructionContent.filter((part) => part.type === "file"),
+    ).toHaveLength(4);
   });
 
   it("accepts a ready asset backed by a parametric scene", () => {
@@ -137,7 +139,8 @@ describe("image-to-3D assets", () => {
 
   it("defaults an omitted part rotation to the identity transform", () => {
     const partWithoutRotation = { ...answer.parts[0] };
-    delete (partWithoutRotation as Partial<typeof partWithoutRotation>).rotation;
+    delete (partWithoutRotation as Partial<typeof partWithoutRotation>)
+      .rotation;
     const scene = parametricModelSchema.parse({
       version: 1,
       dimensions: { width: 1.1, height: 0.7, depth: 0.35 },
