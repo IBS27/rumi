@@ -15,7 +15,12 @@ export interface PlanScope {
   maxZones: number;
 }
 
-export const MAX_ZONES = 8;
+// A plan is a few pieces that fit, not a catalogue: up to this many items,
+// rugs not counted. The user's own list may exceed it.
+export const MAX_ZONES = 4;
+// The model may propose up to this many more than the cap; code drops the
+// lowest-priority extras, so one over-eager plan is trimmed, not rejected.
+export const MAX_PROPOSED = 8;
 
 export function planScope(brief: DesignBrief): PlanScope {
   const required = brief.wants.map((want) => want.category);
@@ -25,8 +30,12 @@ export function planScope(brief: DesignBrief): PlanScope {
     required,
     maxExtraFurniture: delegated ? MAX_ZONES : 1,
     accessories: brief.accessories,
-    maxZones: MAX_ZONES,
+    maxZones: Math.max(MAX_ZONES, required.length),
   };
+}
+
+export function isRugCategory(category: string): boolean {
+  return /\brug\b|carpet|runner/i.test(category);
 }
 
 export function isAccessoryMount(mount: ZoneMount): boolean {
@@ -63,17 +72,20 @@ export function describeScope(scope: PlanScope, purpose: string): string {
         : "Add an accessory or two only where the style clearly calls for it.";
   const spacing =
     "Set spacing from the style: airy for minimalist, Scandinavian, or Japandi rooms that breathe; cozy for eclectic, maximalist, or boho rooms that layer pieces; balanced otherwise. Airy plans hold fewer, larger pieces with generous clearance; cozy plans hold more pieces closer together.";
+  const count = `Plan at most ${scope.maxZones} items in total, at least one of them floor furniture; rugs are free and do not count. Fewer, well-chosen pieces beat a full list.`;
   if (scope.mode === "delegated")
     return [
-      `The user has not listed items. Choose the furniture ${room} needs for its purpose and style, sized to the free floor space. Start with the piece that defines the room, then what makes it usable (storage, a surface, seating), then comfort and light. A furnished room usually has 4 to 6 floor pieces plus accessories; propose the full set the purpose calls for and let the code drop what does not fit, rather than leaving obvious needs out. Clearances may share walkways, so pieces can sit closer than their clearances suggest.`,
+      `The user has not listed items. Choose the furniture ${room} needs for its purpose and style from the free-floor slots listed below: one floor piece per slot, sized to that slot, with the slot's id in slotId. Start with the piece that defines the room, then what makes it usable, then light and comfort as accessories.`,
+      count,
       spacing,
       accessories,
     ].join(" ");
   return [
-    `Items the user asked for, each of which MUST get its own zone with a matching category: ${scope.required.join(", ")}.`,
+    `Items the user asked for, each of which MUST get its own zone with a matching category: ${scope.required.join(", ")}. Put each floor piece in a free-floor slot from the list below (slotId), one per slot.`,
     scope.maxExtraFurniture > 0
       ? `You may add at most ${scope.maxExtraFurniture} extra floor piece that ${room} clearly needs.`
       : "Do not add extra floor furniture.",
+    count,
     spacing,
     accessories,
   ].join(" ");

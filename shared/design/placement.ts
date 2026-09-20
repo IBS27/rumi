@@ -17,6 +17,8 @@ import {
 import { reserveZones } from "../planner/zones";
 
 const EPS = 0.005;
+// Rugs render as a sheet on the floor.
+const RUG_THICKNESS = 0.005;
 const polygon = (ring: Ring): [number, number][][] => [
   ring.map(({ x, z }) => [
     Math.round(x * 1e6) / 1e6,
@@ -227,13 +229,19 @@ export function productObject(
       "Product dimensions are unknown. Confirm them before placement.",
     );
   const category = productCategory(product.category);
+  // A rug is a surface, not a box: no thickness in the room, so it lies under
+  // anything and moves anywhere on the floor.
+  const dimensions =
+    category === "rug"
+      ? { ...product.measurement.dimensions, height: RUG_THICKNESS }
+      : product.measurement.dimensions;
   return {
     id,
     productId: product.id,
     assetId: product.assetId ?? `${product.id}-asset`,
     name: product.name,
     category,
-    dimensions: product.measurement.dimensions,
+    dimensions,
     color: product.color,
     position: { x: 0, y: 0, z: 0 },
     rotation: { x: 0, y: 0, z: 0 },

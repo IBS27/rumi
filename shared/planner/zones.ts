@@ -6,6 +6,7 @@ import type {
 } from "../contracts";
 import type { Spacing, ZoneMount } from "../contracts";
 import { SPACING_FACTOR } from "./scope";
+import type { Slot } from "./slots";
 import {
   FURNITURE_GAP,
   WALK_PATH,
@@ -184,11 +185,23 @@ function candidatePositions(
   depth: number,
   margins: Margins,
   zones: ReservedZone[] = [],
+  slot: Slot | null = null,
 ): { position: Point2; rotationY: number }[] {
   const { width: roomWidth, depth: roomDepth } = model.bounds;
   const candidates: { position: Point2; rotationY: number }[] = [];
   const push = (x: number, z: number, rotationY: number) =>
     candidates.push({ position: { x, z }, rotationY });
+  // The slot the model chose comes first: back edge on the slot's wall edge,
+  // centred along it, then nudged along the wall if the centre is taken.
+  if (slot) {
+    const s = Math.sin(slot.rotationY), c = Math.cos(slot.rotationY);
+    const backX = slot.center.x - s * (slot.depth / 2);
+    const backZ = slot.center.z - c * (slot.depth / 2);
+    const inset = depth / 2 + margins.back + 0.02;
+    const slack = Math.max(0, (slot.width - width) / 2);
+    for (const along of [0, slack / 2, -slack / 2, slack, -slack])
+      push(backX + s * inset + c * along, backZ + c * inset - s * along, slot.rotationY);
+  }
   const object = request.relatedObjectId
     ? model.obstacles.find((obstacle) => obstacle.id === request.relatedObjectId)
     : null;
@@ -639,7 +652,9 @@ export function reserveZones(
   requests: ZoneRequest[],
   spacing: Spacing = "balanced",
   maxRoomHeight = room.dimensions.height,
+  slots: Slot[] = [],
 ): { zones: ReservedZone[]; rejected: ZoneRejection[] } {
+  const usedSlots = new Set<string>();
   const zones: ReservedZone[] = [];
   const rejected: ZoneRejection[] = [];
   const reserved: Reservation[] = [];
@@ -676,9 +691,27 @@ export function reserveZones(
     let placed: ReservedZone | null = null;
     const issues = new Map<string, number>();
     let lastIssue = "no free floor space";
-    outer: for (const step of sizeSteps(request)) {
+    // A floor piece goes into the slot the model chose, sized to that slot.
+    // One piece per slot; a taken slot falls back to the free search.
+    const slot =
+      mount === "floor" && request.slotId && !usedSlots.has(request.slotId)
+        ? slots.find((item) => item.id === request.slotId) ?? null
+        : null;
+    const fitted = slot
+      ? {
+          ...request,
+          desiredFootprint: {
+            width: Math.min(request.desiredFootprint.width, slot.width - 0.04),
+            depth: Math.min(request.desiredFootprint.depth, slot.depth - 0.04),
+          },
+        }
+      : request;
+    outer: for (const step of sizeSteps(fitted)) {
       const { width, depth } = step;
-      for (const candidate of candidatePositions(model, request, width, depth, margins, zones)) {
+      // A standard size (a bed) may be larger than the model's guess; it must
+      // still fit the slot, or the next size down is tried.
+      if (slot && (width > slot.width + 0.01 || depth > slot.depth + 0.01)) continue;
+      for (const candidate of candidatePositions(model, request, width, depth, margins, zones, slot)) {
         const ring = reservationRing(
           candidate.position,
           width,
@@ -696,6 +729,7 @@ export function reserveZones(
         // Rugs do not claim floor from later zones.
         if (mount === "floor")
           reserved.push({ zoneId: request.id, body, front, withMargins: ring });
+        if (slot) usedSlots.add(slot.id);
         // A stepped-down bed is searched by its new size, not the old name.
         const rename = step.rename ?? ((text: string) => text);
         placed = {
