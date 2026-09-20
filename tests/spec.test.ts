@@ -30,19 +30,33 @@ describe("spec status", () => {
         "The bed could not be reserved. I can try a smaller bed.",
       ),
     ).toBe(true);
-    expect(
-      shouldForcePlanSpace(
-        "plan",
-        "The shelf is gone, so the bed fits now",
-        "The bed couldn't fit because of space constraints.",
-      ),
-    ).toBe(true);
     expect(shouldForcePlanSpace("spec", "Start planning now", "")).toBe(
       false,
     );
     expect(shouldForcePlanSpace("plan", "I like oak", "Looks good.")).toBe(
       false,
     );
+  });
+
+  it("leaves questions, room edits, and placement facts to normal tool selection after a failure", () => {
+    const failed = "The bed could not fit. I can try a smaller bed.";
+    for (const message of [
+      "Move the bed closer to the wall",
+      "Please rotate the bed",
+      "Keep the bed where it is",
+      "How much space is left?",
+      "Would a smaller bed fit?",
+      "Can you explain why it cannot fit",
+      "Should I start planning now?",
+      "The shelf is gone, so the bed fits now",
+      "Start planning after moving the bed",
+      "Start planning and remove the desk",
+      "Try a smaller bed and make it oak",
+    ]) expect(shouldForcePlanSpace("plan", message, failed)).toBe(false);
+    expect(shouldForcePlanSpace("plan", "Please try a smaller bed.", failed)).toBe(true);
+    expect(shouldForcePlanSpace("plan", "Try a different placement", failed)).toBe(true);
+    expect(shouldForcePlanSpace("plan", "Try a smaller bed", "The plan is ready.")).toBe(false);
+    expect(shouldForcePlanSpace("plan", "yes", "The plan is ready.")).toBe(false);
   });
 
   it("recognizes a room purpose stated in a casual furniture request", () => {

@@ -15,6 +15,7 @@ import {
 import { selectionTotal } from "../budget";
 import { colorFromWords } from "../search/color";
 import { buildSpaceModel, type SpaceModel } from "./space";
+import { splitBudget } from "./budget";
 import {
   categoryIsExcluded,
   requiredDefiningPiece,
@@ -36,6 +37,7 @@ export {
   matchesDefiningPiece,
   planScope,
 } from "./scope";
+export { ceilingFloorCents, splitBudget, typicalPriceCents } from "./budget";
 
 const RESTRICTION_TAGS: [RegExp, string[]][] = [
   [/no drill|no drilling|no holes|renter|rental/i, ["wall-mounted", "drilling required"]],
@@ -63,33 +65,14 @@ export function remainingBudgetCents(
   return Math.max(0, brief.budgetCents - selectionTotal(room, products));
 }
 
-// Budget is split by priority weight so the pieces that define the room get more
-// headroom. Only an unspecified budget becomes an unlimited search ceiling.
+// Budget is split in proportion to what each category typically costs, so no
+// zone gets a ceiling the market cannot meet. Only an unspecified budget
+// becomes an unlimited search ceiling. See ./budget for the rules.
 export function allocateBudget(
   zones: ReservedZone[],
   remainingCents: number | null,
 ): Map<string, number> {
-  const allocation = new Map<string, number>();
-  if (remainingCents === null || zones.length === 0) {
-    zones.forEach((zone) => allocation.set(zone.id, 0));
-    return allocation;
-  }
-  if (remainingCents < zones.length)
-    throw new Error(
-      "The remaining budget cannot cover these items. Increase the budget or remove selections before planning more purchases.",
-    );
-  // Reserve one cent per zone so rounding never turns a finite limit into 0,
-  // which the search contract interprets as unlimited.
-  const weightedCents = remainingCents - zones.length;
-  const weights = zones.map((zone) => 1 / zone.priority);
-  const total = weights.reduce((sum, weight) => sum + weight, 0);
-  zones.forEach((zone, index) =>
-    allocation.set(
-      zone.id,
-      1 + Math.floor((weightedCents * weights[index]) / total),
-    ),
-  );
-  return allocation;
+  return splitBudget(zones, remainingCents).allocation;
 }
 
 export function zoneToSearchTask(
@@ -239,17 +222,29 @@ export function buildDesignPlan({
     throw new Error(
       `The defining ${definingPiece?.category} could not be reserved. Keep it first and retry with a smaller standard footprint or a better anchor instead of returning a plan made only of secondary pieces.`,
     );
-  const zones = reserved.zones.map((zone) => ({
-    ...zone,
-    suggested: isSuggested(zone.category),
-  }));
-  const rejected = reserved.rejected;
-  const allocation = allocateBudget(
-    zones,
-    remainingBudgetCents(room, brief, products),
-  );
+  const flagged = reserved.zones.map((zone) => {
+    // Resizing a requested bed must not turn it into a budget-droppable extra
+    // or lose the user's feature requirements when its category changes.
+    const category = parsed.zones.find((request) => request.id === zone.id)?.category ?? zone.category;
+    return {
+      ...zone,
+      suggested: isSuggested(category),
+      miscellaneous: [...new Set([
+        ...zone.miscellaneous,
+        ...brief.wants.filter((want) => want.notes && sameCategory(want.category, category))
+          .map((want) => want.notes),
+      ])].slice(0, 12),
+    };
+  });
+  // A zone the budget cannot give a workable ceiling is dropped like one that
+  // did not fit, with the reason on the card, rather than searched in vain.
+  const split = splitBudget(flagged, remainingBudgetCents(room, brief, products));
+  const zones = flagged
+    .filter((zone) => split.allocation.has(zone.id))
+    .map((zone, index) => ({ ...zone, priority: index + 1 }));
+  const rejected = [...reserved.rejected, ...split.dropped];
   const tasks = zones.map((zone) =>
-    zoneToSearchTask(zone, brief, allocation.get(zone.id) ?? 0),
+    zoneToSearchTask(zone, brief, split.allocation.get(zone.id) ?? 0),
   );
   const plan = designPlanSchema.parse({
     roomId: room.id,

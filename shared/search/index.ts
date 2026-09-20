@@ -190,6 +190,12 @@ export function isUnsupportedMerchant(raw: string): boolean {
     if (hostname === "amazon.com" || hostname.endsWith(".amazon.com"))
       return true;
     if (topLevelDomain.length === 2 && topLevelDomain !== "us") return true;
+    // A .com that names another country in its host sells in that currency.
+    if (
+      /canada|australia|europe/.test(hostname) ||
+      /(^|[.-])(uk|nz)([.-]|$)/.test(hostname)
+    )
+      return true;
     const match = COUNTRY_PATH.exec(url.pathname);
     // A leading two-letter pair like /at/en or /gb/en names a country and a
     // language. A single segment such as /en is a language only.

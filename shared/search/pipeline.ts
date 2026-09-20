@@ -54,6 +54,13 @@ export interface PipelineOptions {
   target: number;
   maxVision: number;
   maxExtractions: number;
+  // Pages read at once. Reading a page is I/O plus at most one model call, so
+  // a small batch cuts wall time without a burst of provider requests.
+  concurrency: number;
+  // Stop reading pages once this many candidates pass every hard requirement
+  // with complete dimensions. The result is the first that fits, not the best
+  // of everything the web has.
+  enough: number;
 }
 
 export const DEFAULTS: PipelineOptions = {
@@ -62,6 +69,8 @@ export const DEFAULTS: PipelineOptions = {
   target: 1,
   maxVision: 3,
   maxExtractions: 8,
+  concurrency: 4,
+  enough: 2,
 };
 
 const MIN_MERCHANTS_FOR_COMPARISON = 2;
@@ -243,86 +252,100 @@ export async function runSearch(
   let extractions = 0;
   const seenUrls = new Set<string>();
 
+  // Candidates that already satisfy the task outright: in stock, in budget,
+  // inside the footprint, with a full size read from text. Once there are
+  // enough of these, no further page, search, or drawing is worth its time.
+  const readyCount = () =>
+    filterCandidates(dedupeProducts(candidates), task).kept.filter(
+      (product) => product.measurement.dimensions !== null,
+    ).length;
+  const satisfied = () => readyCount() >= settings.enough;
+
+  const readPage = async (page: PageContent) => {
+    if (looksLikeBrowsePage(page)) {
+      failures.push({
+        stage: "search",
+        detail: `Dropped category or explore page: ${page.url}.`,
+      });
+      return;
+    }
+    const merchant = await merchantLayer(page, task, deps);
+    const jsonLd = page.html ? parseProductJsonLd(page.html) : null;
+    const structured = factsFromJsonLd(jsonLd);
+    const layers: Partial<ListingFacts>[] = [merchant.facts, structured];
+    const missing =
+      !(merchant.facts.name ?? structured.name) ||
+      (merchant.facts.priceCents ?? structured.priceCents) === null ||
+      (merchant.facts.priceCents ?? structured.priceCents) === undefined;
+    if (missing && extractions < settings.maxExtractions) {
+      extractions++;
+      try {
+        layers.push(await deps.extractListing(page, task));
+      } catch (error) {
+        failures.push({
+          stage: "extract",
+          detail: `Could not read ${page.url}: ${message(error)}.`,
+        });
+      }
+    }
+    const pageText = [merchant.bodyText, page.text].filter(Boolean).join("\n");
+    const images = [
+      ...merchant.images,
+      ...(jsonLd?.images ?? []).map((url) => ({ url, alt: null })),
+      ...page.images,
+    ];
+    // The gallery is added last: merchant and structured images already lead it. The
+    // page title is the last word on the name, after everything else was silent.
+    const facts = pickFacts([
+      ...layers,
+      { images: images.map((image) => image.url) },
+      { name: nameFromTitle(page.title) },
+    ]);
+    // Cheap stages only. A drawing is read later, and only if the ranking calls for it.
+    const resolved = await resolveDimensions({
+      category: task.category,
+      name: facts.name ?? null,
+      structuredText: jsonLd?.dimensionText ?? null,
+      pageText,
+      images,
+    });
+    // Why a size could not be read is worth telling the caller even for a candidate
+    // that never reaches the drawing stage.
+    failures.push(...resolved.failures);
+    const { product, issue } = buildCandidate({
+      sourceUrl: page.url,
+      category: task.category,
+      facts,
+      measurement: resolved.measurement,
+    });
+    if (!product) {
+      failures.push({
+        stage: "extract",
+        detail: `Skipped ${page.url}: ${issue ?? "incomplete listing"}.`,
+      });
+      return;
+    }
+    candidates.push(product);
+    contexts.set(product.id, {
+      productId: product.id,
+      pageText,
+      structuredText: jsonLd?.dimensionText ?? null,
+      images,
+    });
+  };
+
   const collect = async (batch: ExaSearchHit[]) => {
+    if (satisfied()) return;
     const urls = batch
       .map((hit) => hit.url)
       .filter((url) => !seenUrls.has(url))
       .slice(0, settings.results);
     for (const url of urls) seenUrls.add(url);
     const pages = await gatherPages(urls, deps, failures);
-    for (const page of pages) {
-      if (looksLikeBrowsePage(page)) {
-        failures.push({
-          stage: "search",
-          detail: `Dropped category or explore page: ${page.url}.`,
-        });
-        continue;
-      }
-      const merchant = await merchantLayer(page, task, deps);
-      const jsonLd = page.html ? parseProductJsonLd(page.html) : null;
-      const structured = factsFromJsonLd(jsonLd);
-      const layers: Partial<ListingFacts>[] = [merchant.facts, structured];
-      const missing =
-        !(merchant.facts.name ?? structured.name) ||
-        (merchant.facts.priceCents ?? structured.priceCents) === null ||
-        (merchant.facts.priceCents ?? structured.priceCents) === undefined;
-      if (missing && extractions < settings.maxExtractions) {
-        extractions++;
-        try {
-          layers.push(await deps.extractListing(page, task));
-        } catch (error) {
-          failures.push({
-            stage: "extract",
-            detail: `Could not read ${page.url}: ${message(error)}.`,
-          });
-        }
-      }
-      const pageText = [merchant.bodyText, page.text]
-        .filter(Boolean)
-        .join("\n");
-      const images = [
-        ...merchant.images,
-        ...(jsonLd?.images ?? []).map((url) => ({ url, alt: null })),
-        ...page.images,
-      ];
-      // The gallery is added last: merchant and structured images already lead it. The
-      // page title is the last word on the name, after everything else was silent.
-      const facts = pickFacts([
-        ...layers,
-        { images: images.map((image) => image.url) },
-        { name: nameFromTitle(page.title) },
-      ]);
-      // Cheap stages only. A drawing is read later, and only if the ranking calls for it.
-      const resolved = await resolveDimensions({
-        category: task.category,
-        structuredText: jsonLd?.dimensionText ?? null,
-        pageText,
-        images,
-      });
-      // Why a size could not be read is worth telling the caller even for a candidate
-      // that never reaches the drawing stage.
-      failures.push(...resolved.failures);
-      const { product, issue } = buildCandidate({
-        sourceUrl: page.url,
-        category: task.category,
-        facts,
-        measurement: resolved.measurement,
-      });
-      if (!product) {
-        failures.push({
-          stage: "extract",
-          detail: `Skipped ${page.url}: ${issue ?? "incomplete listing"}.`,
-        });
-        continue;
-      }
-      candidates.push(product);
-      contexts.set(product.id, {
-        productId: product.id,
-        pageText,
-        structuredText: jsonLd?.dimensionText ?? null,
-        images,
-      });
-    }
+    // Read a few pages at a time and stop between batches once enough fit,
+    // so the remaining pages are never read at all.
+    for (let i = 0; i < pages.length && !satisfied(); i += settings.concurrency)
+      await Promise.all(pages.slice(i, i + settings.concurrency).map(readPage));
   };
 
   await collect(hits);
@@ -340,8 +363,10 @@ export async function runSearch(
     ).size;
   // Retrieval can look diverse while every affordable, in-stock survivor comes from one
   // merchant, or while only one merchant publishes usable dimensions. Expand after the
-  // real filters too, not only when the raw hit list is thin.
+  // real filters too, not only when the raw hit list is thin. A candidate that
+  // already fits makes the comparison unnecessary.
   if (
+    !satisfied() &&
     (kept.length === 0 ||
       keptMerchantCount() < MIN_MERCHANTS_FOR_COMPARISON ||
       measuredMerchantCount() < MIN_MERCHANTS_FOR_COMPARISON) &&

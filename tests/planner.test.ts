@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { Matrix4 } from "three";
-import { searchTaskSchema, type ZonePlanRequest } from "../shared/contracts";
+import { searchTaskSchema, type RoomSnapshot, type ZonePlanRequest } from "../shared/contracts";
 import { sampleBrief, sampleProducts, sampleRoom } from "../shared/fixtures";
 import { syntheticRoomPlan } from "../shared/fixtures/roomplan";
 import { importRoomPlan, localCorners } from "../shared/capture/roomplan";
@@ -11,6 +11,9 @@ import {
   SPACING_FACTOR,
   allocateBudget,
   buildDesignPlan,
+  ceilingFloorCents,
+  splitBudget,
+  typicalPriceCents,
   buildSpaceModel,
   describeScope,
   evaluateFill,
@@ -184,7 +187,8 @@ describe("zone reservation", () => {
       expect(result.rejected).toEqual([]);
       const zone = result.zones[0];
       expect(zone.footprint).toEqual(desiredFootprint);
-      expect(Math.abs(Math.sin(zone.rotationY - yaw))).toBeLessThan(1e-6);
+      // Either perpendicular edge is valid with the tighter clearances on main.
+      expect(Math.abs(Math.sin(2 * (zone.rotationY - yaw)))).toBeLessThan(1e-6);
       expect(ringInside(rectangleRing(zone.position, 1.65, 2.15, zone.rotationY), model.floor)).toBe(true);
       expect(designPlacementIssue(room, {
         ...sampleRoom.objects[0], owned: false,
@@ -441,7 +445,7 @@ describe("zone reservation", () => {
     expect(zones[0].position.z).toBeGreaterThan(1.3);
   });
 
-  it("finds a full-size bed slot with exactly 60 cm beside storage", () => {
+  it("finds a full-size bed with at least 60 cm beside storage", () => {
     const room = {
       ...sampleRoom,
       dimensions: { width: 3.35, height: 2.7, depth: 3.2 },
@@ -475,13 +479,12 @@ describe("zone reservation", () => {
     const bedRight = zones[0].position.x + zones[0].footprint.width / 2;
     const storageLeft = room.objects[0].position.x - room.objects[0].dimensions.width / 2;
     expect(storageLeft - bedRight).toBeGreaterThanOrEqual(0.6);
-    expect(storageLeft - bedRight).toBeLessThanOrEqual(0.61);
   });
 
   it("falls back through real bed sizes and keeps the search query consistent", () => {
     const room = {
       ...sampleRoom,
-      dimensions: { width: 2.8, height: 2.7, depth: 2.9 },
+      dimensions: { width: 1.6, height: 2.7, depth: 3.5 },
       openings: [],
       objects: [],
     };
@@ -489,7 +492,7 @@ describe("zone reservation", () => {
       {
         ...lampZone,
         id: "bed",
-        category: "bed",
+        category: "queen bed",
         query: "upholstered queen bed",
         anchor: "wall",
         relatedObjectId: null,
@@ -499,6 +502,7 @@ describe("zone reservation", () => {
     ]);
     expect(rejected).toEqual([]);
     expect(zones[0].footprint).toEqual({ width: 1.5, depth: 2.05 });
+    expect(zones[0].category).toBe("full bed");
     expect(zones[0].query).toContain("full bed");
     expect(zones[0].query).not.toContain("queen");
     expect(zones[0].miscellaneous).toContain(
@@ -521,10 +525,9 @@ describe("zone reservation", () => {
     }).fits).toBe("no");
   });
 
-  it("retries with minimal clearances when a small room cannot spare full walkways", () => {
-    // A 2.2 m room leaves < 0.6 m between a bed and the dresser, so every
-    // candidate fails at standard margins even though the frame itself fits.
-    const room = {
+  it("reserves a frame-sized bed beside storage in a tight room", () => {
+    // Preserve the small-room regression with main's tighter clearances.
+    const room: RoomSnapshot = {
       ...sampleRoom,
       dimensions: { width: 2.2, height: 2.7, depth: 3 },
       openings: [],
@@ -603,6 +606,74 @@ describe("accessories", () => {
     expect(art.miscellaneous).toContain("wall mounted");
   });
 
+  it("hangs a full-length mirror from near the floor and lowers art that is too tall", () => {
+    const room = { ...sampleRoom, objects: [] };
+    const empty = buildSpaceModel(room);
+    const { zones, rejected } = reserveZones(room, empty, [
+      {
+        ...lampZone, id: "mirror", category: "full length wall mirror", query: "leaner mirror",
+        mount: "wall", relatedObjectId: null,
+        desiredFootprint: { width: 0.5, depth: 0.04 }, desiredHeight: 1.6, priority: 1,
+      },
+      {
+        ...lampZone, id: "tall-art", category: "wall art", query: "tall canvas",
+        mount: "wall", relatedObjectId: null,
+        desiredFootprint: { width: 0.6, depth: 0.04 }, desiredHeight: 1.4, priority: 2,
+      },
+      {
+        ...lampZone, id: "small-art", category: "wall art", query: "print",
+        mount: "wall", relatedObjectId: null,
+        desiredFootprint: { width: 0.5, depth: 0.04 }, desiredHeight: 0.5, priority: 3,
+      },
+    ]);
+    expect(rejected).toEqual([]);
+    const byId = Object.fromEntries(zones.map((zone) => [zone.id, zone]));
+    // Room is 2.7 m high; 0.2 m top gap.
+    expect(byId.mirror.position.y).toBe(0.1);
+    expect(byId.mirror.maxHeight).toBeCloseTo(2.4, 2);
+    // 1.2 + 1.4 > 2.5, so the tall canvas drops to 1.1 m.
+    expect(byId["tall-art"].position.y).toBeCloseTo(1.1, 2);
+    expect(byId["tall-art"].maxHeight).toBeGreaterThanOrEqual(1.4);
+    // A small print keeps eye level.
+    expect(byId["small-art"].position.y).toBe(1.2);
+  });
+
+  it("dresses the window with curtains instead of avoiding it", () => {
+    const room = { ...sampleRoom, objects: [] };
+    const empty = buildSpaceModel(room);
+    const { zones, rejected } = reserveZones(room, empty, [
+      {
+        ...lampZone, id: "curtains", category: "blackout curtain panels", query: "curtains",
+        mount: "floor", relatedObjectId: null,
+        desiredFootprint: { width: 2, depth: 0.1 }, desiredHeight: 2.4, priority: 1,
+      },
+    ]);
+    expect(rejected).toEqual([]);
+    const curtains = zones[0];
+    expect(curtains.mount).toBe("wall");
+    // The fixture window spans x 2.7–4.1 on the north wall (z = 0).
+    expect(curtains.position.z).toBeLessThan(0.2);
+    expect(curtains.position.x).toBeCloseTo(3.4, 1);
+    expect(curtains.footprint.width).toBeCloseTo(1.8, 2);
+    expect(curtains.position.y).toBe(0.1);
+    expect(curtains.maxHeight).toBeGreaterThan(2);
+    expect(curtains.miscellaneous).toContain("window curtains");
+    // A room with no window cannot take curtains.
+    if (sampleRoom.shape !== "rectangle") throw new Error("fixture changed");
+    const windowless = {
+      ...sampleRoom,
+      objects: [],
+      openings: sampleRoom.openings.filter((o) => o.kind !== "window"),
+    };
+    const none = reserveZones(windowless, buildSpaceModel(windowless), [
+      {
+        ...lampZone, id: "c", category: "curtains", query: "curtains", mount: "wall",
+        relatedObjectId: null, desiredFootprint: { width: 2, depth: 0.1 }, desiredHeight: 2.4,
+      },
+    ]);
+    expect(none.rejected[0].reason).toContain("no window");
+  });
+
   it("sets a desk lamp on the owned desk at its top height", () => {
     const { zones, rejected } = reserveZones(sampleRoom, model, [
       {
@@ -657,6 +728,60 @@ describe("accessories", () => {
     expect(lamp.position.x).toBeCloseTo(stand.position.x, 0);
     expect(lamp.footprint.width).toBeLessThanOrEqual(stand.footprint.width);
     expect(lamp.clearanceRules[0]).toContain("follows the chosen host product");
+  });
+
+  it("steps a bed down the standard sizes and renames the search, never scales it", () => {
+    // A 1.9 m wide rectangle: a queen frame fits; a king cannot.
+    if (sampleRoom.shape !== "rectangle") throw new Error("fixture changed");
+    const room = {
+      ...sampleRoom,
+      objects: [],
+      dimensions: { width: 1.9, depth: 3.5, height: 2.7 },
+      openings: [],
+    };
+    const { zones, rejected } = reserveZones(room, buildSpaceModel(room), [
+      {
+        ...lampZone, id: "bed", category: "king bed", query: "upholstered king bed low profile",
+        anchor: "wall", relatedObjectId: null,
+        desiredFootprint: { width: 2.0, depth: 2.15 }, desiredHeight: null,
+      },
+    ]);
+    expect(rejected).toEqual([]);
+    const bed = zones[0];
+    expect(bed.footprint).toEqual({ width: 1.65, depth: 2.15 });
+    expect(bed.category).toBe("queen bed");
+    expect(bed.query).toBe("upholstered queen bed low profile");
+    expect(bed.clearanceRules[0]).toContain("Sized down to a queen bed");
+    // A bed named without a size is treated as a queen and, when it fits, is not renamed.
+    const plain = reserveZones(room, buildSpaceModel(room), [
+      {
+        ...lampZone, id: "bed", category: "bed", query: "platform bed", anchor: "wall",
+        relatedObjectId: null, desiredFootprint: { width: 1.6, depth: 2.1 }, desiredHeight: null,
+      },
+    ]).zones[0];
+    expect(plain.query).toBe("platform bed");
+    expect(plain.footprint.width).toBe(1.65);
+    // A bulky frame guess must not skip a compact queen that still fits.
+    const compact = reserveZones(room, buildSpaceModel(room), [{
+      ...lampZone, id: "bed", category: "queen bed", query: "queen bed frame",
+      anchor: "wall", relatedObjectId: null,
+      desiredFootprint: { width: 2.2, depth: 2.4 }, desiredHeight: null,
+    }]).zones[0];
+    expect(compact.category).toBe("queen bed");
+    expect(compact.query).toBe("queen bed frame");
+    expect(compact.footprint).toEqual({ width: 1.65, depth: 2.15 });
+    // UK names become US names before search, and a standard size is not
+    // shrunk to the model's smaller guess.
+    const uk = reserveZones(room, buildSpaceModel(room), [
+      {
+        ...lampZone, id: "bed", category: "bed", query: "small double bed compact upholstered frame",
+        anchor: "corner", relatedObjectId: null,
+        desiredFootprint: { width: 1.2, depth: 1.9 }, desiredHeight: null,
+      },
+    ]).zones[0];
+    expect(uk.query).toBe("full bed compact upholstered frame");
+    expect(uk.footprint).toEqual({ width: 1.5, depth: 2.05 });
+    expect(uk.clearanceRules[0]).not.toContain("Sized down");
   });
 
   it("lets two pieces share a walkway: clearances may overlap, bodies may not", () => {
@@ -802,6 +927,44 @@ describe("accessories", () => {
 });
 
 describe("design plan", () => {
+  it("keeps a resized bed required and carries its size and feature notes into search", () => {
+    const room = {
+      ...sampleRoom, objects: [], openings: [],
+      dimensions: { width: 1.6, depth: 3.5, height: 2.7 },
+    };
+    const brief = {
+      ...sampleBrief, budgetCents: 40000,
+      wants: [{ category: "queen bed", notes: "upholstered headboard" }],
+    };
+    const request = {
+      summary: "Fit a bed in the narrow room.", spacing: "balanced",
+      zones: [{
+        ...lampZone, id: "bed", category: "queen bed", query: "queen bed frame",
+        anchor: "wall", relatedObjectId: null,
+        desiredFootprint: { width: 1.65, depth: 2.15 },
+      }],
+    };
+    const { plan } = buildDesignPlan({ room, brief, products: [], request });
+    expect(plan.rejected).toEqual([]);
+    expect(plan.zones[0].category).toBe("full bed");
+    expect(plan.zones[0].suggested).toBe(false);
+    expect(plan.tasks[0].category).toBe("full bed");
+    expect(plan.tasks[0].query).toBe("full bed frame");
+    expect(plan.tasks[0].maxFootprint).toEqual({ width: 1.5, depth: 2.05 });
+    expect(plan.tasks[0].miscellaneous).toContain("upholstered headboard");
+    expect(() => buildDesignPlan({
+      room, brief: { ...brief, budgetCents: 10000 }, products: [], request,
+    })).toThrow("cannot cover the requested items");
+    const product = {
+      ...sampleProducts[0], category: "full bed", availability: "available" as const,
+      measurement: { ...sampleProducts[0].measurement,
+        dimensions: { width: 1.46, depth: 2.01, height: 1 },
+      },
+    };
+    expect(evaluateFill(plan.zones[0], product).fits).toBe("yes");
+    expect(designPlacementIssue(room, objectInZone(room, product, "bed", plan.zones[0]))).toBeNull();
+  });
+
   it("plans a bedroom without a bed when the user excludes it, even after a failed bed request", () => {
     const room = { ...sampleRoom, objects: [], openings: [] };
     const chair = { ...lampZone, id: "chair", category: "armchair", query: "modern armchair",
@@ -957,27 +1120,40 @@ describe("design plan", () => {
         room, brief: { ...sampleBrief, budgetCents }, products: [product], request,
       })).toThrow("budget");
     }
-    const { plan } = buildDesignPlan({
+    // $10 left cannot buy a lamp and a rug at realistic prices either.
+    expect(() => buildDesignPlan({
       room, brief: { ...sampleBrief, budgetCents: product.priceCents + 1000 },
+      products: [product], request,
+    })).toThrow("realistic prices");
+    const remaining = 30000;
+    const { plan } = buildDesignPlan({
+      room, brief: { ...sampleBrief, budgetCents: product.priceCents + remaining },
       products: [product], request,
     });
     expect(plan.tasks.every((task) => task.maxPriceCents > 0)).toBe(true);
-    expect(plan.tasks.reduce((sum, task) => sum + task.maxPriceCents, 0)).toBeLessThanOrEqual(1000);
+    expect(plan.tasks.reduce((sum, task) => sum + task.maxPriceCents, 0)).toBe(remaining);
+    for (const [index, task] of plan.tasks.entries())
+      expect(task.maxPriceCents).toBeGreaterThanOrEqual(ceilingFloorCents(plan.zones[index].category));
     expect(() => buildDesignPlan({
       room, brief: sampleBrief, products: [], request,
     })).toThrow("Missing price");
   });
 
-  it("never rounds a finite per-item budget into an unlimited search", () => {
+  it("never hands a zone a ceiling the market cannot meet", () => {
     const { plan } = buildDesignPlan({
       room: sampleRoom, brief: sampleBrief, products: sampleProducts, request,
     });
-    const allocation = allocateBudget(plan.zones, plan.zones.length);
-    expect([...allocation.values()]).toEqual(plan.zones.map(() => 1));
-    expect(() => allocateBudget(plan.zones, plan.zones.length - 1)).toThrow("budget");
+    // Required zones cannot be dropped, so a tiny budget is an error, not a $0.01 search.
+    expect(() => allocateBudget(plan.zones, plan.zones.length)).toThrow("realistic prices");
+    const floors = plan.zones.reduce((sum, zone) => sum + ceilingFloorCents(zone.category), 0);
+    const allocation = allocateBudget(plan.zones, floors);
+    for (const zone of plan.zones)
+      expect(allocation.get(zone.id)!).toBeGreaterThanOrEqual(ceilingFloorCents(zone.category) - 1);
+    expect(typicalPriceCents("area rug")).toBeGreaterThan(typicalPriceCents("table lamp"));
+    expect(typicalPriceCents("something odd")).toBe(10000);
   });
 
-  it("weights budget toward higher-priority zones", () => {
+  it("splits the budget by what each category costs, not by list order", () => {
     const { plan } = buildDesignPlan({
       room: sampleRoom,
       brief: sampleBrief,
@@ -985,9 +1161,51 @@ describe("design plan", () => {
       request,
     });
     const allocation = allocateBudget(plan.zones, 30000);
-    expect(allocation.get("reading-light")!).toBeGreaterThan(
-      allocation.get("rug")!,
-    );
+    // A rug costs more than a floor lamp, so it gets the larger ceiling.
+    expect(allocation.get("rug")!).toBeGreaterThan(allocation.get("reading-light")!);
+    expect([...allocation.values()].reduce((a, b) => a + b, 0)).toBe(30000);
+  });
+
+  it("drops suggested accessories first when a budget is spread too thin", () => {
+    const zone = (id: string, category: string, mount: "floor" | "wall" | "under", suggested: boolean, priority: number) => ({
+      id, purpose: id, category, query: category, mount, anchor: "wall" as const,
+      relatedObjectId: null, position: { x: 1, y: 0, z: 1 }, rotationY: 0,
+      footprint: { width: 1, depth: 1 }, maxHeight: 2, margins: { front: 0, back: 0, sides: 0 },
+      clearanceRules: [], miscellaneous: [], priority, suggested,
+    });
+    const zones = [
+      zone("bed", "bed", "floor", false, 1),
+      zone("stand", "nightstand", "floor", true, 2),
+      zone("rug", "area rug", "under", true, 3),
+      zone("art", "wall art", "wall", true, 4),
+      zone("mirror", "wall mirror", "wall", true, 5),
+    ];
+    // $500: the bed alone needs $360 at its floor. Accessories go first, lowest priority first.
+    const split = splitBudget(zones, 50000);
+    expect(split.dropped.map((item) => item.zoneId)).toEqual(["mirror", "art", "rug"]);
+    expect([...split.allocation.keys()]).toEqual(["bed", "stand"]);
+    expect(split.dropped[0].reason).toContain("for budget");
+    expect(split.allocation.get("bed")!).toBeGreaterThan(split.allocation.get("stand")!);
+    // Plenty of budget drops nothing and sums exactly.
+    const rich = splitBudget(zones, 500000);
+    expect(rich.dropped).toEqual([]);
+    expect([...rich.allocation.values()].reduce((a, b) => a + b, 0)).toBe(500000);
+    // No budget: every zone searches unlimited.
+    expect([...splitBudget(zones, null).allocation.values()]).toEqual([0, 0, 0, 0, 0]);
+  });
+
+  it("puts budget-dropped zones on the plan card as rejected, and renumbers the rest", () => {
+    const { plan } = buildDesignPlan({
+      room: sampleRoom,
+      brief: { ...sampleBrief, budgetCents: 12000, wants: [{ category: "floor lamp", notes: "" }] },
+      products: [],
+      request,
+    });
+    expect(plan.zones.map((zone) => zone.category)).toEqual(["floor lamp"]);
+    expect(plan.zones[0].priority).toBe(1);
+    expect(plan.rejected.some((item) => item.zoneId === "rug" && item.reason.includes("for budget"))).toBe(true);
+    expect(plan.tasks).toHaveLength(1);
+    expect(plan.tasks[0].maxPriceCents).toBe(12000);
   });
 
   it("maps restrictions to exclusion tags", () => {
@@ -1170,14 +1388,14 @@ describe("design plan", () => {
 
   it("scales clearance with spacing but never below the safety minimums", () => {
     const bed = marginsFor("bed");
-    expect(scaleMargins(bed, "airy").front).toBeCloseTo(0.94, 2);
-    expect(scaleMargins(bed, "cozy").sides).toBeCloseTo(0.51, 2);
-    // A lamp's 0.3 m front clearance is already under the walking minimum, so
-    // cozy keeps it at 0.3 rather than shrinking or inflating it.
-    expect(scaleMargins(marginsFor("floor lamp"), "cozy").front).toBe(0.3);
+    expect(scaleMargins(bed, "airy").front).toBeCloseTo(0.63, 2);
+    expect(scaleMargins(bed, "cozy").sides).toBeCloseTo(0.34, 2);
+    // A lamp's 0.2 m front clearance is already under the walking minimum, so
+    // cozy keeps it at 0.2 rather than shrinking or inflating it.
+    expect(scaleMargins(marginsFor("floor lamp"), "cozy").front).toBe(0.2);
     expect(scaleMargins(marginsFor("floor lamp"), "balanced")).toEqual(marginsFor("floor lamp"));
-    // A sofa's 0.75 m front may shrink only to the 0.6 m walking minimum.
-    expect(scaleMargins(marginsFor("sofa"), "cozy").front).toBe(0.64);
+    // A sofa's 0.5 m front may shrink only to the 0.45 m walking minimum.
+    expect(scaleMargins(marginsFor("sofa"), "cozy").front).toBe(0.45);
     expect(scaleMargins(marginsFor("rug"), "airy")).toEqual({ front: 0, back: 0, sides: 0 });
     const model = buildSpaceModel({ ...sampleRoom, objects: [] });
     const zone = (id: string) => ({

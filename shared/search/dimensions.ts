@@ -47,6 +47,8 @@ export const PLAUSIBLE_RANGES: Record<
   rug: { width: [0.4, 4], height: [0.002, 0.1], depth: [0.6, 5] },
   storage: { width: [0.3, 3], height: [0.2, 2.6], depth: [0.2, 0.8] },
   art: { width: [0.1, 2.5], height: [0.1, 2.5], depth: [0.01, 0.15] },
+  curtain: { width: [0.4, 6], height: [0.6, 3.5], depth: [0.01, 0.3] },
+  textile: { width: [0.2, 3], height: [0.02, 0.5], depth: [0.2, 3] },
 };
 
 // Unknown categories stay usable without pretending we know category-specific bounds.
@@ -62,7 +64,7 @@ export function axisInRange(
   axis: Axis,
   meters: number,
 ): boolean {
-  const [low, high] = (PLAUSIBLE_RANGES[category] ?? GENERIC_RANGE)[axis];
+  const [low, high] = (PLAUSIBLE_RANGES[familyOf(category)] ?? GENERIC_RANGE)[axis];
   return meters >= low && meters <= high;
 }
 
@@ -135,30 +137,70 @@ const AXIS_WORDS: Record<
   profile: "thickness",
 };
 
+// The planner names categories freely ("area rug", "wall mirror", "blackout
+// curtain panels"). Dimension conventions follow the family, not the wording.
+export function familyOf(category: Category): Category {
+  const value = category.toLowerCase();
+  if (/\brug\b|carpet|runner/.test(value)) return "rug";
+  if (/curtain|drape/.test(value)) return "curtain";
+  if (/pillow|cushion|throw\b|blanket/.test(value)) return "textile";
+  if (/\bart\b|artwork|painting|poster|print|canvas|mirror|tapestry/.test(value))
+    return "art";
+  if (/\bbed\b|mattress/.test(value)) return "bed";
+  if (/desk/.test(value)) return "desk";
+  if (/lamp|light|pendant|chandelier|sconce/.test(value)) return "lighting";
+  if (/wardrobe|dresser|cabinet|bookcase|shelf|shelving|storage|console|credenza|nightstand/.test(value))
+    return "storage";
+  return value;
+}
+
 const LENGTH_IS_DEPTH: Category[] = ["rug", "bed"];
 
 function axesFor(word: string, category: Category): Axis[] {
+  const family = familyOf(category);
   const mapped = AXIS_WORDS[word.toLowerCase().replace(/\s+/g, " ")];
   if (!mapped) return [];
   if (mapped === "diameter") return ["width", "depth"];
   if (mapped === "length")
-    return LENGTH_IS_DEPTH.includes(category) ? ["depth"] : [];
-  if (mapped === "pile") return category === "rug" ? ["height"] : [];
+    return LENGTH_IS_DEPTH.includes(family) ? ["depth"] : [];
+  if (mapped === "pile") return family === "rug" ? ["height"] : [];
   if (mapped === "thickness")
-    return category === "rug"
+    return family === "rug"
       ? ["height"]
-      : category === "art"
+      : family === "art" || family === "curtain"
         ? ["depth"]
         : [];
   return [mapped];
 }
 
-// Two categories state their size as a pair by convention, and both can turn a
-// quarter on the floor or the wall, so the order carries no risk.
+// Flat categories state their size as a pair by convention: a rug lies on the
+// floor (width × length), art and curtains hang (width × height). The third
+// axis is a thin, known constant filled in by completeFlat.
 const PAIR_AXES: Record<string, [Axis, Axis]> = {
   rug: ["width", "depth"],
   art: ["width", "height"],
+  curtain: ["width", "height"],
+  textile: ["width", "depth"],
 };
+
+// The axis a flat piece's listing leaves out, and the value to assume, in meters.
+const FLAT_THIRD_AXIS: Record<string, { axis: Axis; meters: number }> = {
+  rug: { axis: "height", meters: 0.01 },
+  art: { axis: "depth", meters: 0.03 },
+  curtain: { axis: "depth", meters: 0.05 },
+  // A pillow or folded throw lies on a surface about a hand deep.
+  textile: { axis: "height", meters: 0.15 },
+};
+
+// A rug listed as 5' × 8' is complete: nobody prints its thickness. Fill the
+// thin axis for flat families when the two real axes are present.
+export function completeFlat(values: AxisValues, category: Category): AxisValues {
+  const flat = FLAT_THIRD_AXIS[familyOf(category)];
+  if (!flat || values[flat.axis] !== null) return values;
+  const others = AXES.filter((axis) => axis !== flat.axis);
+  if (others.some((axis) => values[axis] === null)) return values;
+  return { ...values, [flat.axis]: flat.meters };
+}
 
 const UNIT_PATTERN =
   `(?:inches|inch|in\\.|in|feet|foot|ft\\.|ft|cm|mm|m|''|"|')` as const;
@@ -271,7 +313,7 @@ function collectPositional(line: string, category: Category): TextMatch[] {
 
 // "2.5' x 8'" for a rug, "16\" x 23\"" for a print. Only a pair, never part of a triple.
 function collectPair(line: string, category: Category): TextMatch[] {
-  const axes = PAIR_AXES[category];
+  const axes = PAIR_AXES[familyOf(category)];
   if (!axes) return [];
   const pair = line.match(
     new RegExp(
@@ -330,13 +372,14 @@ function attempt(matches: TextMatch[], category: Category): Attempt {
     if (match.label)
       labels.push(match.unit ? match.label : `${match.label} (${unit})`);
   }
-  const complete = completeDimensions(values);
+  const filled = completeFlat(values, category);
+  const complete = completeDimensions(filled);
   if (complete && !withinRange(category, complete))
     return {
       kind: "rejected",
       issue: `The page dimensions are outside the plausible range for a ${category}.`,
     };
-  const reading = readingOf(values, labels.join(" x ") || null, null);
+  const reading = readingOf(filled, labels.join(" x ") || null, null);
   return { kind: complete ? "complete" : "partial", reading };
 }
 

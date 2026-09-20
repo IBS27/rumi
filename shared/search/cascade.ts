@@ -1,6 +1,7 @@
 import type { Category, Measurement, SearchFailure } from "../contracts";
 import {
   completeDimensions,
+  completeFlat,
   mergeReadings,
   parseDimensionText,
   selectOverall,
@@ -18,6 +19,8 @@ export type DiagramReader = (
 
 export interface DimensionSources {
   category: Category;
+  /** The listing's name. A bed's size is usually stated here. */
+  name?: string | null;
   /** Labelled lines rebuilt from machine-readable merchant data. */
   structuredText: string | null;
   /** Page or description text, as printed. */
@@ -49,8 +52,10 @@ const EMPTY_READING: Reading = {
 function known(
   reading: Reading,
   kind: "structured" | "spec-text" | "image" | "mixed",
+  category: Category,
 ): Measurement | null {
-  const dimensions = completeDimensions(reading.values);
+  // A flat piece (rug, art, curtain) is complete with two axes.
+  const dimensions = completeDimensions(completeFlat(reading.values, category));
   if (!dimensions) return null;
   // Extracted dimensions are never "confirmed": only a person measuring is.
   return {
@@ -63,6 +68,46 @@ function known(
 const hasAny = (reading: Reading) =>
   Object.values(reading.values).some((value) => value !== null);
 
+// Mattress sizes are standard; a frame adds a few centimetres around them.
+// Bed pages list every size in one table, which no text parser can read as a
+// single measurement, but the listing's name says which size this is.
+const BED_SIZES: [RegExp, { width: number; depth: number }][] = [
+  [/\bcal(ifornia)?[ -]king\b/i, { width: 1.83, depth: 2.13 }],
+  [/\bking\b/i, { width: 1.93, depth: 2.03 }],
+  [/\bqueen\b/i, { width: 1.52, depth: 2.03 }],
+  [/\b(full|double)\b/i, { width: 1.37, depth: 1.91 }],
+  [/\btwin xl\b/i, { width: 0.97, depth: 2.03 }],
+  [/\b(twin|single)\b/i, { width: 0.97, depth: 1.91 }],
+];
+const FRAME_ALLOWANCE = 0.08;
+// A typical headboard height when the page does not say.
+const BED_HEIGHT = 1.0;
+
+function bedFromName(
+  sources: DimensionSources,
+  partial: Reading,
+): Measurement | null {
+  if (!/\bbed\b/i.test(sources.category) || /bedside|bench/i.test(sources.category))
+    return null;
+  const name = sources.name ?? "";
+  const matches = BED_SIZES.filter(([pattern]) => pattern.test(name));
+  // Exactly one size in the name; "Twin/Full/Queen" is a variant list.
+  if (matches.length !== 1) return null;
+  const [, size] = matches[0];
+  return {
+    dimensions: {
+      width: partial.values.width ?? size.width + FRAME_ALLOWANCE,
+      depth: partial.values.depth ?? size.depth + FRAME_ALLOWANCE,
+      height: partial.values.height ?? BED_HEIGHT,
+    },
+    source: "estimated",
+    evidence: {
+      kind: "spec-text",
+      detail: `Standard ${name.match(matches[0][0])?.[0]} size from the listing name.`,
+    },
+  };
+}
+
 export async function resolveDimensions(
   sources: DimensionSources,
 ): Promise<ResolvedDimensions> {
@@ -74,18 +119,22 @@ export async function resolveDimensions(
   const structured = sources.structuredText
     ? parseDimensionText(sources.structuredText, sources.category)
     : EMPTY_READING;
-  const fromStructured = known(structured, "structured");
+  const fromStructured = known(structured, "structured", sources.category);
   if (fromStructured)
     return { measurement: fromStructured, failures, usedVision: false };
   note(structured.issue);
 
   const text = parseDimensionText(sources.pageText, sources.category);
-  const fromText = known(text, "spec-text");
+  const fromText = known(text, "spec-text", sources.category);
   if (fromText) return { measurement: fromText, failures, usedVision: false };
   note(text.issue);
 
   // Whatever the two text stages did find is still useful: it checks the diagram.
   const partial = hasAny(structured) ? structured : text;
+
+  const standardBed = bedFromName(sources, partial);
+  if (standardBed)
+    return { measurement: standardBed, failures, usedVision: false };
 
   if (!sources.readDiagram || sources.images.length === 0) {
     // Without a reader this is the cheap pass, which defers to the drawing stage; with
@@ -113,7 +162,8 @@ export async function resolveDimensions(
   const merged = mergeReadings(partial, diagram);
   note(merged.issue);
   const measurement =
-    known(merged, hasAny(partial) ? "mixed" : "image") ?? unknown();
+    known(merged, hasAny(partial) ? "mixed" : "image", sources.category) ??
+    unknown();
   if (measurement.evidence.detail === null && measurement.dimensions !== null)
     measurement.evidence.detail = imageUrl;
   if (!measurement.dimensions)
