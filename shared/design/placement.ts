@@ -108,7 +108,9 @@ export function designPlacementIssue(
     return "This item extends below the floor or above the ceiling.";
   if (room.shape === "polygon" && !room.floors.length)
     return "This scan has no measured floor. Import a scan with a floor before placing furniture.";
-  if (!insideFloor(room, tolerated, model))
+  // A hung piece lives on the wall line; the wall-contact rule below is its
+  // boundary check.
+  if (object.mount !== "wall" && !insideFloor(room, tolerated, model))
     return "This item extends outside the room's floor boundary.";
 
   if (object.mount === "surface") {
@@ -144,7 +146,8 @@ export function designPlacementIssue(
       0.008,
       yaw,
     );
-    if (overlap(tolerated, strip)) return "This placement crosses a wall.";
+    if (object.mount !== "wall" && overlap(tolerated, strip))
+      return "This placement crosses a wall.";
     if (object.mount === "wall") {
       const distance =
         Math.abs(
@@ -288,11 +291,9 @@ export function objectInZone(
   if (zone.maxHeight !== null && height > zone.maxHeight + EPS)
     throw new Error(`${product.name} is too tall for this spot.`);
   if (zone.mount === "wall") {
-    if (width > zone.footprint.width + EPS)
-      throw new Error("This product is wider than the reserved wall space.");
-    const offset = (depth - zone.footprint.depth) / 2 + 0.01;
-    object.position.x += Math.sin(zone.rotationY) * offset;
-    object.position.z += Math.cos(zone.rotationY) * offset;
+    // Hang it on the wall the zone sits against: project onto the nearest
+    // wall segment, face into the room, keep it within the wall's length.
+    snapToWall(room, object);
   }
   if (zone.mount === "surface") {
     const host = room.objects.find(
@@ -333,6 +334,51 @@ export function objectInZone(
     }
   }
   return object;
+}
+
+// Put a hung piece flat on the nearest wall: its back on the wall line, its
+// face toward the room, its span inside the wall's length (clamped to the
+// wall when it is wider, so a long print still hangs rather than failing).
+function snapToWall(room: RoomSnapshot, object: RoomObject): void {
+  const model = buildSpaceModel(room);
+  const center = model.floor[0]?.reduce(
+    (sum, point) => ({
+      x: sum.x + point.x / model.floor[0].length,
+      z: sum.z + point.z / model.floor[0].length,
+    }),
+    { x: 0, z: 0 },
+  ) ?? { x: room.dimensions.width / 2, z: room.dimensions.depth / 2 };
+  let best: { distance: number; x: number; z: number; yaw: number } | null = null;
+  for (const wall of model.walls) {
+    const dx = wall.end.x - wall.start.x, dz = wall.end.z - wall.start.z;
+    const length = Math.hypot(dx, dz);
+    if (length < 0.2) continue;
+    const ux = dx / length, uz = dz / length;
+    const rawAlong =
+      (object.position.x - wall.start.x) * ux + (object.position.z - wall.start.z) * uz;
+    const half = Math.min(object.dimensions.width / 2, length / 2);
+    const along = Math.min(Math.max(rawAlong, half), length - half);
+    const footX = wall.start.x + ux * along, footZ = wall.start.z + uz * along;
+    const distance = Math.hypot(object.position.x - footX, object.position.z - footZ);
+    if (best && distance >= best.distance) continue;
+    // The inward normal points toward the floor's center.
+    let nx = -uz, nz = ux;
+    if ((center.x - footX) * nx + (center.z - footZ) * nz < 0) {
+      nx = -nx;
+      nz = -nz;
+    }
+    const inset = object.dimensions.depth / 2 + 0.005;
+    best = {
+      distance,
+      x: footX + nx * inset,
+      z: footZ + nz * inset,
+      yaw: Math.atan2(nx, nz),
+    };
+  }
+  if (!best) return;
+  object.position.x = Math.round(best.x * 1000) / 1000;
+  object.position.z = Math.round(best.z * 1000) / 1000;
+  object.rotation.y = best.yaw + 0;
 }
 
 // Offsets from the reservation, nearest first: along the piece's facing
