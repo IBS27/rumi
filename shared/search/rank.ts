@@ -47,13 +47,14 @@ function fitScore(product: ProductCandidate, task: SearchTask): number {
 }
 
 function styleScore(product: ProductCandidate, task: SearchTask): number {
-  if (task.styleTerms.length === 0) return 0.5;
+  const preferences = [...task.styleTerms, ...task.miscellaneous];
+  if (preferences.length === 0) return 0.5;
   const haystack =
     `${product.name} ${product.tags.join(" ")} ${product.variantId}`.toLowerCase();
-  const hits = task.styleTerms.filter((term) =>
+  const hits = preferences.filter((term) =>
     haystack.includes(term.toLowerCase()),
   ).length;
-  return clamp(hits / task.styleTerms.length);
+  return clamp(hits / preferences.length);
 }
 
 // Rewards sensible use of the ceiling. Far below it usually means an accessory or a

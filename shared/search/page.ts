@@ -11,6 +11,7 @@ export interface PageContent {
   html: string | null;
   text: string;
   images: ImageRef[];
+  linkVerified?: boolean;
 }
 
 const BROWSER_HEADERS = {
@@ -18,6 +19,48 @@ const BROWSER_HEADERS = {
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
   accept: "text/html,application/xhtml+xml",
 };
+
+const ASSET_HOST = /^(static|cdn|images?|assets?|media|files)\./i;
+
+export function isStorefrontUrl(raw: string): boolean {
+  try {
+    const url = new URL(raw);
+    return (
+      (url.protocol === "https:" || url.protocol === "http:") &&
+      !ASSET_HOST.test(url.hostname)
+    );
+  } catch {
+    return false;
+  }
+}
+
+export async function validateProductUrl(
+  raw: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<string | null> {
+  if (!isStorefrontUrl(raw)) return null;
+  try {
+    const response = await fetchImpl(raw, {
+      headers: BROWSER_HEADERS,
+      redirect: "follow",
+      signal: AbortSignal.timeout(10000),
+    });
+    const finalUrl = response.url || raw;
+    const contentType = response.headers.get("content-type")?.toLowerCase();
+    await response.body?.cancel();
+    if (
+      !response.ok ||
+      !isStorefrontUrl(finalUrl) ||
+      (contentType !== undefined &&
+        !contentType.includes("text/html") &&
+        !contentType.includes("application/xhtml+xml"))
+    )
+      return null;
+    return finalUrl;
+  } catch {
+    return null;
+  }
+}
 
 export function absolutize(candidate: string, base: string): string | null {
   try {
@@ -77,17 +120,31 @@ export async function fetchPage(
   url: string,
   fetchImpl: typeof fetch = fetch,
 ): Promise<PageContent | null> {
+  if (!isStorefrontUrl(url)) return null;
   try {
-    const response = await fetchImpl(url, { headers: BROWSER_HEADERS });
-    if (!response.ok) return null;
+    const response = await fetchImpl(url, {
+      headers: BROWSER_HEADERS,
+      redirect: "follow",
+      signal: AbortSignal.timeout(10000),
+    });
+    const finalUrl = response.url || url;
+    if (!response.ok || !isStorefrontUrl(finalUrl)) return null;
+    const contentType = response.headers.get("content-type")?.toLowerCase();
+    if (
+      contentType !== undefined &&
+      !contentType.includes("text/html") &&
+      !contentType.includes("application/xhtml+xml")
+    )
+      return null;
     const html = await response.text();
     if (!html) return null;
     return {
-      url,
+      url: finalUrl,
       title: titleOf(html),
       html,
       text: htmlToText(html),
-      images: extractImages(html, url),
+      images: extractImages(html, finalUrl),
+      linkVerified: true,
     };
   } catch {
     return null;

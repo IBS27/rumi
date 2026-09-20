@@ -17,6 +17,10 @@ import {
   taskResult,
 } from "../shared/search";
 import { rankCandidates } from "../shared/search/rank";
+import {
+  isStorefrontUrl,
+  validateProductUrl,
+} from "../shared/search/page";
 import { makeProduct, makeTask } from "./helpers";
 
 const unknownDimensions = {
@@ -51,6 +55,17 @@ describe("query building", () => {
     expect(query).toContain("oak wardrobe");
     expect(query).toContain("minimalist");
     expect(query).toContain("$400");
+  });
+
+  it("adds arbitrary miscellaneous specs to retrieval", () => {
+    const query = buildExaQuery(
+      makeTask({
+        query: "round dining table",
+        miscellaneous: ["extendable", "ships assembled"],
+      }),
+    );
+    expect(query).toContain("extendable");
+    expect(query).toContain("ships assembled");
   });
 
   it("does not repeat a style word the query already says", () => {
@@ -139,6 +154,32 @@ describe("the Exa client", () => {
     expect(exaSearch("key", "oak", 8, [], fetcher.impl)).rejects.toThrow(
       "status 500",
     );
+  });
+});
+
+describe("customer-facing product links", () => {
+  it("rejects static and asset delivery hosts", () => {
+    expect(
+      isStorefrontUrl("https://static.aptdeco.com/product/archived-table"),
+    ).toBe(false);
+    expect(isStorefrontUrl("https://cdn.shop.test/products/table")).toBe(false);
+    expect(isStorefrontUrl("https://www.shop.test/products/table")).toBe(true);
+  });
+
+  it("requires a successful HTML response", async () => {
+    const denied = (async () =>
+      new Response("denied", {
+        status: 403,
+        headers: { "content-type": "text/html" },
+      })) as unknown as typeof fetch;
+    const live = (async () =>
+      new Response("<html>product</html>", {
+        status: 200,
+        headers: { "content-type": "text/html" },
+      })) as unknown as typeof fetch;
+    const url = "https://www.shop.test/products/table";
+    expect(await validateProductUrl(url, denied)).toBeNull();
+    expect(await validateProductUrl(url, live)).toBe(url);
   });
 });
 

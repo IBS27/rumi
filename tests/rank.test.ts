@@ -62,6 +62,19 @@ describe("scoring", () => {
     expect(onBrief.breakdown.color).toBeGreaterThan(offBrief.breakdown.color);
   });
 
+  it("uses miscellaneous specs as ranking preferences", () => {
+    const task = makeTask({
+      styleTerms: [],
+      miscellaneous: ["extendable", "ships assembled"],
+    });
+    const matching = scoreCandidate(
+      makeProduct({ tags: ["extendable", "ships assembled"] }),
+      task,
+    );
+    const missing = scoreCandidate(makeProduct({ tags: ["fixed top"] }), task);
+    expect(matching.breakdown.style).toBeGreaterThan(missing.breakdown.style);
+  });
+
   it("penalises a price far below the ceiling as an accessory", () => {
     const task = makeTask({ maxPriceCents: 40000 });
     const sensible = scoreCandidate(makeProduct({ priceCents: 24900 }), task);

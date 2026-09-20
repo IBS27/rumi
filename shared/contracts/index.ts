@@ -199,6 +199,7 @@ export const searchTaskSchema = z.object({
   maxHeight: z.number().positive().nullable(),
   styleTerms: z.array(z.string()),
   palette: z.array(hexColorSchema),
+  miscellaneous: z.array(z.string().trim().min(1).max(160)).max(12),
   excludeTags: z.array(z.string()),
 });
 export const searchFailureSchema = z.object({

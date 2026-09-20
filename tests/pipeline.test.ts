@@ -82,6 +82,7 @@ function deps(
       return Object.keys(pages).map((url) => ({ url, title: null }));
     },
     fetchPage: async (url) => pages[url] ?? null,
+    validateProductUrl: async (url) => url,
     fetchContents: async () => [],
     fetchJson: async () => ({}),
     extractListing: async (page) => {
@@ -314,6 +315,22 @@ describe("the search pipeline", () => {
     expect(result.candidates).toHaveLength(1);
     expect(
       result.failures.some((f) => f.detail.includes("could not be read")),
+    ).toBe(true);
+  });
+
+  it("drops a rendered result when its customer link is inaccessible", async () => {
+    const url = "https://static.shop.test/products/archived-table";
+    const context = deps(pagesFrom([specPage(url)]), {
+      validateProductUrl: async () => null,
+    });
+    const result = await runSearch(makeTask(), context.deps, {
+      minTierHits: 1,
+    });
+    expect(result.candidates).toHaveLength(0);
+    expect(
+      result.failures.some((failure) =>
+        failure.detail.includes("Dropped inaccessible product link"),
+      ),
     ).toBe(true);
   });
 

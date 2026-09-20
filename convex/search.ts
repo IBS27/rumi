@@ -9,7 +9,10 @@ import {
   type SearchTaskResult,
 } from "../shared/contracts";
 import { exaContents, exaSearch } from "../shared/search";
-import { fetchPage } from "../shared/search/page";
+import {
+  fetchPage,
+  validateProductUrl,
+} from "../shared/search/page";
 import { runSearch, runSearches } from "../shared/search/pipeline";
 import { extractListing, readDiagram } from "./extract";
 import type { ProductCandidate, SearchTask } from "../shared/contracts";
@@ -36,6 +39,7 @@ function searchDeps(persist: (products: ProductCandidate[]) => Promise<void>) {
     search: (query: string, numResults: number, includeDomains: string[]) =>
       exaSearch(apiKey, query, numResults, includeDomains),
     fetchPage: (url: string) => fetchPage(url),
+    validateProductUrl: (url: string) => validateProductUrl(url),
     fetchContents: (urls: string[]) => exaContents(apiKey, urls),
     fetchJson: async (url: string) => {
       const response = await fetch(url, {

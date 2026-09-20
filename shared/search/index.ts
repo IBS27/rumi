@@ -215,11 +215,15 @@ export function diversifyHits(hits: ExaSearchHit[]): ExaSearchHit[] {
 export function buildExaQuery(task: SearchTask): string {
   const base = (task.query || task.category).trim();
   const lower = base.toLowerCase();
-  // A style word the query already says would only be repeated back at the index.
-  const parts = [
-    ...task.styleTerms.filter((term) => !lower.includes(term.toLowerCase())),
-    base,
-  ];
+  // A modifier the query already says would only be repeated back at the index.
+  const seen = new Set<string>();
+  const modifiers = [...task.styleTerms, ...task.miscellaneous].filter((term) => {
+    const normalized = term.toLowerCase();
+    if (lower.includes(normalized) || seen.has(normalized)) return false;
+    seen.add(normalized);
+    return true;
+  });
+  const parts = [...modifiers, base];
   if (task.maxPriceCents > 0)
     parts.push(`under ${formatMoney(task.maxPriceCents)}`);
   return parts.filter(Boolean).join(" ");

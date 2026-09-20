@@ -39,6 +39,9 @@ export async function extractListing(
       "applied afterwards, so an expensive listing must still be reported in full.",
       "Use null only where the page is genuinely silent.",
       "Do not report dimensions; they are read separately.",
+      task.miscellaneous.length
+        ? `The user also requested: ${task.miscellaneous.join(", ")}. Include only requested features the page explicitly confirms in tags.`
+        : "",
       `Page URL: ${page.url}`,
       `Page title: ${page.title ?? "untitled"}`,
       "Page text:",

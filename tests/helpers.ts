@@ -42,6 +42,7 @@ export function makeTask(overrides: Partial<SearchTask> = {}): SearchTask {
     maxHeight: 2.2,
     styleTerms: ["minimalist", "natural"],
     palette: ["#c19a6b", "#d8cdb9"],
+    miscellaneous: [],
     excludeTags: [],
     ...overrides,
   });

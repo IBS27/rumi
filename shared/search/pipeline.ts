@@ -36,6 +36,7 @@ export interface PipelineDeps {
     includeDomains: string[],
   ) => Promise<ExaSearchHit[]>;
   fetchPage: (url: string) => Promise<PageContent | null>;
+  validateProductUrl: (url: string) => Promise<string | null>;
   /** Fallback for pages that block a direct fetch. */
   fetchContents: (urls: string[]) => Promise<PageContent[]>;
   fetchJson: (url: string) => Promise<unknown>;
@@ -109,8 +110,19 @@ async function gatherPages(
     const markup = raw.get(url);
     const live = byUrl.get(url);
     if (!markup && !live) continue;
+    const candidateUrl = markup?.url ?? live?.url ?? url;
+    const verifiedUrl = markup?.linkVerified
+      ? candidateUrl
+      : await deps.validateProductUrl(candidateUrl);
+    if (!verifiedUrl) {
+      failures.push({
+        stage: "search",
+        detail: `Dropped inaccessible product link: ${candidateUrl}.`,
+      });
+      continue;
+    }
     pages.push({
-      url,
+      url: verifiedUrl,
       title: live?.title || markup?.title || null,
       html: markup?.html ?? live?.html ?? null,
       // Rendered text may carry tags; block ends become line breaks so a packaging
@@ -393,11 +405,14 @@ export async function runSearch(
   const measured = finalists.filter(
     (candidate) => candidate.product.measurement.dimensions !== null,
   ).length;
+  const miscellaneous = task.miscellaneous.length
+    ? ` Additional requested specs (${task.miscellaneous.join(", ")}) influenced retrieval and ranking; only page-confirmed matches should be presented as verified.`
+    : "";
   return taskResult(
     task,
     finalists,
     distinct,
-    `Searched ${hits.length} ${task.category} listing(s) across ${merchantCount()} merchant(s), through the ${tierFor(task.maxPriceCents)} tier, and kept ${finalists.length}; ${measured} have dimensions. Sizes are read from merchant pages and are estimates until confirmed.`,
+    `Searched ${hits.length} ${task.category} listing(s) across ${merchantCount()} merchant(s), through the ${tierFor(task.maxPriceCents)} tier, and kept ${finalists.length}; ${measured} have dimensions. Sizes are read from merchant pages and are estimates until confirmed.${miscellaneous}`,
   );
 }
 

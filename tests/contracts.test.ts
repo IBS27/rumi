@@ -33,6 +33,7 @@ describe("team handoff", () => {
         maxHeight: 1.2,
         styleTerms: ["modern"],
         palette: ["#c19a6b"],
+        miscellaneous: ["ships assembled", "seats four"],
         excludeTags: [],
       }).category,
     ).toBe("dining chair");
