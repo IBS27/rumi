@@ -8,6 +8,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useId,
   useRef,
   useState,
   type ReactNode,
@@ -103,6 +104,8 @@ export function RoomWorkspace({
 }) {
   const [workspace, setWorkspace] = useState<Workspace | null>(initial);
   const [chatOpen, setChatOpen] = useState(() => workspace !== null);
+  const chatId = useId();
+  const chatLauncher = useRef<HTMLButtonElement>(null);
   const [history, setHistory] = useState<(Workspace | null)[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -371,30 +374,65 @@ export function RoomWorkspace({
     resource?.scene?.discoveredObjects
       ?.filter((item) => item.objectId === id)
       .map(discoveredRoomObject)[0];
-  const chatToggle = (
-    <Button
-      aria-pressed={chatOpen}
-      onClick={() => setChatOpen((value) => !value)}
-    >
-      <MessageCircle /> Design chat
-    </Button>
-  );
   /** Keeps floating controls clear of the chat panel while it is open. */
   const clearChat = chatOpen ? "right-4 lg:right-[392px]" : "right-4";
-  const chatDock = chatOpen && (
-    <FloatingPanel
-      aria-label="Design chat"
-      inert={walking}
-      aria-hidden={walking}
-      className={cx(
-        "right-4 bottom-4 flex w-[360px] max-w-[calc(100%-32px)] flex-col overflow-hidden !bg-chalk !p-0 transition-[translate,opacity] duration-400 ease-in-out motion-reduce:transition-none",
-        room ? "top-28 lg:top-4" : "top-4",
-        walking &&
-          "translate-x-[calc(100%+32px)] opacity-0 pointer-events-none",
-      )}
-    >
-      {chat({ room, onCollapse: () => setChatOpen(false) })}
-    </FloatingPanel>
+  const chatDock = (
+    <>
+      <Button
+        ref={chatLauncher}
+        variant="primary"
+        aria-label="Open chat"
+        title="Open chat"
+        aria-expanded={chatOpen}
+        aria-controls={chatId}
+        inert={chatOpen || walking}
+        aria-hidden={chatOpen || walking}
+        onClick={() => {
+          setChatOpen(true);
+          requestAnimationFrame(() => {
+            root.current
+              ?.querySelector<HTMLButtonElement>('[aria-label="Collapse chat"]')
+              ?.focus({ preventScroll: true });
+          });
+        }}
+        className={cx(
+          "absolute top-4 right-4 z-20 size-11 !rounded-panel !p-0 shadow-lift !transition-[scale,opacity,background-color] duration-250 ease-out motion-reduce:transition-none [&>svg]:!size-5",
+          chatOpen || walking
+            ? "pointer-events-none scale-75 opacity-0"
+            : "scale-100 opacity-100",
+        )}
+      >
+        <MessageCircle aria-hidden="true" strokeWidth={1.75} />
+      </Button>
+      <FloatingPanel
+        id={chatId}
+        aria-label="Design chat"
+        inert={!chatOpen || walking}
+        aria-hidden={!chatOpen || walking}
+        className={cx(
+          "right-4 bottom-4 flex w-[360px] max-w-[calc(100%-32px)] origin-top-right flex-col overflow-hidden !bg-chalk !p-0 transition-[scale,translate,opacity,visibility] duration-250 ease-out motion-reduce:transition-none",
+          room ? "top-28 lg:top-4" : "top-4",
+          chatOpen
+            ? "visible scale-100 opacity-100"
+            : "invisible pointer-events-none scale-90 opacity-0",
+          walking &&
+            "translate-x-[calc(100%+32px)] opacity-0 pointer-events-none",
+        )}
+      >
+        {
+          // eslint-disable-next-line react-hooks/refs -- chat renders the panel; onCollapse reads the launcher ref only after interaction.
+          chat({
+            room,
+            onCollapse: () => {
+              setChatOpen(false);
+              requestAnimationFrame(() => {
+                chatLauncher.current?.focus({ preventScroll: true });
+              });
+            },
+          })
+        }
+      </FloatingPanel>
+    </>
   );
 
   return (
@@ -427,7 +465,6 @@ export function RoomWorkspace({
       {!room ? (
         <>
           <TopBar brand={brand} title={title}>
-            {chatToggle}
             {account}
           </TopBar>
           <div className="relative flex min-h-0 flex-1 flex-col">
@@ -485,7 +522,6 @@ export function RoomWorkspace({
                 }
               >
                 {status && <Muted className="text-xs">{status}</Muted>}
-                {chatToggle}
                 <Button disabled={!history.length} onClick={undo}>
                   <Undo2 /> Undo
                 </Button>
@@ -610,7 +646,7 @@ export function RoomWorkspace({
               onWalls={setWallsVisible}
               dimensions={dimensionsVisible}
               onDimensions={setDimensionsVisible}
-              className={clearChat}
+              className={chatOpen ? clearChat : "right-20"}
               simulation={
                 resource?.scene && view === "3d"
                   ? {
