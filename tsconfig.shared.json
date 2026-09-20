@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "include": [
+    "shared",
+    "tests",
+    "convex/schema.ts",
+    "convex/extract.ts",
+    "convex/assetGeneration.ts"
+  ],
+  "exclude": [
+    "tests/agent-integration.test.ts",
+    "tests/chat.test.ts",
+    "tests/pairing.test.ts"
+  ]
+}

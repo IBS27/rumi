@@ -7,16 +7,15 @@ import {
   Flame,
   Frame,
   Lamp,
-  ArrowLeft,
-  ArrowRight,
+  Info,
   Monitor,
-  PanelLeft,
   Refrigerator,
   Sofa,
   Table,
   Layers as Shelf,
   Square,
   WashingMachine,
+  X,
 } from "lucide-react";
 import type { z } from "zod";
 import {
@@ -91,20 +90,19 @@ function ObjectRow({
 }
 
 function DockToggle({ open, onToggle }: { open: boolean; onToggle: () => void }) {
-  const label = open ? "Hide the scan list" : "Show the scan list";
-  const Arrow = open ? ArrowLeft : ArrowRight;
+  const label = open ? "Hide scan details" : "Show scan details";
+  const Icon = open ? X : Info;
   return (
     <Button
       size="sm"
       variant="quiet"
-      className="group size-7 shrink-0 p-1 text-mute"
+      className="size-8 shrink-0 rounded-full p-0! text-mute"
       aria-label={label}
       aria-expanded={open}
       title={label}
       onClick={onToggle}
     >
-      <PanelLeft size={17} className="group-hover:hidden" />
-      <Arrow size={17} className="hidden group-hover:block" />
+      <Icon size={16} strokeWidth={1.5} />
     </Button>
   );
 }
@@ -131,7 +129,7 @@ export function ScanDock({
   onRemove: (id: string) => void;
   captureWarnings?: string[];
 }) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
   const confirmed = room.objects.filter(
     (item) => item.measurementSource === "confirmed",
   ).length;
@@ -141,14 +139,14 @@ export function ScanDock({
     <>
       {!hidden && !open && (
         <FloatingPanel
-          aria-label="What the scan found"
-          className="top-28 lg:top-4 left-4 p-1.5"
+          aria-label="Scan details"
+          className="top-28 lg:top-4 left-4 rounded-full p-0! shadow-none!"
         >
           <DockToggle open={false} onToggle={() => setOpen(true)} />
         </FloatingPanel>
       )}
     <FloatingPanel
-      aria-label="What the scan found"
+      aria-label="Scan details"
       inert={away}
       aria-hidden={away}
       className={cx(
@@ -158,7 +156,7 @@ export function ScanDock({
       )}
     >
       <div className="flex items-center justify-between gap-2">
-        <Heading>What the scan found</Heading>
+        <Heading>Scan details</Heading>
         <DockToggle open onToggle={() => setOpen(false)} />
       </div>
       {captureWarnings?.map((warning, index) => (
