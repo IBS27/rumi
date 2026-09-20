@@ -25,6 +25,7 @@ import { applyMeterUVs } from "./materials";
 import {
   exteriorNormal,
   lowerWall,
+  shouldLowerWall,
 } from "../../../../shared/reconstruction/architecture";
 
 function SolidSurface({
@@ -129,7 +130,10 @@ function OverviewWall({
       outward &&
       outward.x * (camera.position.x - surface.transform[12]) +
         outward.z * (camera.position.z - surface.transform[14]);
-    const lower = cutaway && facing !== null && facing > 0.2;
+    const lower =
+      cutaway &&
+      facing !== null &&
+      shouldLowerWall(facing, low.current.visible);
     if (full.current.visible !== !lower) {
       full.current.visible = !lower;
       low.current.visible = lower;
@@ -204,6 +208,7 @@ function FinishRegion({
             material={region.material}
             detail={region.detail}
             side={sign === 1 ? FrontSide : BackSide}
+            depthOffset={order + 1}
           />
         </mesh>
       ))}
@@ -254,6 +259,7 @@ function Opening({
             <meshStandardMaterial
               color="#edf2f4"
               transparent
+              depthWrite={false}
               opacity={0.22}
               roughness={0.12}
               side={DoubleSide}

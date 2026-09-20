@@ -53,6 +53,7 @@ export function SurfaceMaterial({
   detail,
   side,
   transparent = false,
+  depthOffset = 0,
 }: {
   color: string;
   material: MaterialKind;
@@ -60,6 +61,7 @@ export function SurfaceMaterial({
   side?: Side;
   // Glass-like opaque screens and glazed furniture must not become see-through.
   transparent?: boolean;
+  depthOffset?: number;
 }) {
   const textures = useContext(TextureCache);
   const {
@@ -120,6 +122,10 @@ export function SurfaceMaterial({
       }
       roughness={roughness}
       metalness={material === "metal" ? 0.72 : 0}
+      polygonOffset={depthOffset > 0}
+      polygonOffsetFactor={-depthOffset}
+      polygonOffsetUnits={-depthOffset}
+      depthWrite={!transparent}
       transparent={transparent}
       opacity={transparent ? 0.22 : 1}
       side={side}

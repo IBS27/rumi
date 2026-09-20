@@ -3,6 +3,7 @@ import {
   Suspense,
   useEffect,
   useMemo,
+  useState,
   type ReactNode,
   type RefObject,
 } from "react";
@@ -127,9 +128,14 @@ function Cameras({ room, top }: { room: CapturedRoom; top: boolean }) {
   const { width, depth, height } = room.dimensions;
   const size = Math.max(width, depth, height);
   const viewport = useThree((state) => state.size);
+  // Fit once per room/view. Resizing a sidebar must not overwrite an orbit.
+  const [initialViewport] = useState(viewport);
   const zoom = Math.max(
     8,
-    Math.min(viewport.width / (width + 2), viewport.height / (depth + 2)),
+    Math.min(
+      initialViewport.width / (width + 2),
+      initialViewport.height / (depth + 2),
+    ),
   );
   // OrbitControls owns the live camera transform. Keep these defaults stable
   // so unrelated renders do not copy them back over the user's view.
@@ -140,7 +146,10 @@ function Cameras({ room, top }: { room: CapturedRoom; top: boolean }) {
   const verticalFov = (42 * Math.PI) / 180;
   const horizontalFov =
     2 *
-    Math.atan((Math.tan(verticalFov / 2) * viewport.width) / viewport.height);
+    Math.atan(
+      (Math.tan(verticalFov / 2) * initialViewport.width) /
+        initialViewport.height,
+    );
   const radius = Math.hypot(width, height, depth) / 2;
   const distance =
     (radius / Math.sin(Math.min(verticalFov, horizontalFov) / 2)) * 1.05;
@@ -162,7 +171,7 @@ function Cameras({ room, top }: { room: CapturedRoom; top: boolean }) {
           position={position}
           zoom={zoom}
           up={[0, 0, -1]}
-          near={0.01}
+          near={0.05}
           far={size * 30}
         />
       ) : (
@@ -170,7 +179,7 @@ function Cameras({ room, top }: { room: CapturedRoom; top: boolean }) {
           makeDefault
           position={position}
           fov={42}
-          near={0.01}
+          near={0.05}
           far={size * 30}
         />
       )}
@@ -305,7 +314,9 @@ export function RoomViewer({
             </>
           )}
           <Suspense fallback={null}>
-            {reconstruction && <SceneEffects />}
+            {(reconstruction || scan) && (
+              <SceneEffects ambientOcclusion={!!reconstruction && !scan} />
+            )}
             {walkthrough ? (
               <FirstPersonCamera
                 key={walkSession}
@@ -315,13 +326,36 @@ export function RoomViewer({
                 depth={room.dimensions.depth}
               />
             ) : (
-              <Cameras room={room} top={top} />
+              <Cameras
+                key={`${room.id}-${top}-${room.dimensions.width}-${room.dimensions.height}-${room.dimensions.depth}`}
+                room={room}
+                top={top}
+              />
             )}
             {scan && (
               <ScanSurface
                 scan={scan}
                 wallsVisible={wallsVisible}
                 onError={onScanError}
+                fallback={
+                  <>
+                    {room.floors.map((floor) => (
+                      <Surface
+                        key={floor.id}
+                        value={floor}
+                        openings={room.openings}
+                      />
+                    ))}
+                    {wallsVisible &&
+                      room.walls.map((wall) => (
+                        <Surface
+                          key={wall.id}
+                          value={wall}
+                          openings={room.openings}
+                        />
+                      ))}
+                  </>
+                }
               />
             )}
             {!scan && (
