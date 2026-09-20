@@ -1,10 +1,17 @@
 import type { ReactNode } from "react";
 import { cx } from "./cx";
 
-/** The wordmark. Lowercase, display face, deep teal. */
+/** The favicon and wordmark shared by app headers. */
 export function Brand() {
   return (
-    <span className="font-display text-[21px] leading-none font-semibold tracking-[-0.01em] text-teal-deep">
+    <span className="inline-flex items-center gap-2 font-display text-[21px] leading-none font-semibold tracking-[-0.01em] text-teal-deep">
+      <img
+        src="/favicon.svg"
+        alt=""
+        width={24}
+        height={24}
+        className="size-6 shrink-0"
+      />
       rumi
     </span>
   );
