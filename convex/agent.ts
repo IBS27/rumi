@@ -8,6 +8,7 @@ import { internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
+  MAX_PLAN_ZONES,
   projectPhaseSchema,
   roomObjectSchema,
   roomSchema,
@@ -348,7 +349,7 @@ function buildAgentTools(
       inputSchema: z.object({
         zoneIds: z
           .array(z.string())
-          .max(8)
+          .max(MAX_PLAN_ZONES)
           .optional()
           .describe(
             "Zone ids to search. Leave empty to search exactly the items the user kept on the plan card.",
@@ -597,7 +598,7 @@ function buildAgentTools(
           ),
         materials: z.array(z.string()).max(12).optional(),
         purpose: z.string().max(80).optional(),
-        wants: z.array(wantSchema).max(12).optional().describe(
+        wants: z.array(wantSchema).max(MAX_PLAN_ZONES).optional().describe(
           "The complete current shopping list. Remove canceled items immediately, including art when the user says without the painting. An empty array clears all previous wants.",
         ),
         excludedCategories: z.array(z.string().trim().min(1).max(80)).max(12).optional().describe(

@@ -1,10 +1,10 @@
-import type { DesignBrief, Spacing, ZoneMount } from "../contracts";
+import { MAX_PLAN_ZONES, type DesignBrief, type Spacing, type ZoneMount } from "../contracts";
 
 // What the planner may put in a room, decided from the brief alone.
 //
 // Delegated: the user listed no items, so the planner chooses the furniture
 // from the room's purpose, the style, and the free floor space. How many
-// pieces is the model's judgment; code only checks that each one fits.
+// pieces starts with a small default; code checks fit and trims optional extras.
 // Directed: the user listed items; each is required, and the planner may add
 // one floor piece the room clearly needs.
 export interface PlanScope {
@@ -16,7 +16,12 @@ export interface PlanScope {
   maxZones: number;
 }
 
-export const MAX_ZONES = 8;
+export const MAX_ZONES = MAX_PLAN_ZONES;
+export const DEFAULT_PLAN_ITEMS = 4;
+
+export function isRugCategory(category: string): boolean {
+  return /\b(?:rugs?|carpets?|runners?)\b/i.test(category);
+}
 
 export interface DefiningPiece {
   category: string;
@@ -88,7 +93,7 @@ export function planScope(brief: DesignBrief): PlanScope {
     excluded,
     maxExtraFurniture: delegated ? MAX_ZONES : 1,
     accessories: brief.accessories,
-    maxZones: MAX_ZONES,
+    maxZones: Math.max(DEFAULT_PLAN_ITEMS, required.filter((category) => !isRugCategory(category)).length),
   };
 }
 
@@ -136,17 +141,20 @@ export function describeScope(
   const exclusions = scope.excluded.length
     ? `Do not plan or search these excluded furniture categories (including equivalents): ${scope.excluded.join(", ")}. User exclusions override room-purpose defaults; do not insist on an excluded anchor.`
     : "";
+  const count = `Aim for at most ${scope.maxZones} pieces, excluding rugs. Keep all explicitly requested items and any furniture needed to support them, even if that exceeds the default. Include the room-defining piece when required; do not add floor furniture to an accessories-only request.`;
   if (scope.mode === "delegated")
     return [
       defining,
       exclusions,
-      `The user has not listed items. Choose the non-excluded furniture ${room} needs for its purpose and style, sized to the free floor space. Start with the most useful allowed piece, then storage, surfaces, seating, comfort and light as needed. A furnished room usually has 4 to 6 floor pieces plus accessories, but exclusions and existing furniture reduce what is needed. Clearances may share walkways, so pieces can sit closer than their clearances suggest.`,
+      `The user has not listed items. Choose the non-excluded furniture ${room} needs for its purpose and style, sized to the free floor space. Start with the most useful allowed piece, then storage, surfaces, seating, comfort and light as needed. Existing furniture reduces what is needed. Clearances may share walkways, so pieces can sit closer than their clearances suggest.`,
+      count,
       spacing,
       accessories,
     ].join(" ");
   return [
     defining,
     exclusions,
+    count,
     `Items the user asked for, each of which MUST get its own zone with a matching category: ${scope.required.join(", ")}.`,
     scope.maxExtraFurniture > 0
       ? `You may add at most ${scope.maxExtraFurniture} extra floor piece that ${room} clearly needs.`

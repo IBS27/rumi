@@ -187,6 +187,8 @@ export const specTopicSchema = z.enum([
   "accessories",
   "budget",
 ]);
+// Keep the supported shopping list and downstream plan/search limits aligned.
+export const MAX_PLAN_ZONES = 12;
 // An item the user asked for, before any space is reserved for it.
 export const wantSchema = z.object({
   category: z.string().trim().min(1).max(80),
@@ -206,7 +208,7 @@ export const briefSchema = z.object({
   // What the room is for: bedroom, living room, home office, and so on.
   purpose: z.string().max(80).default(""),
   // Empty means the user left item choice to the planner.
-  wants: z.array(wantSchema).max(12).default([]),
+  wants: z.array(wantSchema).max(MAX_PLAN_ZONES).default([]),
   // Explicit shopping exclusions override room-purpose defaults. They do not
   // authorize removal of existing furniture. Optional for older saved briefs.
   excludedCategories: z.array(z.string().trim().min(1).max(80)).max(12).optional(),
@@ -335,7 +337,7 @@ export const spacingSchema = z.enum(["airy", "balanced", "cozy"]);
 export const zonePlanRequestSchema = z.object({
   summary: clipped(600),
   spacing: spacingSchema,
-  zones: z.array(zoneRequestSchema).min(1).max(8),
+  zones: z.array(zoneRequestSchema).min(1).max(MAX_PLAN_ZONES),
 });
 // The same shape with no transforms or bounds, for structured model output.
 // The model fills this; zonePlanRequestSchema then clips and validates it.
@@ -393,9 +395,9 @@ export const designPlanSchema = z.object({
   baseRevision: z.number().int().nonnegative(),
   summary: z.string(),
   spacing: spacingSchema,
-  zones: z.array(reservedZoneSchema).max(8),
+  zones: z.array(reservedZoneSchema).max(MAX_PLAN_ZONES),
   rejected: z.array(zoneRejectionSchema),
-  tasks: z.array(searchTaskSchema).max(8),
+  tasks: z.array(searchTaskSchema).max(MAX_PLAN_ZONES),
 });
 export const zoneFillSchema = z.object({
   zoneId: idSchema,

@@ -27,6 +27,16 @@ object overlap and conservative doorway clearances. Unknown dimensions and absen
 floor measurements cannot establish fit. Electrical, installation, ergonomic and
 delivery checks remain outside this milestone.
 
+Planning starts with measured free-floor areas, room purpose, existing furniture,
+and explicit shopping exclusions. The area measurements guide category and size
+choices; they are not exclusive slots. Several pieces can share a large area, and
+the placement validator checks every actual reservation against earlier pieces.
+The initial plan defaults to four pieces plus rugs. Explicit requests and furniture
+needed to support a requested accessory take priority over this default, within the
+brief's twelve-item limit. Only successful reservations count toward the default.
+Lower-priority extras appear on the plan card with a reason and can be requested
+later. Rugs retain their measured product dimensions and existing placement checks.
+
 `editDesign` accepts atomic add, move, replace, remove and lock commands. Each write
 checks the current revision, canonical catalog dimensions and prices, product and
 placement locks, and the final budget. A requested savings target is enforced with

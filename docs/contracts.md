@@ -4,6 +4,12 @@
 
 `shared/contracts/index.ts` is the authority. All runtime inputs pass through its Zod schemas; TypeScript types are inferred from those schemas.
 
+`MAX_PLAN_ZONES` bounds shopping wants, zone proposals, persisted plans, and their
+search tasks at twelve. The planner's default is four non-rug pieces; explicit
+requests, room-defining furniture, and required supports are protected when optional
+extras are trimmed. Free-floor measurements are advisory and add no slot identifiers
+to the stored plan. Existing plans and briefs remain compatible.
+
 `DesignBrief.excludedCategories` optionally lists furniture the user does not want
 to shop for. Missing means no structured exclusions (older saved briefs remain
 valid). Exclusions override room-purpose defaults and conflicting wants; they

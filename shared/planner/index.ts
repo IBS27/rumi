@@ -16,6 +16,7 @@ import { selectionTotal } from "../budget";
 import { colorFromWords } from "../search/color";
 import { buildSpaceModel, type SpaceModel } from "./space";
 import { splitBudget } from "./budget";
+import { limitPlanItems } from "./limit";
 import {
   categoryIsExcluded,
   requiredDefiningPiece,
@@ -27,6 +28,7 @@ import {
 import { mountFor, reserveZones } from "./zones";
 
 export { buildSpaceModel } from "./space";
+export { describeFreeFloorAreas, findFreeFloorAreas } from "./free-floor";
 export { marginsFor, mountFor, reserveZones, scaleMargins } from "./zones";
 export {
   MAX_ZONES,
@@ -133,8 +135,8 @@ export function buildDesignPlan({
   placementHints = [],
 }: PlanInput): { plan: DesignPlan; model: SpaceModel } {
   const parsed: ZonePlanRequest = zonePlanRequestSchema.parse(request);
-  const ids = new Set(parsed.zones.map((zone) => zone.id));
-  if (ids.size !== parsed.zones.length)
+  const requestsById = new Map(parsed.zones.map((zone) => [zone.id, zone]));
+  if (requestsById.size !== parsed.zones.length)
     throw new Error("Zone ids must be unique.");
   const categories = parsed.zones.map((zone) => zone.category.toLowerCase());
   if (new Set(categories).size !== categories.length)
@@ -180,7 +182,7 @@ export function buildDesignPlan({
     );
   // The scope says what the model may add. Every required item needs a zone.
   // In directed mode, extra floor furniture is capped; accessories follow the
-  // user's answer. In delegated mode the count is the model's judgment.
+  // user's answer. The default total is applied after geometry checks.
   const missing = scope.required.filter(
     (category) =>
       !parsed.zones.some((zone) => sameCategory(zone.category, category)),
@@ -222,13 +224,19 @@ export function buildDesignPlan({
     throw new Error(
       `The defining ${definingPiece?.category} could not be reserved. Keep it first and retry with a smaller standard footprint or a better anchor instead of returning a plan made only of secondary pieces.`,
     );
-  const flagged = reserved.zones.map((zone) => {
+  const protectedIds = new Set(parsed.zones
+    .filter((zone) => zone.id === definingRequest?.id || scope.required.some((category) => sameCategory(category, zone.category)))
+    .map((zone) => zone.id));
+  const limited = limitPlanItems(reserved.zones.map((zone) => ({
+    ...zone, priority: requestsById.get(zone.id)?.priority ?? zone.priority,
+  })), scope.maxZones, protectedIds);
+  const flagged = limited.zones.map((zone) => {
     // Resizing a requested bed must not turn it into a budget-droppable extra
     // or lose the user's feature requirements when its category changes.
-    const category = parsed.zones.find((request) => request.id === zone.id)?.category ?? zone.category;
+    const category = requestsById.get(zone.id)?.category ?? zone.category;
     return {
       ...zone,
-      suggested: isSuggested(category),
+      suggested: isSuggested(category) && !limited.requiredIds.has(zone.id),
       miscellaneous: [...new Set([
         ...zone.miscellaneous,
         ...brief.wants.filter((want) => want.notes && sameCategory(want.category, category))
@@ -242,7 +250,7 @@ export function buildDesignPlan({
   const zones = flagged
     .filter((zone) => split.allocation.has(zone.id))
     .map((zone, index) => ({ ...zone, priority: index + 1 }));
-  const rejected = [...reserved.rejected, ...split.dropped];
+  const rejected = [...reserved.rejected, ...limited.rejected, ...split.dropped];
   const tasks = zones.map((zone) =>
     zoneToSearchTask(zone, brief, split.allocation.get(zone.id) ?? 0),
   );
