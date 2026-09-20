@@ -62,3 +62,9 @@ export function lowerWall(
   }
   return { ...wall, polygonCorners };
 }
+
+// A ten-centimeter dead band prevents camera jitter from repeatedly swapping
+// wall geometry and its shadow at the cutaway boundary.
+export function shouldLowerWall(facing: number, lowered: boolean): boolean {
+  return facing > (lowered ? 0.15 : 0.25);
+}

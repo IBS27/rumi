@@ -15,9 +15,24 @@ import { roundedPartGeometry } from "../src/features/room-editor/reconstruction/
 import {
   exteriorNormal,
   lowerWall,
+  shouldLowerWall,
 } from "../shared/reconstruction/architecture";
 
 describe("reconstruction fidelity", () => {
+  it("holds the cutaway state while the camera jitters near the boundary", () => {
+    let lowered = false;
+    for (const facing of [0.18, 0.22, 0.19, 0.24]) {
+      lowered = shouldLowerWall(facing, lowered);
+      expect(lowered).toBe(false);
+    }
+    lowered = shouldLowerWall(0.3, lowered);
+    expect(lowered).toBe(true);
+    for (const facing of [0.22, 0.18, 0.24, 0.16]) {
+      lowered = shouldLowerWall(facing, lowered);
+      expect(lowered).toBe(true);
+    }
+    expect(shouldLowerWall(0.1, lowered)).toBe(false);
+  });
   it("rejects color observations for absent photos and unmeasured surfaces", async () => {
     const input = await buildReconstructionEvidence(
       readPackage(syntheticCaptureZip()),
