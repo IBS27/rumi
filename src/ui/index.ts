@@ -1,4 +1,5 @@
 export { Button } from "./Button";
+export { MessageBubble } from "./MessageBubble";
 export type { ButtonSize, ButtonVariant } from "./Button";
 export { Chip } from "./Chip";
 export {

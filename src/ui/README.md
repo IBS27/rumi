@@ -29,6 +29,7 @@ tab (`docs/design-parts/05-plaster.html`).
 | `Button`                                                              | Every button. `variant`: `primary` (one per screen), `soft` (default), `quiet`, `danger`. `size`: `sm`, `md`, `lg`. |
 | `Segmented`                                                           | Exclusive view switches (3D view / Floor plan).                                                                     |
 | `Chip`                                                                | On/off overlays and filters (Walls, Dimensions, Fit checks).                                                        |
+| `MessageBubble` | Chat turn with a speaker label. `speaker`: `user`, `assistant`, or `system`; `card` leaves room for a product card. |
 | `Pill`                                                                | Status labels. Tones: `neutral`, `estimated`, `ok`, `warn`, `locked`.                                               |
 | `Panel`                                                               | A tinted surface in normal flow. Tones: `chalk`, `stone`, `sage`, `blue`, `blush`.                                  |
 | `FloatingPanel`                                                       | A panel positioned over the room view. Position with `className`.                                                   |
@@ -57,7 +58,7 @@ Import from `src/ui` (`import { Button, FloatingPanel } from "../../ui"`).
 
 Floating panels hug their content (`max-h-[calc(100%-32px)]` + `overflow-auto`)
 unless they end in a composer, in which case they stretch (`bottom-4`).
-Keep them narrow: 252px for the scan dock, about 300px for chat and products.
+Keep them narrow: 252px for the scan dock, 360px for chat and about 300px for products.
 
 ## Adding a component
 

@@ -46,7 +46,7 @@ export function Composer({
         </p>
       )}
       <form
-        className="flex items-end gap-1.5 rounded-tile bg-white p-1 transition-colors focus-within:bg-panel-soft"
+        className="flex flex-col rounded-panel border border-line bg-white p-2 transition-colors focus-within:border-teal/50 focus-within:ring-2 focus-within:ring-teal/10"
         onSubmit={(event) => {
           event.preventDefault();
           void submit();
@@ -54,7 +54,7 @@ export function Composer({
       >
         <TextArea
           embedded
-          className="min-h-9 max-h-32 flex-1 px-2 py-2 text-[12.5px] leading-5 focus-visible:!outline-none"
+          className="min-h-14 max-h-32 w-full px-1.5 py-1 text-[13px] leading-5 focus-visible:!outline-none"
           aria-label="Message Rumi"
           value={value}
           onChange={(event) => setValue(event.target.value)}
@@ -100,34 +100,34 @@ export function Composer({
             }
           }}
         />
-        <Button
-          size="sm"
-          type="submit"
-          variant="primary"
-          className="size-8 self-end rounded-full border-0 p-1 focus-visible:!outline-none focus-visible:ring-2 focus-visible:ring-teal/25"
-          aria-label="Send message"
-          disabled={disabled || busy || !value.trim()}
-        >
-          <ArrowUp size={17} />
-        </Button>
+        <div className="mt-1 flex items-center gap-2">
+          <Button
+            size="sm"
+            type="button"
+            variant="quiet"
+            className="size-7 shrink-0 p-1 text-mute"
+            aria-label="Attach inspiration image"
+            title="Attach an inspiration image"
+            disabled={disabled || busy}
+            onClick={() => file.current?.click()}
+          >
+            <ImagePlus size={18} />
+          </Button>
+          <span className="mr-auto text-[10px] text-mute">
+            Shift + Enter for a new line
+          </span>
+          <Button
+            size="sm"
+            type="submit"
+            variant="primary"
+            className="size-8 self-end rounded-full border-0 p-1 focus-visible:ring-2 focus-visible:ring-teal/25"
+            aria-label="Send message"
+            disabled={disabled || busy || !value.trim()}
+          >
+            <ArrowUp size={17} />
+          </Button>
+        </div>
       </form>
-      <div className="mt-1 flex items-center justify-between">
-        <Button
-          size="sm"
-          type="button"
-          variant="quiet"
-          className="size-7 shrink-0 p-1 text-mute"
-          aria-label="Attach inspiration image"
-          title="Attach an inspiration image"
-          disabled={disabled || busy}
-          onClick={() => file.current?.click()}
-        >
-          <ImagePlus size={18} />
-        </Button>
-        <span className="text-[10px] text-mute">
-          Shift + Enter for a new line
-        </span>
-      </div>
     </div>
   );
 }
