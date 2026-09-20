@@ -4,8 +4,9 @@ The room workspace includes a collapsible design chat using the same cream, sage
 and serif styles as the capture editor. Sign in with Clerk, then start a chat with
 text or an inspiration image. Conversations persist per account and support
 history, rename, confirmed deletion, option cards, custom answers, and retrying a
-failed reply. Selecting furniture opens the inspector; the Design chat button
-restores the conversation without discarding it.
+failed reply. Selecting furniture opens the inspector; the chat panel collapses into a
+top-right chat icon. Reopening it preserves the conversation, draft, and scroll
+position.
 
 ## Room context
 
