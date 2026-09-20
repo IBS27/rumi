@@ -90,6 +90,9 @@ Set these variables on the personal Convex deployment:
   that product search is unavailable and can continue refining the brief.
 - `RUMI_AGENT_MODEL`, `RUMI_EXTRACTION_MODEL`, `RUMI_IMAGE_MODEL`: optional model
   overrides. The existing defaults are `gpt-4o` and `gpt-4o-mini`.
+- `RUMI_PLANNER_MODEL`, `RUMI_PLANNER_REASONING`: optional overrides for the
+  space planner's zone proposal. Defaults are `gpt-5.6-sol` (falling back to
+  `RUMI_AGENT_MODEL`) and `low` reasoning effort.
 - `RUMI_ASSET_MODEL`: optional model override for approximate product models.
 - `CHAT_ALLOWED_ORIGINS`: comma-separated exact frontend origins allowed to
   upload images, including scheme and port. Add the intended app origin before
