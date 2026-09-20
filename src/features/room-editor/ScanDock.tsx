@@ -89,6 +89,7 @@ function ObjectRow({
 
 /** Floating summary of the scan with the selectable object list. */
 export function ScanDock({
+  hidden = false,
   room,
   selected,
   onSelect,
@@ -97,6 +98,7 @@ export function ScanDock({
   onReset,
   onRemove,
 }: {
+  hidden?: boolean;
   room: CapturedRoom;
   selected: string | null;
   onSelect: (id: string | null) => void;
@@ -111,7 +113,13 @@ export function ScanDock({
   return (
     <FloatingPanel
       aria-label="What the scan found"
-      className="top-4 left-4 flex max-h-[calc(100%-32px)] w-[252px] flex-col overflow-auto"
+      inert={hidden}
+      aria-hidden={hidden}
+      className={cx(
+        "top-28 lg:top-4 left-4 flex max-h-[calc(100%-128px)] lg:max-h-[calc(100%-32px)] w-[252px] flex-col overflow-auto transition-[translate,opacity] duration-400 ease-in-out motion-reduce:transition-none",
+        hidden &&
+          "-translate-x-[calc(100%+32px)] opacity-0 pointer-events-none",
+      )}
     >
       <Heading>What the scan found</Heading>
       <div className="mt-1.5 grid gap-px text-xs text-[#5a5044]">
