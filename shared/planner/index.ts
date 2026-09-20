@@ -10,17 +10,21 @@ import {
   type SearchTask,
   type ZoneFill,
   type ZonePlanRequest,
+  type ZoneRejection,
+  type ZoneRequest,
 } from "../contracts";
 import { selectionTotal } from "../budget";
 import { colorFromWords } from "../search/color";
 import { buildSpaceModel, type SpaceModel } from "./space";
 import { splitBudget } from "./budget";
-import { isAccessoryMount, planScope, sameCategory } from "./scope";
+import { isAccessoryMount, isRugCategory, planScope, sameCategory } from "./scope";
+import { findSlots } from "./slots";
 import { mountFor, reserveZones } from "./zones";
 
 export { buildSpaceModel } from "./space";
 export { marginsFor, mountFor, reserveZones, scaleMargins } from "./zones";
 export { MAX_ZONES, SPACING_FACTOR, describeScope, planScope } from "./scope";
+export { describeSlots, findSlots, type Slot } from "./slots";
 export { ceilingFloorCents, splitBudget, typicalPriceCents } from "./budget";
 
 const RESTRICTION_TAGS: [RegExp, string[]][] = [
@@ -161,8 +165,29 @@ export function buildDesignPlan({
     throw new Error(
       `The user does not want accessories; drop ${accessories.map((zone) => zone.category).join(", ")}.`,
     );
+  // The cap: up to maxZones items that are not rugs, required items always
+  // kept, at least one floor piece. Over the cap, the lowest-priority extras
+  // are dropped and reported rather than the whole plan bounced.
+  const counted = (zone: ZoneRequest) => !isRugCategory(zone.category);
+  const isRequired = (zone: ZoneRequest) =>
+    scope.required.some((category) => sameCategory(category, zone.category));
+  const trimmed: ZoneRejection[] = [];
+  let kept = [...parsed.zones].sort((a, b) => a.priority - b.priority);
+  while (kept.filter(counted).length > scope.maxZones) {
+    const victim = [...kept].reverse().find((zone) => counted(zone) && !isRequired(zone));
+    if (!victim) break;
+    kept = kept.filter((zone) => zone !== victim);
+    trimmed.push({
+      zoneId: victim.id,
+      reason: `Left out ${victim.category}: the plan keeps to ${scope.maxZones} items.`,
+    });
+  }
+  // "At least one floor piece" is the prompt's rule for furnishing a room; an
+  // instruction like "add some art" legitimately yields accessories only.
   const model = buildSpaceModel(room);
-  const reserved = reserveZones(room, model, parsed.zones, parsed.spacing);
+  const slots = findSlots(model);
+  const reserved = reserveZones(room, model, kept, parsed.spacing, room.dimensions.height, slots);
+  reserved.rejected.push(...trimmed);
   const flagged = reserved.zones.map((zone) => ({
     ...zone,
     suggested: isSuggested(zone.category),

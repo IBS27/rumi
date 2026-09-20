@@ -305,6 +305,9 @@ export const zoneRequestSchema = z.object({
   anchor: zoneAnchorSchema,
   // For surface mounts: the existing object or earlier zone the piece sits on.
   relatedObjectId: z.string().nullable(),
+  // For floor pieces: the free-floor slot the piece goes in. Slots are found
+  // by code before the model chooses; one piece per slot.
+  slotId: z.string().nullable().optional(),
   // Desired footprint in meters. Code shrinks it to what actually fits. A
   // model may write 0 for a print's thickness; clamp rather than reject.
   desiredFootprint: z
@@ -348,6 +351,7 @@ export const zonePlanWireSchema = z.object({
       mount: zoneMountSchema,
       anchor: zoneAnchorSchema,
       relatedObjectId: z.string().nullable(),
+      slotId: z.string().nullable(),
       desiredFootprint: z.object({ width: z.number(), depth: z.number() }),
       desiredHeight: z.number().nullable(),
       miscellaneous: z.array(z.string()),

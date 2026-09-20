@@ -18,6 +18,8 @@ import {
   buildDesignPlan,
   buildSpaceModel,
   describeScope,
+  describeSlots,
+  findSlots,
   planScope,
 } from "../shared/planner";
 import { freeArea, type SpaceModel } from "../shared/planner/space";
@@ -93,7 +95,9 @@ export async function proposeZones(
     },
     system: [
       "You are the space planner for rumi, an interior design agent.",
-      "Return spacing (airy, balanced, or cozy) judged from the style, then up to 8 zones. Each zone is one piece of furniture the room still needs. category is a product type such as \"floor lamp\", \"wardrobe\", or \"area rug\", never a room or area name. query is a short shopping phrase for that product. Give the purpose, an anchor (wall, corner, center, window, near-object, anywhere), a realistic desired footprint in meters, and an optional height.",
+      "Return spacing (airy, balanced, or cozy) judged from the style, then the zones. Each zone is one piece the room still needs. category is a product type such as \"floor lamp\", \"wardrobe\", or \"area rug\", never a room or area name. query is a short shopping phrase for that product. Give the purpose, an anchor (wall, corner, center, window, near-object, anywhere), a realistic desired footprint in meters, and an optional height.",
+      "Code has already measured the free floor and lists it as slots: the largest empty rectangles, each against a wall. Every floor piece MUST take one slot (set slotId to that slot's id, one piece per slot) and its footprint must fit inside that slot. Accessories (wall, surface, under) need no slot; leave slotId null. Choose what suits each slot: a bed for a deep slot beside the bed wall, a desk for a slot under a window, a chair or plant for a small one.",
+      "Plan at most 4 items, rugs excepted; at least one floor piece. Fewer, well-chosen pieces beat a full list.",
       "Include accessories when they suit the brief: wall art, mirrors, rugs, table or desk lamps, plants, and similar pieces that take little floor space.",
       "mount says where a piece lives: floor (stands on the floor), wall (hung: art, mirror, wall shelf), surface (sits on top of a table, desk, dresser, or nightstand; relatedObjectId must name that host, either an existing object id or another zone id in this plan), under (a rug that lies under other furniture). Floor space is counted only for floor pieces.",
       "For wall pieces, desiredFootprint.width is the width along the wall and desiredHeight is the hanging height. For surface pieces, desiredFootprint is the base that rests on the host.",
@@ -105,6 +109,7 @@ export async function proposeZones(
     ].join("\n"),
     prompt: [
       describeSpace(room, model),
+      `Free-floor slots (one floor piece each):\n${describeSlots(findSlots(model))}`,
       `Categories already covered: ${occupied.length ? occupied.join(", ") : "none"}.`,
       `Brief: ${brief.prompt || "(none)"}. Styles: ${brief.styles.join(", ") || "(none)"}. Palette: ${brief.palette.join(", ") || "(none)"}. Materials: ${brief.materials.join(", ") || "(none)"}. Restrictions: ${brief.restrictions.join(", ") || "(none)"}. Budget: ${brief.budgetCents > 0 ? `$${(brief.budgetCents / 100).toFixed(0)}` : "not specified"}.`,
       brief.inspiration ? `Inspiration: ${brief.inspiration}` : "",
