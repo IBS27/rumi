@@ -9,6 +9,10 @@ import {
 import { QRCodeSVG } from "qrcode.react";
 import { api } from "../../../convex/_generated/api";
 import type { FunctionReturnType } from "convex/server";
+import {
+  MAX_SCAN_BYTES,
+  MAX_ROOM_BYTES,
+} from "../../../shared/capture/pairing";
 import { Button, Dialog, Heading, Muted } from "../../ui";
 
 type Pairing = FunctionReturnType<typeof api.captures.create>;
@@ -19,14 +23,14 @@ function countdown(ms: number) {
 }
 
 /**
- * Pairs an iPhone with this session and hands back the uploaded room text.
+ * Pairs an iPhone with this session and hands back the uploaded room file.
  * `children` renders the trigger and receives `open`.
  */
 export function PhoneCapture({
   onReceive,
   children,
 }: {
-  onReceive: (text: string) => void;
+  onReceive: (file: File) => Promise<void>;
   children: (open: () => void, busy: boolean) => ReactNode;
 }) {
   const create = useAction(api.captures.create);
@@ -56,9 +60,36 @@ export function PhoneCapture({
       .then(async (response) => {
         if (!response.ok)
           throw new Error("The uploaded room could not be downloaded.");
-        const text = await response.text();
+        const format = session.format ?? "json";
+        const limit = format === "zip" ? MAX_SCAN_BYTES : MAX_ROOM_BYTES;
+        if (Number(response.headers.get("Content-Length")) > limit) {
+          await response.body?.cancel();
+          throw new Error("The uploaded scan exceeds its size limit.");
+        }
+        const reader = response.body?.getReader();
+        if (!reader) throw new Error("The uploaded scan is empty.");
+        const chunks: ArrayBuffer[] = [];
+        let size = 0;
+        try {
+          while (true) {
+            const part = await reader.read();
+            if (part.done) break;
+            size += part.value.byteLength;
+            if (size > limit)
+              throw new Error("The uploaded scan exceeds its size limit.");
+            chunks.push(part.value.slice().buffer);
+          }
+        } finally {
+          await reader.cancel();
+          reader.releaseLock();
+        }
         if (!abort.signal.aborted) {
-          receive(text);
+          await receive(
+            new File(chunks, `rumi-room.${format}`, {
+              type: format === "zip" ? "application/zip" : "application/json",
+            }),
+          );
+          if (abort.signal.aborted) return;
           setReceived(true);
           setError("");
         }
@@ -70,7 +101,7 @@ export function PhoneCapture({
           );
       });
     return () => abort.abort();
-  }, [session?.fileUrl, retry]);
+  }, [session?.fileUrl, session?.format, retry]);
   const [isOpen, setIsOpen] = useState(false);
   useEffect(() => {
     const node = dialog.current;

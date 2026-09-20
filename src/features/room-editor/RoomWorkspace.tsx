@@ -76,7 +76,7 @@ function readSaved(key: string): Workspace | null {
 /**
  * The whole app frame: top bar, then either the start screen or the room
  * review. `scan` renders the phone-pairing control for a given placement and
- * receives the uploaded room text; it is omitted when pairing is unavailable.
+ * receives the uploaded room file; it is omitted when pairing is unavailable.
  * `chat` renders the design chat, which floats at the right of either screen.
  */
 export function RoomWorkspace({
@@ -89,7 +89,7 @@ export function RoomWorkspace({
   account?: ReactNode;
   scan?: (
     placement: "start" | "bar",
-    receive: (text: string) => void,
+    receive: (file: File) => Promise<void>,
   ) => ReactNode;
   chat: (context: ChatContext) => ReactNode;
 }) {
@@ -211,7 +211,7 @@ export function RoomWorkspace({
     setSelected(null);
     setWalking(false);
   }
-  async function importFile(file?: File) {
+  async function importFile(file?: File, reportFailure = false) {
     if (!file) return;
     const request = ++importRequest.current;
     activeImport.current?.abort();
@@ -237,6 +237,7 @@ export function RoomWorkspace({
         } catch {
           stored = false;
         }
+        controller.signal.throwIfAborted();
         if (request !== importRequest.current) return;
         setCapture({ id, blob: file, scan: result.scan, persisted: stored });
         setShowScan(true);
@@ -253,6 +254,7 @@ export function RoomWorkspace({
       if (file.size > MAX_CAPTURE_BYTES)
         throw new Error("Choose a JSON file smaller than 10 MB.");
       const text = await file.text();
+      controller.signal.throwIfAborted();
       if (request === importRequest.current) loadText(text, file.name);
     } catch (cause) {
       if (request === importRequest.current)
@@ -261,6 +263,7 @@ export function RoomWorkspace({
             ? cause.message
             : "Could not import this file.",
         );
+      if (reportFailure) throw cause;
     } finally {
       if (request === importRequest.current) setBusy(false);
     }
@@ -323,20 +326,8 @@ export function RoomWorkspace({
     setHistory((previous) => previous.slice(0, -1));
     setSelected(null);
   }
-  function receive(text: string) {
-    activeImport.current?.abort();
-    ++importRequest.current;
-    setBusy(false);
-    try {
-      loadText(text, "My scanned room");
-    } catch (cause) {
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : "Could not import uploaded room.",
-      );
-      throw cause;
-    }
+  async function receive(file: File) {
+    await importFile(file, true);
   }
 
   const originalObject = (id: string) =>
@@ -419,8 +410,8 @@ export function RoomWorkspace({
             />
             {notice && (
               <Notice tone="info" floating onDismiss={() => setNotice(false)}>
-                Phone pairing is not configured. Export the RoomPlan JSON from
-                your phone and import it here.
+                Phone pairing is not configured. Use Export scan on your phone
+                and import the ZIP here to include room photos and surfaces.
               </Notice>
             )}
             {error && (

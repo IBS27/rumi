@@ -128,11 +128,72 @@ final class CaptureClientTests: XCTestCase {
         }
         let stub = CaptureTransportStub([])
         let grant = CaptureGrant(sessionId: "test-session", uploadToken: String(repeating: "b", count: 64),
-                                 expiresAt: "2099-01-01T01:00:00Z", maxBytes: 1)
+                                 expiresAt: "2099-01-01T01:00:00Z", maxBytes: 1, maxPackageBytes: nil)
         do {
             try await stub.client().upload(Data([1, 2]), pairing: CapturePairing.parse(pairingText()), grant: grant, key: UUID())
             XCTFail("Oversize body should not be sent")
         } catch {}
+        let requests = await stub.requests
+        XCTAssertTrue(requests.isEmpty)
+    }
+}
+
+extension CaptureClientTests {
+    private func packageFile() throws -> URL {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathExtension("zip")
+        try Data([0x50, 0x4b, 3, 4, 1, 2, 3]).write(to: url)
+        return url
+    }
+
+    func testDetailedScanUsesStorageWithoutForwardingCredentialsAndRetriesCompletion() async throws {
+        let url = try packageFile()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let mime = "application/vnd.rumi.capture.\(String(repeating: "c", count: 64))+zip"
+        let ticket = """
+        {"uploadUrl":"https://utmost-cow-946.convex.cloud/api/storage/upload?token=test","contentType":"\(mime)","maxBytes":134217728,"uploaded":false}
+        """
+        let stub = CaptureTransportStub([.response(200, ticket), .response(200, "{\"storageId\":\"file-id\"}"), .networkFailure, .response(200, uploadResponse)])
+        let grantData = claimResponse.replacingOccurrences(of: "\"maxBytes\":10485760", with: "\"maxBytes\":10485760,\"maxPackageBytes\":134217728")
+        let grant = try JSONDecoder().decode(CaptureGrant.self, from: Data(grantData.utf8))
+        try await stub.client().uploadPackage(url, pairing: CapturePairing.parse(pairingText()), grant: grant, key: UUID())
+        let requests = await stub.requests
+        XCTAssertEqual(requests.count, 4)
+        XCTAssertEqual(requests[0].url?.path, "/capture/v1/package/begin")
+        XCTAssertNil(requests[1].value(forHTTPHeaderField: "Authorization"))
+        XCTAssertEqual(requests[1].value(forHTTPHeaderField: "Content-Type"), mime)
+        XCTAssertEqual(requests[1].httpBody, try Data(contentsOf: url))
+        XCTAssertEqual(requests[2].url?.path, "/capture/v1/package/complete")
+        XCTAssertEqual(requests[2].httpBody, requests[3].httpBody)
+    }
+
+    func testDetailedScanRejectsForeignStorageDestinations() async throws {
+        let url = try packageFile()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let grantData = claimResponse.replacingOccurrences(of: "\"maxBytes\":10485760", with: "\"maxBytes\":10485760,\"maxPackageBytes\":134217728")
+        let grant = try JSONDecoder().decode(CaptureGrant.self, from: Data(grantData.utf8))
+        for destination in ["https://evil.example/api/storage/upload", "https://other.convex.cloud/api/storage/upload", "http://utmost-cow-946.convex.cloud/api/storage/upload"] {
+            let ticket = """
+            {"uploadUrl":"\(destination)","contentType":"application/vnd.rumi.capture.\(String(repeating: "c", count: 64))+zip","maxBytes":134217728,"uploaded":false}
+            """
+            let stub = CaptureTransportStub([.response(200, ticket)])
+            do {
+                try await stub.client().uploadPackage(url, pairing: CapturePairing.parse(pairingText()), grant: grant, key: UUID())
+                XCTFail("Unexpected foreign storage upload")
+            } catch {}
+            let requests = await stub.requests
+            XCTAssertEqual(requests.count, 1)
+        }
+    }
+
+    func testOldServerDoesNotSilentlySendLayoutInsteadOfDetailedScan() async throws {
+        let url = try packageFile()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let stub = CaptureTransportStub([])
+        let grant = try JSONDecoder().decode(CaptureGrant.self, from: Data(claimResponse.utf8))
+        do {
+            try await stub.client().uploadPackage(url, pairing: CapturePairing.parse(pairingText()), grant: grant, key: UUID())
+            XCTFail("Old server must offer ZIP export")
+        } catch CaptureError.packageUnavailable {} catch { XCTFail("Unexpected error: \(error)") }
         let requests = await stub.requests
         XCTAssertTrue(requests.isEmpty)
     }

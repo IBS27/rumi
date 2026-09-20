@@ -114,7 +114,7 @@ struct CaptureScreen: View {
             ProgressView("Starting camera…")
             Button("Start over") { confirmsDiscard = true }
         case .scanning:
-            Text("Move slowly around furniture and show its sides. Photos capture its appearance; hidden surfaces remain unknown.")
+            Text("\(model.photoCount) photos saved · \(model.photoGuidance)")
                 .font(.footnote).foregroundStyle(.secondary)
             primary("Finish Scan", action: model.finish)
             Button("Start over") { confirmsDiscard = true }
@@ -128,7 +128,9 @@ struct CaptureScreen: View {
             } else if connection.sent {
                 Label("Sent to Rumi", systemImage: "checkmark.circle")
             } else if connection.isConnected {
-                primary("Send to Rumi") { connection.send(bytes: model.completedBytes) }
+                primary(model.hasSurfacePackage ? "Send to Rumi" : "Send layout to Rumi") {
+                    connection.send(packageURL: model.packageURL, bytes: model.completedBytes)
+                }
                     .disabled(model.isSharing || model.isPreparingSurface)
             } else {
                 primary("Connect to Rumi") { showsPairing = true }
@@ -206,10 +208,10 @@ struct CaptureScreen: View {
         case .cameraDenied:
             "Rumi needs the camera to scan your room. Enable Camera for Rumi Capture in Settings, then return here and check permission again. If access is restricted, check Screen Time or device-management settings."
         case .completed:
-            "Send the room layout to your paired browser, or export the detailed scan ZIP to include surfaces and room photos. You can also export layout JSON."
+            "Send the detailed room and photos to your paired browser, or keep a copy with Export scan. Layout JSON remains available separately."
         case .failed(let message): message
         default:
-            "Open Scan with iPhone in Rumi, then scan its QR code. Move slowly around the room and show the sides of furniture. Send to Rumi transfers the layout; Export scan shares the surfaces and room photos as a ZIP.\n\nYou can also scan offline and connect or export later."
+            "Open Scan with iPhone in Rumi, then scan its QR code. Move slowly around the room and show the sides of furniture. Photos are captured automatically. Send to Rumi includes the surfaces and room photos; Export scan keeps a ZIP copy.\n\nYou can also scan offline and connect or export later."
         }
     }
 

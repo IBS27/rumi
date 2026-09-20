@@ -43,17 +43,19 @@ struct CaptureGrant: Decodable, Sendable {
     let uploadToken: String
     let expiresAt: String
     let maxBytes: Int
+    let maxPackageBytes: Int?
 }
 
 enum CaptureError: LocalizedError {
-    case invalidCode, invalidResponse, reconnect, tooLarge, invalidRoom, temporary, rejected
+    case invalidCode, invalidResponse, reconnect, tooLarge, invalidRoom, temporary, rejected, packageUnavailable
 
     var errorDescription: String? {
         switch self {
         case .invalidCode: "This isn't a supported Rumi code. Open Scan with iPhone in the web app and scan its QR code."
         case .invalidResponse: "Rumi returned an unexpected response. Try again. Your scan is retained."
         case .reconnect: "This connection is no longer available. Show a new code in the web app and reconnect. Your scan is retained."
-        case .tooLarge: "This scan is too large to send. Use Export JSON instead."
+        case .tooLarge: "This scan is too large to send. Use Export scan to keep the detailed room."
+        case .packageUnavailable: "This Rumi server needs an update to receive detailed scans. Use Export scan and import the ZIP in your browser."
         case .invalidRoom: "Rumi couldn't import this scan. Keep it with Export JSON, or scan the room again."
         case .temporary: "Rumi is temporarily unavailable. Try again later. Your scan is retained."
         case .rejected: "Rumi couldn't accept this request. Reconnect or use Export JSON. Your scan is retained."
@@ -73,6 +75,8 @@ private final class CaptureRedirectBlocker: NSObject, URLSessionTaskDelegate {
 
 struct CaptureClient: Sendable {
     typealias Transport = @Sendable (URLRequest) async throws -> (Data, HTTPURLResponse)
+    typealias FileTransport = @Sendable (URLRequest, URL) async throws -> (Data, HTTPURLResponse)
+    private let fileTransport: FileTransport
     private let transport: Transport
     private let sleep: @Sendable (TimeInterval) async throws -> Void
 
@@ -80,12 +84,24 @@ struct CaptureClient: Sendable {
          sleep: @escaping @Sendable (TimeInterval) async throws -> Void = { seconds in
              try await Task.sleep(for: .seconds(seconds))
          }) {
-        if let transport { self.transport = transport }
+        if let transport {
+            self.transport = transport
+            self.fileTransport = { request, file in
+                var request = request
+                request.httpBody = try Data(contentsOf: file)
+                return try await transport(request)
+            }
+        }
         else {
             let configuration = URLSessionConfiguration.ephemeral
             configuration.httpShouldSetCookies = false
             configuration.urlCache = nil
             let session = URLSession(configuration: configuration, delegate: CaptureRedirectBlocker(), delegateQueue: nil)
+            self.fileTransport = { request, file in
+                let (data, response) = try await session.upload(for: request, fromFile: file)
+                guard let response = response as? HTTPURLResponse else { throw CaptureError.invalidResponse }
+                return (data, response)
+            }
             self.transport = { request in
                 let (data, response) = try await session.data(for: request)
                 guard let response = response as? HTTPURLResponse else { throw CaptureError.invalidResponse }
@@ -106,7 +122,8 @@ struct CaptureClient: Sendable {
         guard let grant = try? JSONDecoder().decode(CaptureGrant.self, from: data),
               grant.sessionId == pairing.sessionId, validToken(grant.uploadToken),
               let expiry = captureDate(grant.expiresAt), expiry > Date(),
-              grant.maxBytes > 0, grant.maxBytes <= 10 * 1024 * 1024 else { throw CaptureError.invalidResponse }
+              grant.maxBytes > 0, grant.maxBytes <= 10 * 1024 * 1024,
+              grant.maxPackageBytes.map({ $0 > 0 && $0 <= 128 * 1024 * 1024 }) ?? true else { throw CaptureError.invalidResponse }
         return grant
     }
 
@@ -127,6 +144,43 @@ struct CaptureClient: Sendable {
               receipt.sessionId == grant.sessionId, receipt.status == "uploaded" else { throw CaptureError.invalidResponse }
     }
 
+    func uploadPackage(_ file: URL, pairing: CapturePairing, grant: CaptureGrant, key: UUID) async throws {
+        guard let expiry = captureDate(grant.expiresAt), expiry > Date() else { throw CaptureError.reconnect }
+        guard let limit = grant.maxPackageBytes else { throw CaptureError.packageUnavailable }
+        let size = try file.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+        guard size > 0, size <= limit else { throw CaptureError.tooLarge }
+        struct Body: Encodable { let sessionId: String; let idempotencyKey: String; var storageId: String? }
+        var body = Body(sessionId: grant.sessionId, idempotencyKey: key.uuidString)
+        var begin = try request(baseUrl: pairing.baseUrl, path: "package/begin", token: grant.uploadToken)
+        begin.httpBody = try JSONEncoder().encode(body)
+        struct Ticket: Decodable { let uploadUrl: String?; let contentType: String; let maxBytes: Int; let uploaded: Bool }
+        let ticket = try JSONDecoder().decode(Ticket.self, from: try await send(begin))
+        guard ticket.maxBytes > 0, ticket.maxBytes <= limit, size <= ticket.maxBytes else { throw CaptureError.tooLarge }
+        if ticket.uploaded { return }
+        // Storage upload URLs are issued by our allowlisted deployment. No bearer
+        // credentials are sent to storage, and redirects remain disabled.
+        let expectedHost = URL(string: pairing.baseUrl)?.host?.replacingOccurrences(of: ".convex.site", with: ".convex.cloud")
+        guard let raw = ticket.uploadUrl, let url = URL(string: raw),
+              url.scheme == "https", url.host == expectedHost, url.port == nil,
+              url.user == nil, url.password == nil, url.fragment == nil,
+              url.path.hasPrefix("/api/storage/upload"),
+              ticket.contentType.range(of: #"^application/vnd\.rumi\.capture\.[a-f0-9]{64}\+zip$"#, options: .regularExpression) != nil else {
+            throw CaptureError.invalidResponse
+        }
+        var upload = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 120)
+        upload.httpMethod = "POST"
+        upload.setValue(ticket.contentType, forHTTPHeaderField: "Content-Type")
+        struct Stored: Decodable { let storageId: String }
+        let stored = try JSONDecoder().decode(Stored.self, from: try await send(upload, file: file))
+        guard !stored.storageId.isEmpty, stored.storageId.count <= 200 else { throw CaptureError.invalidResponse }
+        body.storageId = stored.storageId
+        var complete = try request(baseUrl: pairing.baseUrl, path: "package/complete", token: grant.uploadToken)
+        complete.httpBody = try JSONEncoder().encode(body)
+        struct Receipt: Decodable { let sessionId: String; let status: String }
+        let receipt = try JSONDecoder().decode(Receipt.self, from: try await send(complete))
+        guard receipt.sessionId == grant.sessionId, receipt.status == "uploaded" else { throw CaptureError.invalidResponse }
+    }
+
     private func request(baseUrl: String, path: String, token: String) throws -> URLRequest {
         guard CapturePairing.allowedOrigins.contains(baseUrl),
               let url = URL(string: "\(baseUrl)/capture/v1/\(path)") else { throw CaptureError.invalidCode }
@@ -137,11 +191,14 @@ struct CaptureClient: Sendable {
         return request
     }
 
-    private func send(_ request: URLRequest) async throws -> Data {
+    private func send(_ request: URLRequest, file: URL? = nil) async throws -> Data {
         for attempt in 0..<3 {
             try Task.checkCancellation()
             let result: (Data, HTTPURLResponse)
-            do { result = try await transport(request) }
+            do {
+                if let file { result = try await fileTransport(request, file) }
+                else { result = try await transport(request) }
+            }
             catch {
                 try Task.checkCancellation()
                 // Certificate, permission, malformed URL and cancellation errors aren't retriable.

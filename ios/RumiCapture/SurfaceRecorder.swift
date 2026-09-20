@@ -52,51 +52,98 @@ final class SurfaceRecorder: @unchecked Sendable {
     private var failure: String?
     private var stopped = false
     private var frameBytes = 0
+    private var photoPixels = 0
+    var onProgress: (@Sendable (Int, String) -> Void)?
     private var budgetReached = false
 
-    func sample(_ frame: ARFrame) {
+    func sample(_ frame: ARFrame, session: ARSession) {
         guard capacity.wait(timeout: .now()) == .success else { return }
         queue.async { [self] in
-            defer { capacity.signal() }
-            autoreleasepool {
-                guard !stopped, failure == nil else { return }
-                do { try record(frame) }
-                catch { failure = "Surface photos could not be saved: \(error.localizedDescription)" }
+            guard !stopped, failure == nil, eligible(frame) else { capacity.signal(); return }
+            // Keep one request in flight, without replacing RoomPlan's session delegate.
+            DispatchQueue.main.async { [self] in
+                session.captureHighResolutionFrame { [self] highResolution, _ in
+                    queue.async { [self] in
+                        defer { capacity.signal() }
+                        autoreleasepool {
+                            guard !stopped, failure == nil else { return }
+                            // Never combine a high-resolution image with another frame's pose/depth.
+                            let selected: ARFrame
+                            if let highResolution, highResolution.sceneDepth?.confidenceMap != nil { selected = highResolution }
+                            else { selected = frame }
+                            do { try record(selected) }
+                            catch {
+                                failure = "Surface photos could not be saved: \(error.localizedDescription)"
+                                guidance("Photos could not be saved. The room layout is still being captured.")
+                            }
+                        }
+                    }
+                }
             }
         }
     }
 
-    private func record(_ frame: ARFrame) throws {
-        guard case .normal = frame.camera.trackingState else { return }
+    private func guidance(_ text: String) { onProgress?(frames.count, text) }
+
+    private func eligible(_ frame: ARFrame) -> Bool {
+        guard case .normal = frame.camera.trackingState else {
+            guidance("Move slowly while the camera finds its position."); return false
+        }
         let pose = frame.camera.transform
         let timestamp = frame.timestamp
         defer { previousPose = pose; previousTime = timestamp }
-        guard frames.count < 96, frameBytes < 48 * 1024 * 1024 else { budgetReached = true; return }
-        guard timestamp - lastTimestamp >= 0.65, let depth = frame.sceneDepth,
-              let confidence = depth.confidenceMap else { return }
+        guard !budgetReached, frames.count < 160, frameBytes < 96 * 1024 * 1024, photoPixels < 800_000_000 else {
+            budgetReached = true
+            guidance("Photo limit reached. Finish once the room layout is complete."); return false
+        }
+        guard timestamp - lastTimestamp >= 1.0 else { return false }
+        guard frame.sceneDepth?.confidenceMap != nil else {
+            guidance("Point at a nearby wall or furniture to capture depth."); return false
+        }
         if let previousPose {
             let elapsed = max(timestamp - previousTime, 0.01)
             let movement = simd_distance(pose.columns.3, previousPose.columns.3)
             let angle = acos(min(1, max(-1, simd_dot(pose.columns.2, previousPose.columns.2))))
-            guard movement / Float(elapsed) < 0.8, angle / Float(elapsed) < 0.9 else { return }
+            guard movement / Float(elapsed) < 0.35, angle / Float(elapsed) < 0.5 else {
+                guidance("Slow down briefly for a sharp photo."); return false
+            }
         }
-        // Do not fill the budget with repeated views of the same surface.
         guard !poses.contains(where: {
-            simd_distance($0.columns.3, pose.columns.3) < 0.18 && simd_dot($0.columns.2, pose.columns.2) > 0.985
-        }) else { return }
-        guard sharpEnough(frame.capturedImage) else { return }
+            simd_distance($0.columns.3, pose.columns.3) < 0.15 && simd_dot($0.columns.2, pose.columns.2) > 0.99
+        }) else {
+            guidance("Show another side of the furniture, or scan from a lower angle."); return false
+        }
+        return true
+    }
+
+    private func record(_ frame: ARFrame) throws {
+        guard case .normal = frame.camera.trackingState,
+              let depth = frame.sceneDepth, let confidence = depth.confidenceMap else { return }
+        guard sharpEnough(frame.capturedImage) else {
+            guidance("Hold steady and keep the room well lit."); return
+        }
+        let pose = frame.camera.transform
+        let timestamp = frame.timestamp
         let native = frame.camera.imageResolution
-        let scale = min(1, 960 / native.width)
-        let width = Int((native.width * scale).rounded())
-        let height = Int((native.height * scale).rounded())
-        let image = CIImage(cvPixelBuffer: frame.capturedImage).transformed(by: CGAffineTransform(scaleX: CGFloat(width) / native.width, y: CGFloat(height) / native.height))
+        let sourceWidth = CGFloat(CVPixelBufferGetWidth(frame.capturedImage))
+        let sourceHeight = CGFloat(CVPixelBufferGetHeight(frame.capturedImage))
+        let scale = min(1, 2560 / max(sourceWidth, sourceHeight))
+        let width = Int((sourceWidth * scale).rounded())
+        let height = Int((sourceHeight * scale).rounded())
+        let image = CIImage(cvPixelBuffer: frame.capturedImage).transformed(by: CGAffineTransform(scaleX: CGFloat(width) / sourceWidth, y: CGFloat(height) / sourceHeight))
         guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
-              let jpeg = context.jpegRepresentation(of: image, colorSpace: colorSpace, options: [CIImageRepresentationOption(rawValue: kCGImageDestinationLossyCompressionQuality as String): 0.8]) else { return }
+              let jpeg = context.jpegRepresentation(of: image, colorSpace: colorSpace, options: [CIImageRepresentationOption(rawValue: kCGImageDestinationLossyCompressionQuality as String): 0.9]) else { return }
         let w = CVPixelBufferGetWidth(depth.depthMap), h = CVPixelBufferGetHeight(depth.depthMap)
         guard w <= 512, h <= 512, CVPixelBufferGetWidth(confidence) == w, CVPixelBufferGetHeight(confidence) == h else { return }
         let depthBytes = copyRows(depth.depthMap, rowBytes: w * 4, height: h)
         let confidenceBytes = copyRows(confidence, rowBytes: w, height: h)
-        guard depthBytes.count == w * h * 4, confidenceBytes.count == w * h, jpeg.count < 2 * 1024 * 1024 else { return }
+        guard depthBytes.count == w * h * 4, confidenceBytes.count == w * h, jpeg.count <= 8 * 1024 * 1024 else { return }
+        let payloadBytes = jpeg.count + depthBytes.count + confidenceBytes.count
+        guard frameBytes + payloadBytes <= 96 * 1024 * 1024,
+              photoPixels + width * height <= 800_000_000 else {
+            budgetReached = true
+            guidance("Photo limit reached. Finish once the room layout is complete."); return
+        }
         let prefix = "frames/\(frames.count)"
         try write(jpeg, name: "\(prefix).jpg")
         try write(depthBytes, name: "\(prefix)-depth.bin")
@@ -107,9 +154,11 @@ final class SurfaceRecorder: @unchecked Sendable {
             fx: k.columns.0.x * Float(CGFloat(width) / native.width), fy: k.columns.1.y * Float(CGFloat(height) / native.height),
             cx: k.columns.2.x * Float(CGFloat(width) / native.width), cy: k.columns.2.y * Float(CGFloat(height) / native.height),
             cameraTransform: Self.matrix(pose), timestamp: timestamp))
-        frameBytes += jpeg.count + depthBytes.count + confidenceBytes.count
+        frameBytes += payloadBytes
+        photoPixels += width * height
         poses.append(pose)
         lastTimestamp = timestamp
+        guidance("Photo saved. Keep overlapping views and include corners and furniture sides.")
     }
 
     /// Called only after the AR session pauses, so final mesh buffers are no longer changing.

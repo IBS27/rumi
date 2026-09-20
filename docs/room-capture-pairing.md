@@ -101,3 +101,19 @@ Sync the updated `convex/captures.ts` to the owner's deployment before testing t
 ## Testing the handoff
 
 Native development can use a mocked transport conforming to this contract, explicitly labeled as a simulation. Keep real JSON export available. End-to-end verification requires a deployed backend, an authenticated browser session, and a physical phone. Exercise expired QR codes, simultaneous claims, canceled sessions, interrupted uploads, idempotent retries, and unauthorized file access.
+
+## Detailed scan transfer
+
+New claim responses also include `maxPackageBytes: 134217728`. Old native clients ignore this optional field and continue sending JSON. New native clients keep ZIP export available if the server does not advertise package support. They do not silently replace a detailed scan with a layout.
+
+For a completed, saved ZIP, **Send to Rumi** uses three requests. JSON-only scans still use `/capture/v1/room`.
+
+1. `POST /capture/v1/package/begin` with the upload bearer token and JSON `{sessionId, idempotencyKey}`. The response contains `{uploadUrl, contentType, maxBytes, uploaded}`. The URL is a short-lived direct Convex storage upload URL. The random MIME subtype binds the file to this capture grant. Retain the same package file and idempotency key for retries.
+2. `POST` the exact ZIP bytes to `uploadUrl`, with the returned `Content-Type` and **no Authorization header**. The native client streams from the saved file, rejects redirects, and accepts only the matching allowlisted deployment's HTTPS `.convex.cloud/api/storage/upload` destination. Storage returns `{storageId}`.
+3. `POST /capture/v1/package/complete` with the upload bearer token and JSON `{sessionId, idempotencyKey, storageId}`. The backend checks session authorization/expiration, file binding, size, and stored SHA-256 digest before accepting the file. Response: `{sessionId, status: "uploaded"}`. Identical retries preserve the accepted file; different payloads or keys cannot replace it. A repeat begin after acceptance returns `uploaded: true` and `uploadUrl: null`.
+
+The owner-only session query adds `format: "json" | "zip"`, defaulting old records to JSON. The browser bounds the download, imports ZIPs through the same validating worker used for file import, and waits for processing and local persistence before reporting success. The server validates the storage envelope, not ZIP contents; a receipt is not proof of a valid reconstruction. The browser validates all archive contents before decoding images or displaying geometry.
+
+Direct upload URLs are required because Convex HTTP actions limit request bodies to 20 MB. Accepted scans are capped at 128 MiB. Upload-URL issuance shares the twenty-attempt limit. URLs already issued can still receive data after client cancellation, but completion rejects canceled/expired grants. A daily, paginated cleanup removes unattached Rumi package files older than 24 hours, including uploads whose response was lost. Attached scans retain the existing session cleanup policy. Unrelated storage objects are excluded.
+
+Rollout requires syncing `schema.ts`, `captures.ts`, `http.ts`, and `crons.ts` to the deployment owner’s backend, then updating the web and iPhone apps. Added schema fields are optional; existing capture records require no backfill. The schema adds `captures.by_storageId`. No deployment was performed as part of the realism implementation.

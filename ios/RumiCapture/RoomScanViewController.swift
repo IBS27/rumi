@@ -7,6 +7,7 @@ final class RoomScanViewController: UIViewController, RoomCaptureViewDelegate, R
     var onStarted: (() -> Void)?
     var onProcessing: (() -> Void)?
     var onCompleted: ((CapturedRoom) -> Void)?
+    var onPhotoProgress: ((Int, String) -> Void)?
     var onFailure: ((String) -> Void)?
 
     private var captureView: RoomCaptureView?
@@ -21,6 +22,15 @@ final class RoomScanViewController: UIViewController, RoomCaptureViewDelegate, R
         super.viewDidLoad()
         let session = ARSession()
         let tracking = ARWorldTrackingConfiguration()
+        if let format = ARWorldTrackingConfiguration.recommendedVideoFormatForHighResolutionFrameCapturing {
+            tracking.videoFormat = format
+        }
+        surfaceRecorder.onProgress = { [weak self] count, message in
+            Task { @MainActor [weak self] in
+                guard let self, self.acceptsResults, !self.hasStopped else { return }
+                self.onPhotoProgress?(count, message)
+            }
+        }
         if ARWorldTrackingConfiguration.supportsSceneReconstruction(.meshWithClassification) {
             tracking.sceneReconstruction = .meshWithClassification
         }
@@ -53,7 +63,9 @@ final class RoomScanViewController: UIViewController, RoomCaptureViewDelegate, R
             Task { @MainActor [weak self] in
                 guard let self, self.acceptsResults, !self.hasStopped,
                       let frame = self.captureView?.captureSession.arSession.currentFrame else { return }
-                self.surfaceRecorder.sample(frame)
+                if let session = self.captureView?.captureSession.arSession {
+                    self.surfaceRecorder.sample(frame, session: session)
+                }
             }
         }
     }

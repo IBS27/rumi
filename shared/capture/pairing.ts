@@ -12,6 +12,8 @@ export const claimBodySchema = z.object({
   sessionId: z.string().min(1).max(200),
   claimId: z.uuid(),
 });
+export const PACKAGE_CONTENT_PREFIX = "application/vnd.rumi.capture.";
+export const MAX_SCAN_BYTES = 128 * 1024 * 1024;
 export const MAX_ROOM_BYTES = 10 * 1024 * 1024;
 export const PAIRING_TTL = 10 * 60 * 1000;
 export const UPLOAD_TTL = 60 * 60 * 1000;

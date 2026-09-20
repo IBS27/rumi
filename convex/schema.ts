@@ -94,5 +94,10 @@ export default defineSchema({
     digest: v.optional(v.string()),
     idempotencyKey: v.optional(v.string()),
     uploadAttempts: v.number(),
-  }).index("by_ownerId", ["ownerId"]),
+    packageContentType: v.optional(v.string()),
+    packageKey: v.optional(v.string()),
+    format: v.optional(v.union(v.literal("json"), v.literal("zip"))),
+  })
+    .index("by_ownerId", ["ownerId"])
+    .index("by_storageId", ["storageId"]),
 });

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import type { GenericMutationCtx, GenericDataModel } from "convex/server";
 import { convexTest } from "convex-test";
 import schema from "../convex/schema";
 import { api, internal } from "../convex/_generated/api";
@@ -190,5 +191,143 @@ describe("capture pairing", () => {
       },
     );
     expect(result.status).toBe(401);
+  });
+});
+
+describe("detailed scan transfer", () => {
+  async function packageSession() {
+    const setupResult = await setup();
+    const grant = (await (await setupResult.claim()).json()) as {
+      uploadToken: string;
+      maxPackageBytes: number;
+    };
+    const key = crypto.randomUUID();
+    const call = (step: string, fields: Record<string, string> = {}) =>
+      setupResult.t.fetch(`/capture/v1/package/${step}`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${grant.uploadToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          sessionId: setupResult.session.sessionId,
+          idempotencyKey: key,
+          ...fields,
+        }),
+      });
+    const start = await call("begin");
+    expect(start.status).toBe(200);
+    const ticket = (await start.json()) as {
+      contentType: string;
+      uploadUrl: string;
+      maxBytes: number;
+    };
+    const store = (blob: Blob, size = blob.size) =>
+      setupResult.t.run(async (ctx) => {
+        const id = await ctx.storage.store(blob);
+        // convex-test 0.0.59 omits contentType in storage metadata. Simulate the
+        // metadata the real upload endpoint writes; application code stays strict.
+        await (ctx as GenericMutationCtx<GenericDataModel>).db.patch(id, {
+          contentType: blob.type,
+          size,
+        });
+        return id;
+      });
+    return { ...setupResult, call, ticket, grant, store };
+  }
+  it("transfers a ZIP, preserves accepted files on retry, and exposes format only to the owner", async () => {
+    const { t, session, call, ticket, grant, store } = await packageSession();
+    expect(grant.maxPackageBytes).toBe(128 * 1024 * 1024);
+    const { syntheticCaptureZip } = await import("./fixtures/capture-package");
+    const blob = new Blob([syntheticCaptureZip().slice().buffer], {
+      type: ticket.contentType,
+    });
+    const storageId = await store(blob);
+    expect((await call("complete", { storageId })).status).toBe(200);
+    expect((await call("complete", { storageId })).status).toBe(200);
+    expect(
+      await t.run(async (ctx) => (await ctx.storage.get(storageId)) !== null),
+    ).toBe(true);
+    const repeated = (await (await call("begin")).json()) as {
+      uploaded: boolean;
+      uploadUrl: string | null;
+    };
+    expect(repeated).toMatchObject({ uploaded: true, uploadUrl: null });
+    const copy = await store(blob);
+    expect((await call("complete", { storageId: copy })).status).toBe(200);
+    expect(
+      await t.run(async (ctx) => (await ctx.storage.get(copy)) !== null),
+    ).toBe(false);
+    const owner = t.withIdentity({ tokenIdentifier: "test|owner" });
+    await owner.mutation(api.captures.cancel, { sessionId: session.sessionId });
+    const accepted = await owner.query(api.captures.get, {
+      sessionId: session.sessionId,
+    });
+    expect(accepted?.format).toBe("zip");
+    expect(accepted?.fileUrl).toBeTruthy();
+    expect(accepted).not.toHaveProperty("packageContentType");
+    expect(
+      await t.query(api.captures.get, { sessionId: session.sessionId }),
+    ).toBeNull();
+  });
+  it("rejects other storage objects without reading or deleting them", async () => {
+    const { t, call } = await packageSession();
+    const storageId = await t.run((ctx) =>
+      ctx.storage.store(new Blob(["private"], { type: "application/zip" })),
+    );
+    expect((await call("complete", { storageId })).status).toBe(422);
+    expect(
+      await t.run(async (ctx) => (await ctx.storage.get(storageId))?.text()),
+    ).toBe("private");
+    expect((await call("complete", { storageId: "invalid" })).status).toBe(422);
+  });
+  it("rejects canceled, oversized, changed-key and changed-payload transfers", async () => {
+    const { t, call, ticket, session, store } = await packageSession();
+    expect(
+      (await call("begin", { idempotencyKey: crypto.randomUUID() })).status,
+    ).toBe(409);
+    const oversized = await store(
+      new Blob(["first"], { type: ticket.contentType }),
+      129 * 1024 * 1024,
+    );
+    expect((await call("complete", { storageId: oversized })).status).toBe(413);
+    const storageId = await store(
+      new Blob(["first"], { type: ticket.contentType }),
+    );
+    expect((await call("complete", { storageId })).status).toBe(200);
+    const other = await store(
+      new Blob(["different"], { type: ticket.contentType }),
+    );
+    expect((await call("complete", { storageId: other })).status).toBe(409);
+    await t.run((ctx) =>
+      ctx.db.patch(session.sessionId, { state: "canceled" }),
+    );
+    expect((await call("begin")).status).toBe(410);
+    expect((await call("complete", { storageId })).status).toBe(410);
+  });
+  it("removes abandoned scan uploads while retaining attached files and unrelated storage", async () => {
+    const { t, call, ticket, store } = await packageSession();
+    const attached = await store(
+      new Blob(["scan"], { type: ticket.contentType }),
+    );
+    expect((await call("complete", { storageId: attached })).status).toBe(200);
+    const abandoned = await store(
+      new Blob(["scan"], { type: ticket.contentType }),
+    );
+    const unrelated = await t.run((ctx) =>
+      ctx.storage.store(new Blob(["image"], { type: "image/jpeg" })),
+    );
+    await t.mutation(internal.captures.sweepPackages, {
+      before: Date.now() + 1000,
+    });
+    expect(
+      await t.run(async (ctx) => (await ctx.storage.get(abandoned)) !== null),
+    ).toBe(false);
+    expect(
+      await t.run(async (ctx) => (await ctx.storage.get(attached)) !== null),
+    ).toBe(true);
+    expect(
+      await t.run(async (ctx) => (await ctx.storage.get(unrelated)) !== null),
+    ).toBe(true);
   });
 });

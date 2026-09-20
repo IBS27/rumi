@@ -1,10 +1,10 @@
 # Rumi room capture
 
-A SwiftUI iPhone app that pairs with Rumi by QR code and scans one room with RoomPlan and ARKit in one session. Send the room layout to the paired browser, or use **Export scan** to share a ZIP with surface geometry, photos, and depth for a textured room view. **Export layout JSON** preserves the original Apple JSON. Offline scanning remains available. No native login or third-party dependencies are required. See [surface capture](../docs/surface-capture.md) for the package format and device verification requirements. All app files live under `ios/`.
+A SwiftUI iPhone app that pairs with Rumi by QR code and scans one room with RoomPlan and ARKit in one session. Send the detailed room to the paired browser, or use **Export scan** to share a ZIP with surface geometry, photos, and depth for a textured room view. **Export layout JSON** preserves the original Apple JSON. Offline scanning remains available. No native login or third-party dependencies are required. See [surface capture](../docs/surface-capture.md) for the package format and device verification requirements. All app files live under `ios/`.
 
 ## Requirements
 
-- Xcode 16 or later with an iOS 17+ SDK. Use an Xcode version that supports the iOS version on your phone. This checkout was built with Xcode 26.6.
+- Xcode 16 or later with an iOS 17+ SDK. Use an Xcode version that supports the iOS version on your phone. The earlier offline scanner was built with Xcode 26.6; the capture-quality and detailed-transfer changes still require native verification.
 - Deployment target: iOS 17.0. Swift 5 language mode with complete concurrency checking.
 - A physical LiDAR-equipped iPhone. The app checks `RoomCaptureSession.isSupported` before creating a capture view and explicitly rejects the simulator. A simulator can verify onboarding and the unsupported-device screen only.
 - A free Apple Account is sufficient for running on your own phone. No paid capabilities are required. Choose your own signing team in Xcode.
@@ -30,13 +30,13 @@ Free-account provisioning profiles expire after **7 days**. Reconnect the phone,
 2. Open Rumi Capture on the iPhone and tap **Connect to Rumi**. Allow camera access and scan the web QR code.
 3. Check the displayed destination, then tap **Connect to Rumi**. After the QR camera closes, RoomPlan starts automatically for a new room.
 4. Scan the room and tap **Finish Scan**. Wait for processing and review the result.
-5. Wait for detailed scan packaging, then tap **Send to Rumi**. The browser imports the layout automatically. To view surfaces and room photos, use **Export scan** and import the ZIP in the browser. The saved scan remains on the iPhone for export or reconnection.
+5. Wait for detailed scan packaging, then tap **Send to Rumi**. The browser imports the detailed room and photos automatically when the server supports scan packages. If the server needs an update, use **Export scan** and import the ZIP in the browser. The saved scan remains on the iPhone for export or reconnection.
 
 You can also pair after an offline scan or after restoring a saved room. If a connection expires or the browser cancels it, show a new QR code and reconnect without discarding the scan. Pairing credentials stay in memory, so relaunching requires reconnection. One session accepts one room; starting over after an upload attempt requires a fresh session. Starting over before sending keeps the existing connection.
 
-`CaptureClient.swift` implements [the version 1 handoff](../docs/room-capture-pairing.md). Its explicit `CapturePairing.allowedOrigins` currently includes only Srinivas's development backend, `https://utmost-cow-946.convex.site`. Add other reviewed deployment origins in that list before using them. Arbitrary QR destinations and HTTP redirects are rejected. Tokens, QR payloads, and room data are not logged.
+`CaptureClient.swift` implements [the version 1 handoff and detailed file transfer](../docs/room-capture-pairing.md). Its explicit `CapturePairing.allowedOrigins` currently includes only Srinivas's development backend, `https://utmost-cow-946.convex.site`. Add other reviewed deployment origins in that list before using them. Arbitrary QR destinations and HTTP redirects are rejected. Tokens, QR payloads, and room data are not logged.
 
-Claim and upload requests retry network failures, HTTP 429, and HTTP 5xx at most three times. Short `Retry-After` values are honored; longer waits return an error without retrying early. Cancel stops the task and retry loop. A lost response can mean the server accepted the request, so manual retry preserves the original claim ID or exact upload bytes and idempotency key. Only completed, saved RoomPlan JSON can be sent. The server's upload size limit is enforced before sending.
+Claim and upload requests retry network failures, HTTP 429, and HTTP 5xx at most three times. Short `Retry-After` values are honored; longer waits return an error without retrying early. Cancel stops the task and retry loop. A lost response can mean the server accepted the request, so manual retry preserves the original claim ID or exact upload bytes and idempotency key. Only completed, saved RoomPlan JSON or a finished scan package can be sent. The server's upload size limit is enforced before sending.
 
 ## Scan and export
 
@@ -73,7 +73,7 @@ Use one filename if you have multiple exports. The checker reports root fields a
 
 ## Verification
 
-The combined walkthrough, QR pairing, and surface-capture branch passes TypeScript, lint, and 228 Bun tests on Fedora. Browser checks cover synthetic ZIP import and texturing, walkthrough controls and panel restoration, furniture edits, reload, ZIP download, and reimport. Native compilation, XCTest, and physical QR/RoomPlan transfer still require Xcode and a LiDAR iPhone. See [surface capture verification](../docs/surface-capture.md#verification).
+The combined walkthrough, QR pairing, and surface-capture branch passes TypeScript, lint, and 239 Bun tests on Fedora. Browser checks cover synthetic ZIP import and texturing, walkthrough controls and panel restoration, furniture edits, reload, ZIP download, and reimport. Native compilation, XCTest, and physical QR/RoomPlan transfer still require Xcode and a LiDAR iPhone. See [surface capture verification](../docs/surface-capture.md#verification).
 
 Pairing backend tests include closing the browser dialog while an upload completes. Authenticated browser-to-phone transfer was not exercised in the local preview. The historical results below cover the earlier offline scanner only.
 

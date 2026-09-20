@@ -11,7 +11,8 @@ final class CaptureConnection: ObservableObject {
 
     private let client: CaptureClient
     private var claimId = UUID()
-    private var upload: (bytes: Data, key: UUID)?
+    private enum Payload { case layout(Data), package(URL) }
+    private var upload: (payload: Payload, key: UUID)?
     private var operation: Task<Void, Never>?
     private var operationId: UUID?
 
@@ -55,17 +56,25 @@ final class CaptureConnection: ObservableObject {
         }
     }
 
-    func send(bytes: () throws -> Data) {
+    func send(packageURL: URL? = nil, bytes: () throws -> Data) {
         guard !isBusy, !sent, let pairing, let grant else { return }
         do {
             // Retain exactly these bytes and this key after failure or cancellation.
-            if upload == nil { upload = (try bytes(), UUID()) }
+            if upload == nil {
+                if let packageURL { upload = (.package(packageURL), UUID()) }
+                else { upload = (.layout(try bytes()), UUID()) }
+            }
         } catch { message = error.localizedDescription; return }
         guard let upload else { return }
         let id = begin()
         operation = Task {
             do {
-                try await client.upload(upload.bytes, pairing: pairing, grant: grant, key: upload.key)
+                switch upload.payload {
+                case .layout(let bytes):
+                    try await client.upload(bytes, pairing: pairing, grant: grant, key: upload.key)
+                case .package(let url):
+                    try await client.uploadPackage(url, pairing: pairing, grant: grant, key: upload.key)
+                }
                 guard operationId == id, !Task.isCancelled else { return }
                 sent = true
                 message = "Sent to Rumi. Review the room in your browser. Your scan is still saved on this iPhone."
