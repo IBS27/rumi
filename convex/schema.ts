@@ -46,7 +46,23 @@ export default defineSchema({
     ),
     kind: v.optional(v.literal("question")),
     imageId: v.optional(v.id("images")),
+    recommendationProductId: v.optional(v.string()),
     content: v.string(),
+    activity: v.optional(
+      v.array(
+        v.object({
+          id: v.string(),
+          tool: v.string(),
+          label: v.string(),
+          detail: v.optional(v.string()),
+          status: v.union(
+            v.literal("running"),
+            v.literal("done"),
+            v.literal("error"),
+          ),
+        }),
+      ),
+    ),
     options: v.optional(v.array(v.string())),
     multiSelect: v.optional(v.boolean()),
     answer: v.optional(v.array(v.string())),

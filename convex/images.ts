@@ -218,6 +218,14 @@ export const save = internalMutation({
       projectId,
       role: "assistant",
       content: "",
+      activity: [
+        {
+          id: "image-analysis",
+          tool: "imageAnalysis",
+          label: "Analyzing inspiration image",
+          status: "running",
+        },
+      ],
       status: "pending",
       createdAt: now + 1,
     });
@@ -326,6 +334,24 @@ export const analyze = internalAction({
         userMessageId,
         status: "analyzed",
         analysis: result.text,
+      });
+      await ctx.runMutation(internal.messages.updateProgress, {
+        messageId: assistantMessageId,
+        content: "",
+        activity: [
+          {
+            id: "image-analysis",
+            tool: "imageAnalysis",
+            label: "Analyzing inspiration image",
+            status: "done",
+          },
+          {
+            id: "planning",
+            tool: "planning",
+            label: "Planning",
+            status: "running",
+          },
+        ],
       });
       await ctx.runAction(internal.agent.runForProject, {
         projectId: image.projectId,

@@ -4,7 +4,7 @@ import { internalAction } from "../convex/_generated/server";
 import { convexTest } from "convex-test";
 import schema from "../convex/schema";
 import { api, internal } from "../convex/_generated/api";
-import { sampleRoom } from "../shared/fixtures";
+import { sampleProducts, sampleRoom } from "../shared/fixtures";
 import { MAX_IMAGE_BYTES } from "../shared/chat/uploads";
 
 // Provider actions are excluded from these deterministic boundary tests.
@@ -28,6 +28,7 @@ const modules = {
     import("../convex/_generated/server.js"),
   "../convex/projects.ts": () => import("../convex/projects"),
   "../convex/messages.ts": () => import("../convex/messages"),
+  "../convex/products.ts": () => import("../convex/products"),
   "../convex/images.ts": async () => ({
     ...(await import("../convex/images")),
     analyze: skipVision,
@@ -69,6 +70,38 @@ describe("live chat boundaries", () => {
       "assistant",
     ]);
     expect(messages[0].content).toBe("Help me warm up my room.");
+    expect(messages[1].activity?.[0]).toMatchObject({
+      tool: "planning",
+      status: "running",
+    });
+    await t.mutation(internal.products.upsertProducts, {
+      products: [sampleProducts[0]],
+    });
+    await t.mutation(internal.messages.updateProgress, {
+      messageId: messages[1]._id,
+      content: "I’m reviewing",
+      recommendationProductId: sampleProducts[0].id,
+      activity: [
+        {
+          id: "search-1",
+          tool: "searchProducts",
+          label: "Searching for “warm floor lamp”",
+          status: "running",
+        },
+      ],
+    });
+    const streaming = await t.query(internal.messages.history, { projectId });
+    expect(streaming[1].content).toBe("I’m reviewing");
+    expect(streaming[1].activity?.[0].label).toContain("warm floor lamp");
+    const listed = await owner.query(api.messages.list, {
+      projectId,
+      paginationOpts: { numItems: 20, cursor: null },
+    });
+    expect(listed.page[0].recommendation).toMatchObject({
+      id: sampleProducts[0].id,
+      name: sampleProducts[0].name,
+      sourceUrl: sampleProducts[0].sourceUrl,
+    });
     await t.mutation(internal.projects.updateBrief, {
       projectId,
       budgetCents: 50000,
@@ -89,6 +122,8 @@ describe("live chat boundaries", () => {
       content: "What do you want to keep?",
       status: "done",
     });
+    const completed = await t.query(internal.messages.history, { projectId });
+    expect(completed[1].activity?.[0].status).toBe("done");
     expect(
       (await owner.query(api.projects.context, { projectId }))?.project
         .activeMessageId,
@@ -101,6 +136,23 @@ describe("live chat boundaries", () => {
     const attached = await owner.query(api.projects.context, { projectId });
     expect(attached?.room).toEqual(sampleRoom);
     expect(attached?.brief.budgetCents).toBe(50000);
+  });
+
+  it("treats the old unlimited-budget sentinel as no budget", async () => {
+    const { t, owner, projectId } = await setup();
+    await t.run(async (ctx) => {
+      const project = await ctx.db.get(projectId);
+      await ctx.db.patch(projectId, {
+        brief: {
+          ...project!.brief!,
+          budgetCents: Number.MAX_SAFE_INTEGER,
+        },
+      });
+    });
+    expect(
+      (await owner.query(api.projects.context, { projectId }))?.brief
+        .budgetCents,
+    ).toBe(0);
   });
 
   it("rejects cross-user room updates and stale room revisions", async () => {
