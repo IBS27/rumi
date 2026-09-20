@@ -28,6 +28,10 @@ describe("team handoff", () => {
       "products",
       "assets",
       "proposals",
+      "projects",
+      "messages",
+      "images",
+      "imageUploads",
       "captures",
     ]);
   });

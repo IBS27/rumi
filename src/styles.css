@@ -67,3 +67,404 @@ body {
 ::backdrop {
   background: rgba(42, 47, 44, 0.35);
 }
+
+/*
+  Design chat (src/features/chat). These components predate the UI kit and
+  still use class names; the rules below map them onto the theme tokens.
+  Migrate them to src/ui components rather than extending this block.
+*/
+.chat-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.chat-panel button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1.5px solid var(--color-line);
+  border-radius: var(--radius-ctrl);
+  background: #fff;
+  color: var(--color-ink);
+  padding: 7px 13px;
+  font: inherit;
+  font-weight: 500;
+  line-height: 1.2;
+  cursor: pointer;
+  transition:
+    background-color 0.15s,
+    border-color 0.15s;
+}
+.chat-panel button:hover:not(:disabled) {
+  border-color: var(--color-line-strong);
+}
+.chat-panel button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.chat-panel button.primary {
+  background: var(--color-teal);
+  border-color: transparent;
+  color: #fff;
+}
+.chat-panel button.primary:hover:not(:disabled) {
+  background: var(--color-teal-deep);
+}
+.chat-panel button.icon-button {
+  border-color: transparent;
+  background: transparent;
+  padding: 6px;
+  color: var(--color-mute);
+  flex-shrink: 0;
+}
+.chat-panel button.icon-button:hover:not(:disabled),
+.chat-panel .icon-button[aria-pressed="true"] {
+  background: var(--color-wash);
+  color: var(--color-ink);
+}
+.chat-panel button.text-button {
+  border: 0;
+  padding: 6px 0;
+  background: transparent;
+  color: var(--color-teal-deep);
+  font-size: 12px;
+  text-align: left;
+}
+.chat-panel button.danger-button {
+  color: var(--color-rust);
+}
+.chat-panel input,
+.chat-panel textarea {
+  font: inherit;
+  color: var(--color-ink);
+}
+.chat-panel .muted {
+  color: var(--color-mute);
+}
+.chat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 12px 10px 16px;
+  border-bottom: 1.5px solid var(--color-line);
+}
+.chat-header > div,
+.chat-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.chat-header h2 {
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 500;
+  margin: 0;
+  white-space: nowrap;
+}
+.chat-header > div > svg {
+  color: var(--color-teal-deep);
+}
+.chat-welcome {
+  padding: 24px 16px 16px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+}
+.chat-mark {
+  background: var(--color-sage);
+  color: var(--color-teal-deep);
+  border-radius: var(--radius-tile);
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+}
+.chat-welcome h3 {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 500;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+  color: var(--color-teal-deep);
+  margin: 14px 0 6px;
+}
+.chat-welcome p {
+  line-height: 1.55;
+  color: var(--color-mute);
+  margin: 6px 0 12px;
+}
+.chat-room-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-mute);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.chat-welcome .chat-room-label {
+  margin: 8px 0 4px;
+}
+.chat-room-label svg {
+  flex-shrink: 0;
+}
+.chat-context {
+  padding: 12px 16px;
+  border-bottom: 1.5px solid var(--color-line);
+}
+.chat-context h3 {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.35;
+  margin: 0 0 4px;
+  overflow-wrap: anywhere;
+}
+.chat-brief {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+  margin: 8px 0 0;
+}
+.chat-brief span {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--color-stone);
+  color: #5a5044;
+}
+.chat-transcript {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 14px 16px;
+  min-height: 120px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  font-size: 12.5px;
+}
+.chat-message {
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.chat-message p {
+  white-space: pre-wrap;
+  margin: 0;
+}
+.from-user {
+  color: #4e5d69;
+  padding-left: 12px;
+  border-left: 2px solid var(--color-blue);
+}
+.message-author {
+  display: block;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-teal-deep);
+  margin-bottom: 2px;
+}
+.chat-message img {
+  width: 100%;
+  max-height: 220px;
+  object-fit: contain;
+  border-radius: var(--radius-ctrl);
+  margin-bottom: 6px;
+}
+.chat-thinking {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  color: var(--color-mute);
+  font-size: 12px;
+}
+.chat-thinking > span {
+  width: 7px;
+  height: 7px;
+  background: var(--color-teal);
+  border-radius: 50%;
+  animation: chat-pulse 1.4s ease-in-out infinite;
+}
+@keyframes chat-pulse {
+  50% {
+    opacity: 0.3;
+  }
+}
+.composer-wrap {
+  padding: 10px 12px 12px;
+  margin-top: auto;
+}
+.chat-composer {
+  border: 1.5px solid var(--color-line);
+  border-radius: var(--radius-tile);
+  background: #fff;
+  overflow: hidden;
+}
+.chat-composer:focus-within {
+  border-color: var(--color-teal);
+}
+.chat-composer textarea {
+  display: block;
+  border: 0;
+  background: transparent;
+  width: 100%;
+  resize: none;
+  min-height: 60px;
+  max-height: 160px;
+  padding: 10px 12px 4px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  outline: none;
+}
+.chat-composer textarea::placeholder {
+  color: #8b928e;
+}
+.composer-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 6px 6px;
+}
+.composer-hint {
+  font-size: 11px;
+  color: var(--color-mute);
+  flex: 1;
+}
+.chat-panel button.send-button {
+  width: 30px;
+  height: 30px;
+  padding: 4px;
+  border-radius: 50%;
+}
+.chat-error {
+  color: var(--color-rust);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.chat-panel-error {
+  margin: 8px 16px 0;
+}
+.chat-question {
+  background: var(--color-stone);
+  border-radius: var(--radius-tile);
+  padding: 12px;
+}
+.chat-question > p {
+  line-height: 1.5;
+  margin: 0 0 10px;
+}
+.chat-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.chat-options button {
+  justify-content: space-between;
+  text-align: left;
+  font-size: 12px;
+  line-height: 1.4;
+  padding: 8px 10px;
+}
+.chat-options button[aria-pressed="true"] {
+  background: var(--color-teal-tint);
+  border-color: var(--color-teal);
+  opacity: 1;
+}
+.custom-answer {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+.custom-answer input,
+.history-edit input {
+  width: 100%;
+  min-width: 0;
+  border: 1.5px solid var(--color-line);
+  border-radius: 8px;
+  background: var(--color-chalk);
+  padding: 6px 8px;
+  font-size: 12.5px;
+}
+.custom-answer button {
+  padding: 6px 10px;
+}
+.chat-answer {
+  display: block;
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--color-teal-deep);
+}
+.chat-history {
+  overflow-y: auto;
+  padding: 14px 16px;
+}
+.history-heading {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.history-heading h3 {
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 500;
+  margin: 0;
+}
+.history-new {
+  width: 100%;
+  justify-content: flex-start;
+  margin-bottom: 12px;
+}
+.history-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-bottom: 1px solid var(--color-line);
+  padding: 4px 0;
+}
+.chat-panel button.history-title {
+  border: 0;
+  flex: 1;
+  min-width: 0;
+  justify-content: flex-start;
+  text-align: left;
+  background: transparent;
+  font-size: 12.5px;
+  font-weight: 400;
+  overflow-wrap: anywhere;
+}
+.chat-panel .history-title[aria-current="true"] {
+  color: var(--color-teal-deep);
+  font-weight: 600;
+  background: var(--color-teal-tint);
+}
+.history-edit,
+.history-delete {
+  padding: 10px;
+  margin: 6px 0;
+  background: var(--color-stone);
+  border-radius: var(--radius-ctrl);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.history-edit > div {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+  justify-content: flex-end;
+}
+.history-delete button {
+  font-size: 11px;
+  margin: 3px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .chat-thinking > span {
+    animation: none;
+  }
+}

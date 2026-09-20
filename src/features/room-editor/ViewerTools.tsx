@@ -1,4 +1,4 @@
-import { Chip, Segmented } from "../../ui";
+import { Chip, Segmented, cx } from "../../ui";
 
 export type ViewMode = "3d" | "plan";
 
@@ -10,6 +10,7 @@ export function ViewerTools({
   onWalls,
   dimensions,
   onDimensions,
+  className,
 }: {
   view: ViewMode;
   onView: (view: ViewMode) => void;
@@ -17,9 +18,16 @@ export function ViewerTools({
   onWalls: (on: boolean) => void;
   dimensions: boolean;
   onDimensions: (on: boolean) => void;
+  /** Placement override, e.g. to clear a chat panel on the right. */
+  className?: string;
 }) {
   return (
-    <div className="absolute top-4 right-4 z-10 flex items-center gap-2">
+    <div
+      className={cx(
+        "absolute top-4 z-10 flex items-center gap-2",
+        className ?? "right-4",
+      )}
+    >
       <Segmented
         label="View"
         value={view}

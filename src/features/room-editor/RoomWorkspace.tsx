@@ -6,7 +6,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { Download, Undo2, Upload } from "lucide-react";
+import { Download, MessageCircle, Undo2, Upload } from "lucide-react";
 import {
   importRoomPlan,
   MAX_CAPTURE_BYTES,
@@ -17,7 +17,16 @@ import {
 } from "../../../shared/capture/roomplan";
 import type { CapturedRoom, RoomObject } from "../../../shared/contracts";
 import { syntheticRoomPlan } from "../../../shared/fixtures/roomplan";
-import { Button, Muted, Notice, Pill, TopBar } from "../../ui";
+import {
+  Button,
+  FloatingPanel,
+  Muted,
+  Notice,
+  Pill,
+  TopBar,
+  cx,
+} from "../../ui";
+import type { ChatContext } from "../chat/ChatPanel";
 import { ScanAction, StartScreen } from "../room-setup/StartScreen";
 import { ScanDock } from "./ScanDock";
 import { ViewerTools, type ViewMode } from "./ViewerTools";
@@ -45,11 +54,13 @@ function readSaved(key: string): Workspace | null {
  * The whole app frame: top bar, then either the start screen or the room
  * review. `scan` renders the phone-pairing control for a given placement and
  * receives the uploaded room text; it is omitted when pairing is unavailable.
+ * `chat` renders the design chat, which floats at the right of either screen.
  */
 export function RoomWorkspace({
   identity = "local",
   account,
   scan,
+  chat,
 }: {
   identity?: string;
   account?: ReactNode;
@@ -57,11 +68,13 @@ export function RoomWorkspace({
     placement: "start" | "bar",
     receive: (text: string) => void,
   ) => ReactNode;
+  chat: (context: ChatContext) => ReactNode;
 }) {
   const key = `rumi.room.v1.${identity}`;
   const [workspace, setWorkspace] = useState<Workspace | null>(() =>
     readSaved(key),
   );
+  const [chatOpen, setChatOpen] = useState(() => workspace !== null);
   const [history, setHistory] = useState<(Workspace | null)[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -91,6 +104,7 @@ export function RoomWorkspace({
     setHistory((previous) => [...previous.slice(-9), workspace]);
     persist(next);
     setError("");
+    if (next && !workspace) setChatOpen(true);
   }
   function loadText(text: string, name: string) {
     const next = parseRoomFile(text, name);
@@ -183,6 +197,24 @@ export function RoomWorkspace({
   );
   const originalObject = (id: string) =>
     originalObjects.find((item) => item.id === id);
+  const chatToggle = (
+    <Button
+      aria-pressed={chatOpen}
+      onClick={() => setChatOpen((value) => !value)}
+    >
+      <MessageCircle /> Design chat
+    </Button>
+  );
+  /** Keeps floating controls clear of the chat panel while it is open. */
+  const clearChat = chatOpen ? "right-[372px]" : "right-4";
+  const chatDock = chatOpen && (
+    <FloatingPanel
+      aria-label="Design chat"
+      className="top-4 right-4 bottom-4 flex w-[340px] flex-col overflow-hidden p-0"
+    >
+      {chat({ room, onCollapse: () => setChatOpen(false) })}
+    </FloatingPanel>
+  );
 
   return (
     <div
@@ -207,43 +239,39 @@ export function RoomWorkspace({
 
       {!room ? (
         <>
-          <TopBar>{account}</TopBar>
-          <StartScreen
-            busy={busy}
-            onImport={() => fileInput.current?.click()}
-            onSample={sample}
-            scan={
-              scan ? (
-                scan("start", receive)
-              ) : (
-                <ScanAction
-                  onClick={() => setNotice(true)}
-                  note="Pairing is not set up here yet. Export the scan from your phone and import it."
-                />
-              )
-            }
-          />
-          {notice && (
-            <Notice
-              tone="info"
-              floating
-              onDismiss={() => setNotice(false)}
-              className="top-[72px]"
-            >
-              Phone pairing is not configured. Export the RoomPlan JSON from
-              your phone and import it here.
-            </Notice>
-          )}
-          {error && (
-            <Notice
-              tone="error"
-              floating
-              onDismiss={() => setError("")}
-              className="top-[72px]"
-            >
-              {error}
-            </Notice>
-          )}
+          <TopBar>
+            {chatToggle}
+            {account}
+          </TopBar>
+          <div className="relative flex min-h-0 flex-1 flex-col">
+            <StartScreen
+              busy={busy}
+              onImport={() => fileInput.current?.click()}
+              onSample={sample}
+              scan={
+                scan ? (
+                  scan("start", receive)
+                ) : (
+                  <ScanAction
+                    onClick={() => setNotice(true)}
+                    note="Pairing is not set up here yet. Export the scan from your phone and import it."
+                  />
+                )
+              }
+            />
+            {notice && (
+              <Notice tone="info" floating onDismiss={() => setNotice(false)}>
+                Phone pairing is not configured. Export the RoomPlan JSON from
+                your phone and import it here.
+              </Notice>
+            )}
+            {error && (
+              <Notice tone="error" floating onDismiss={() => setError("")}>
+                {error}
+              </Notice>
+            )}
+            {chatDock}
+          </div>
         </>
       ) : (
         <>
@@ -256,6 +284,7 @@ export function RoomWorkspace({
             }
           >
             {status && <Muted className="text-xs">{status}</Muted>}
+            {chatToggle}
             <Button disabled={!history.length} onClick={undo}>
               <Undo2 /> Undo
             </Button>
@@ -337,9 +366,15 @@ export function RoomWorkspace({
               onWalls={setWallsVisible}
               dimensions={dimensionsVisible}
               onDimensions={setDimensionsVisible}
+              className={clearChat}
             />
 
-            <div className="absolute right-4 bottom-4 z-10 flex gap-3 rounded-full bg-chalk/80 px-2.5 py-[5px] text-[11px] text-[#3f5049]">
+            <div
+              className={cx(
+                "absolute bottom-4 z-10 flex gap-3 rounded-full bg-chalk/80 px-2.5 py-[5px] text-[11px] text-[#3f5049]",
+                clearChat,
+              )}
+            >
               <span>
                 Walls are from the scan. Ceiling height{" "}
                 {room.dimensions.height.toFixed(2)} m.
@@ -350,6 +385,7 @@ export function RoomWorkspace({
                   : "Drag to orbit, scroll to zoom, right-drag to pan."}
               </span>
             </div>
+            {chatDock}
           </main>
         </>
       )}

@@ -170,6 +170,25 @@ export const searchResultSchema = z.object({
   products: z.array(productSchema),
   explanation: z.string(),
 });
+export const footprintSchema = z.object({
+  width: z.number().positive(),
+  depth: z.number().positive(),
+});
+export const searchTaskSchema = z.object({
+  query: z.string(),
+  category: categorySchema,
+  maxPriceCents: z.number().int().nonnegative(),
+  maxFootprint: footprintSchema.nullable(),
+  styleTerms: z.array(z.string()),
+  excludeTags: z.array(z.string()),
+});
+export const searchFailureSchema = z.object({
+  stage: z.enum(["search", "extract", "filter"]),
+  detail: z.string(),
+});
+export const searchTaskResultSchema = searchResultSchema.extend({
+  failures: z.array(searchFailureSchema),
+});
 export type RoomSnapshot = z.infer<typeof roomSchema>;
 export type RoomObject = z.infer<typeof roomObjectSchema>;
 export type CapturedSurface = z.infer<typeof capturedSurfaceSchema>;
@@ -180,3 +199,6 @@ export type DesignProposal = z.infer<typeof proposalSchema>;
 export type AssetRecord = z.infer<typeof assetSchema>;
 export type SearchRequest = z.infer<typeof searchRequestSchema>;
 export type SearchResult = z.infer<typeof searchResultSchema>;
+export type SearchTask = z.infer<typeof searchTaskSchema>;
+export type SearchFailure = z.infer<typeof searchFailureSchema>;
+export type SearchTaskResult = z.infer<typeof searchTaskResultSchema>;

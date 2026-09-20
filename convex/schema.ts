@@ -11,7 +11,6 @@ import {
 } from "../shared/contracts";
 
 // Zod refinements must also run at function boundaries; Convex validates storage shapes.
-// No public functions are exposed until authentication and deployment ownership are set.
 export default defineSchema({
   rooms: defineTable(
     zodToConvex(
@@ -29,6 +28,55 @@ export default defineSchema({
   proposals: defineTable(
     zodToConvex(z.object({ ownerId: z.string(), proposal: proposalSchema })),
   ).index("by_ownerId", ["ownerId"]),
+  // ownerId is the authenticated identity tokenIdentifier.
+  projects: defineTable({
+    ownerId: v.string(),
+    title: v.string(),
+    roomId: v.optional(v.id("rooms")),
+    brief: v.optional(zodToConvex(briefSchema)),
+    activeMessageId: v.optional(v.id("messages")),
+    createdAt: v.number(),
+  }).index("by_ownerId", ["ownerId"]),
+  messages: defineTable({
+    projectId: v.id("projects"),
+    role: v.union(
+      v.literal("user"),
+      v.literal("assistant"),
+      v.literal("system"),
+    ),
+    kind: v.optional(v.literal("question")),
+    imageId: v.optional(v.id("images")),
+    content: v.string(),
+    options: v.optional(v.array(v.string())),
+    multiSelect: v.optional(v.boolean()),
+    answer: v.optional(v.array(v.string())),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("done"),
+      v.literal("error"),
+    ),
+    createdAt: v.number(),
+  }).index("by_projectId", ["projectId"]),
+  images: defineTable({
+    projectId: v.id("projects"),
+    storageId: v.id("_storage"),
+    contentType: v.string(),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("analyzed"),
+      v.literal("error"),
+    ),
+    analysis: v.optional(v.string()),
+    createdAt: v.number(),
+  }).index("by_projectId", ["projectId"]),
+  imageUploads: defineTable({
+    projectId: v.id("projects"),
+    ownerId: v.string(),
+    tokenHash: v.string(),
+    contentType: v.string(),
+    size: v.number(),
+    expiresAt: v.number(),
+  }).index("by_projectId", ["projectId"]),
   captures: defineTable({
     ownerId: v.string(),
     state: v.union(
