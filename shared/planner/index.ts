@@ -40,33 +40,37 @@ export function remainingBudgetCents(
   room: RoomSnapshot | null,
   brief: DesignBrief,
   products: ProductCandidate[],
-): number {
-  if (brief.budgetCents <= 0) return 0;
+): number | null {
+  // null means unspecified; zero means a specified budget is exhausted.
+  if (brief.budgetCents <= 0) return null;
   if (!room) return brief.budgetCents;
-  try {
-    return Math.max(0, brief.budgetCents - selectionTotal(room, products));
-  } catch {
-    return brief.budgetCents;
-  }
+  return Math.max(0, brief.budgetCents - selectionTotal(room, products));
 }
 
 // Budget is split by priority weight so the pieces that define the room get more
-// headroom. Zero stays zero: no budget means no price ceiling.
+// headroom. Only an unspecified budget becomes an unlimited search ceiling.
 export function allocateBudget(
   zones: ReservedZone[],
-  remainingCents: number,
+  remainingCents: number | null,
 ): Map<string, number> {
   const allocation = new Map<string, number>();
-  if (remainingCents <= 0 || zones.length === 0) {
+  if (remainingCents === null || zones.length === 0) {
     zones.forEach((zone) => allocation.set(zone.id, 0));
     return allocation;
   }
+  if (remainingCents < zones.length)
+    throw new Error(
+      "The remaining budget cannot cover these items. Increase the budget or remove selections before planning more purchases.",
+    );
+  // Reserve one cent per zone so rounding never turns a finite limit into 0,
+  // which the search contract interprets as unlimited.
+  const weightedCents = remainingCents - zones.length;
   const weights = zones.map((zone) => 1 / zone.priority);
   const total = weights.reduce((sum, weight) => sum + weight, 0);
   zones.forEach((zone, index) =>
     allocation.set(
       zone.id,
-      Math.floor((remainingCents * weights[index]) / total),
+      1 + Math.floor((weightedCents * weights[index]) / total),
     ),
   );
   return allocation;

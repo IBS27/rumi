@@ -1,6 +1,6 @@
 import { Euler, Matrix4, Quaternion, Vector3 } from "three";
 import polygonClipping, { type Polygon } from "polygon-clipping";
-import type { RoomObject, RoomSnapshot } from "../contracts";
+import type { CapturedSurface, RoomObject, RoomSnapshot } from "../contracts";
 import { worldCorners } from "../capture/roomplan";
 
 // Everything here is in meters on the renderer's floor plane: X runs across the
@@ -340,6 +340,21 @@ function rectangleDoorClearances(
     });
 }
 
+// Surface corners run around the perimeter: the first and last can share the
+// same X/Z position. Find the full extent along the surface's local width axis.
+function horizontalSpan(surface: CapturedSurface): { start: Point2; end: Point2 } {
+  const points = worldCorners(surface).map(({ x, z }) => ({ x, z }));
+  const along = (point: Point2) =>
+    point.x * surface.transform[0] + point.z * surface.transform[2];
+  let start = points[0];
+  let end = points[0];
+  for (const point of points) {
+    if (along(point) < along(start)) start = point;
+    if (along(point) > along(end)) end = point;
+  }
+  return { start, end };
+}
+
 export function buildSpaceModel(room: RoomSnapshot): SpaceModel {
   const warnings: string[] = [];
   const obstacles = room.objects.map(objectObstacle);
@@ -365,18 +380,13 @@ export function buildSpaceModel(room: RoomSnapshot): SpaceModel {
     if (!floorRings.length)
       warnings.push("The scan has no floor surface; using the room bounds as floor.");
     walls = room.walls.map((wall) => {
-      const corners = worldCorners(wall);
-      const low = corners.filter((point) => point.y <= floorY + 0.25);
-      const base = (low.length >= 2 ? low : corners).map((point) => ({ x: point.x, z: point.z }));
-      const start = base[0], end = base[base.length - 1];
+      const { start, end } = horizontalSpan(wall);
       const openings = room.openings
         .filter((opening) => opening.parentId === wall.id)
         .map((opening) => {
-          const points = worldCorners(opening).map((point) => ({ x: point.x, z: point.z }));
           return {
             kind: opening.kind === "door" ? ("door" as const) : opening.kind === "window" ? ("window" as const) : ("opening" as const),
-            start: points[0],
-            end: points[points.length - 1],
+            ...horizontalSpan(opening),
           };
         });
       return { id: wall.id, start, end, height: wall.dimensions.height, openings };

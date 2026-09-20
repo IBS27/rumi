@@ -4,6 +4,7 @@ import {
   internalMutation,
   internalQuery,
   mutation,
+  type QueryCtx,
 } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
 import { postUserTurn } from "./messages";
@@ -16,6 +17,20 @@ const planDoc = v.object({
   _id: v.id("plans"),
   _creationTime: v.number(),
 });
+
+async function requireCurrentRoom(ctx: QueryCtx, plan: Doc<"plans">) {
+  const project = await ctx.db.get(plan.projectId);
+  const room = await ctx.db.get(plan.roomId);
+  if (
+    project?.roomId !== plan.roomId ||
+    !room ||
+    room.snapshot.id !== plan.plan.roomId ||
+    room.snapshot.revision !== plan.plan.baseRevision
+  )
+    throw new Error(
+      "The room has changed since this plan was made. Request a new plan before searching.",
+    );
+}
 
 // Store a reserved plan and post the card that lets the user trim it. Any
 // earlier open plan for the project is superseded so only one card is live.
@@ -73,11 +88,13 @@ export const active = internalQuery({
       .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
       .order("desc")
       .take(10);
-    return (
+    const activePlan = (
       plans.find(
         (plan) => plan.status === "searching" || plan.status === "proposed",
       ) ?? null
     );
+    if (activePlan) await requireCurrentRoom(ctx, activePlan);
+    return activePlan;
   },
 });
 
@@ -112,6 +129,7 @@ export const confirm = mutation({
     const plan = await ctx.db.get(card.planId);
     if (!plan || plan.status !== "proposed")
       throw new Error("This plan is no longer open.");
+    await requireCurrentRoom(ctx, plan);
     const known = new Set(plan.plan.zones.map((zone) => zone.id));
     const selected = [...new Set(zoneIds)].filter((id) => known.has(id));
     if (selected.length === 0) throw new Error("Keep at least one item.");

@@ -1,8 +1,9 @@
 import { describe, expect, it } from "bun:test";
+import { Matrix4 } from "three";
 import { searchTaskSchema, type ZonePlanRequest } from "../shared/contracts";
 import { sampleBrief, sampleProducts, sampleRoom } from "../shared/fixtures";
 import { syntheticRoomPlan } from "../shared/fixtures/roomplan";
-import { importRoomPlan } from "../shared/capture/roomplan";
+import { importRoomPlan, localCorners } from "../shared/capture/roomplan";
 import { placementIssue } from "../shared/geometry";
 import {
   SPACING_FACTOR,
@@ -96,6 +97,34 @@ describe("space model", () => {
     expect(model.clearances).toHaveLength(1);
   });
 
+  it("preserves scanned opening spans regardless of rotation and corner order", () => {
+    for (const yaw of [0, Math.PI / 2, 0.7]) {
+      for (const polygon of [false, true]) {
+        const room = importRoomPlan(syntheticRoomPlan);
+        const rotation = new Matrix4().makeRotationY(yaw);
+        for (const surface of [...room.walls, ...room.openings, ...room.floors]) {
+          surface.transform = rotation.clone()
+            .multiply(new Matrix4().fromArray(surface.transform)).toArray();
+          if (polygon && surface.kind !== "floor") {
+            const corners = localCorners(surface).map(({ x, y, z }) => ({ x, y, z }));
+            surface.polygonCorners = [...corners.slice(2), ...corners.slice(0, 2)];
+          }
+        }
+        const model = buildSpaceModel(room);
+        for (const wall of model.walls) {
+          const surface = room.walls.find((item) => item.id === wall.id)!;
+          expect(Math.hypot(wall.end.x - wall.start.x, wall.end.z - wall.start.z))
+            .toBeCloseTo(surface.dimensions.width, 6);
+          for (const opening of wall.openings) {
+            const captured = room.openings.find((item) => item.parentId === wall.id)!;
+            expect(Math.hypot(opening.end.x - opening.start.x, opening.end.z - opening.start.z))
+              .toBeCloseTo(captured.dimensions.width, 6);
+          }
+        }
+      }
+    }
+  });
+
   it("detects overlap between rotated rectangles", () => {
     const a = rectangleRing({ x: 1, z: 1 }, 1, 1, 0);
     const b = rectangleRing({ x: 1.6, z: 1 }, 1, 0.4, Math.PI / 4);
@@ -106,6 +135,29 @@ describe("space model", () => {
 });
 
 describe("zone reservation", () => {
+  it("does not hang art across a scanned window", () => {
+    const scan = importRoomPlan(syntheticRoomPlan);
+    const room = { ...scan, objects: [], walls: [scan.walls[0]] };
+    const requests = Array.from({ length: 4 }, (_, index) => ({
+      ...lampZone,
+      id: `art-${index}`,
+      category: "wall art",
+      mount: "wall" as const,
+      relatedObjectId: null,
+      desiredFootprint: { width: 1, depth: 0.04 },
+      priority: index + 1,
+    }));
+    const result = reserveZones(room, buildSpaceModel(room), requests);
+    expect(result.zones.length).toBeGreaterThan(0);
+    expect(result.rejected.length).toBeGreaterThan(0);
+    // The sample window spans x=2.8..4.6 on the north wall.
+    for (const zone of result.zones) {
+      const left = zone.position.x - zone.footprint.width / 2;
+      const right = zone.position.x + zone.footprint.width / 2;
+      expect(right <= 2.8 || left >= 4.6).toBe(true);
+    }
+  });
+
   it("reserves zones with margins, away from furniture and doors", () => {
     const model = buildSpaceModel(sampleRoom);
     const { zones, rejected } = reserveZones(sampleRoom, model, request.zones);
@@ -484,6 +536,39 @@ describe("design plan", () => {
       request,
     });
     expect(plan.tasks.every((task) => task.maxPriceCents === 0)).toBe(true);
+  });
+
+  it("stops planning purchases when existing selections exhaust the budget", () => {
+    const product = sampleProducts[0];
+    const room = {
+      ...sampleRoom,
+      objects: sampleRoom.objects.map((object, index) => index === 1
+        ? { ...object, owned: false, productId: product.id }
+        : object),
+    };
+    for (const budgetCents of [product.priceCents, product.priceCents - 1]) {
+      expect(() => buildDesignPlan({
+        room, brief: { ...sampleBrief, budgetCents }, products: [product], request,
+      })).toThrow("budget");
+    }
+    const { plan } = buildDesignPlan({
+      room, brief: { ...sampleBrief, budgetCents: product.priceCents + 1000 },
+      products: [product], request,
+    });
+    expect(plan.tasks.every((task) => task.maxPriceCents > 0)).toBe(true);
+    expect(plan.tasks.reduce((sum, task) => sum + task.maxPriceCents, 0)).toBeLessThanOrEqual(1000);
+    expect(() => buildDesignPlan({
+      room, brief: sampleBrief, products: [], request,
+    })).toThrow("Missing price");
+  });
+
+  it("never rounds a finite per-item budget into an unlimited search", () => {
+    const { plan } = buildDesignPlan({
+      room: sampleRoom, brief: sampleBrief, products: sampleProducts, request,
+    });
+    const allocation = allocateBudget(plan.zones, plan.zones.length);
+    expect([...allocation.values()]).toEqual(plan.zones.map(() => 1));
+    expect(() => allocateBudget(plan.zones, plan.zones.length - 1)).toThrow("budget");
   });
 
   it("weights budget toward higher-priority zones", () => {

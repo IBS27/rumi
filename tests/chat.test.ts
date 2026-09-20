@@ -370,6 +370,52 @@ describe("live chat boundaries", () => {
     expect((await t.query(internal.plans.get, { planId: second }))?.status).toBe("proposed");
   });
 
+  it.each([false, true])("rejects stale plans before confirmation or search (confirmed=%s)", async (confirmed) => {
+    const { t, owner, projectId } = await setup();
+    await owner.mutation(api.projects.attachRoom, {
+      projectId, room: sampleRoom, expectedRevision: null,
+    });
+    const roomId = (await t.run(async (ctx) => (await ctx.db.get(projectId))!.roomId))!;
+    const { plan } = buildDesignPlan({
+      room: sampleRoom, brief: sampleBrief, products: sampleProducts,
+      request: {
+        summary: "A reading lamp.", spacing: "balanced",
+        zones: [{
+          id: "lamp", purpose: "reading light", category: "floor lamp", query: "floor lamp",
+          mount: "floor", anchor: "near-object", relatedObjectId: "owned-bed",
+          desiredFootprint: { width: 0.5, depth: 0.5 }, desiredHeight: 1.8,
+          miscellaneous: [], priority: 1,
+        }],
+      },
+    });
+    const planId = await t.mutation(internal.plans.propose, { projectId, roomId, plan });
+    const card = (await owner.query(api.messages.list, {
+      projectId, paginationOpts: { numItems: 20, cursor: null },
+    })).page[0];
+    if (confirmed) {
+      const replyId = await owner.mutation(api.plans.confirm, {
+        messageId: card._id, zoneIds: ["lamp"],
+      });
+      await t.mutation(internal.messages.complete, {
+        messageId: replyId, content: "Try again later.", status: "error",
+      });
+    }
+    await owner.mutation(api.projects.attachRoom, {
+      projectId,
+      room: { ...sampleRoom, dimensions: { width: 1, depth: 1, height: 2.7 } },
+      expectedRevision: 0,
+    });
+    if (!confirmed) {
+      await expect(owner.mutation(api.plans.confirm, {
+        messageId: card._id, zoneIds: ["lamp"],
+      })).rejects.toThrow("room has changed");
+      expect((await t.query(internal.plans.get, { planId }))?.status).toBe("proposed");
+      expect((await t.run((ctx) => ctx.db.get(card._id)))?.answer).toBeUndefined();
+      expect((await owner.query(api.projects.context, { projectId }))?.project.activeMessageId).toBeUndefined();
+    }
+    await expect(t.query(internal.plans.active, { projectId })).rejects.toThrow("room has changed");
+  });
+
   it("rejects cross-user room updates and stale room revisions", async () => {
     const { owner, other, projectId } = await setup();
     expect(await other.query(api.projects.context, { projectId })).toBeNull();
