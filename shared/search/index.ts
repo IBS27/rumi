@@ -179,15 +179,21 @@ export function dedupeHits(hits: ExaSearchHit[]): ExaSearchHit[] {
 
 // Exa can index stale Amazon links and foreign storefronts whose prices are not USD.
 // Do not return them under the catalog's USD contract.
+// Large retailers also keep one host and put the country in the path, as in
+// ikea.com/at/en/ or ikea.com/gb/en/. Only the US storefront is in USD.
+const COUNTRY_PATH = /^\/([a-z]{2})(?:\/([a-z]{2}))?(?=\/|$)/i;
 export function isUnsupportedMerchant(raw: string): boolean {
   try {
-    const hostname = new URL(raw).hostname.toLowerCase();
+    const url = new URL(raw);
+    const hostname = url.hostname.toLowerCase();
     const topLevelDomain = hostname.split(".").at(-1) ?? "";
-    return (
-      hostname === "amazon.com" ||
-      hostname.endsWith(".amazon.com") ||
-      (topLevelDomain.length === 2 && topLevelDomain !== "us")
-    );
+    if (hostname === "amazon.com" || hostname.endsWith(".amazon.com"))
+      return true;
+    if (topLevelDomain.length === 2 && topLevelDomain !== "us") return true;
+    const match = COUNTRY_PATH.exec(url.pathname);
+    // A leading two-letter pair like /at/en or /gb/en names a country and a
+    // language. A single segment such as /en is a language only.
+    return Boolean(match && match[2] && match[1].toLowerCase() !== "us");
   } catch {
     return true;
   }
