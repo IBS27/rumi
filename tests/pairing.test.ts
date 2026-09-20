@@ -113,6 +113,39 @@ describe("capture pairing", () => {
     );
     expect(stored).toBe(text);
   });
+  it("preserves an accepted upload when closing races the web subscription", async () => {
+    const { t, session, claim } = await setup();
+    const { uploadToken } = (await (await claim()).json()) as {
+      uploadToken: string;
+    };
+    const response = await t.fetch(
+      `/capture/v1/room?sessionId=${session.sessionId}`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${uploadToken}`,
+          "Content-Type": "application/json",
+          "Idempotency-Key": crypto.randomUUID(),
+        },
+        body: JSON.stringify(syntheticRoomPlan),
+      },
+    );
+    expect(response.status).toBe(200);
+    const owner = t.withIdentity({ tokenIdentifier: "test|owner" });
+    await owner.mutation(api.captures.cancel, { sessionId: session.sessionId });
+    const accepted = await owner.query(api.captures.get, {
+      sessionId: session.sessionId,
+    });
+    expect(accepted?.state).toBe("uploaded");
+    expect(accepted?.fileUrl).toBeTruthy();
+    const stored = await t.run(async (ctx) => {
+      const capture = await ctx.db.get(session.sessionId);
+      return capture?.storageId
+        ? (await ctx.storage.get(capture.storageId))?.text()
+        : null;
+    });
+    expect(stored).toBe(JSON.stringify(syntheticRoomPlan));
+  });
   it("rejects expired and canceled capabilities", async () => {
     const { t, session, claim } = await setup();
     await t.run(async (ctx) => {

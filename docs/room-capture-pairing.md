@@ -4,7 +4,7 @@ This is the version 1 integration contract implemented in this branch. The QR se
 
 ## Native app responsibilities
 
-Keep the JSON export/share workflow. Add an in-app **Connect to Rumi** QR scanner and a **Send to Rumi** action for a completed RoomPlan scan. Use Apple's camera APIs for QR recognition; a universal link or App Store release is not required. Never send an unfinished capture.
+The native app keeps the JSON export/share workflow and provides an in-app **Connect to Rumi** QR scanner and a **Send to Rumi** action for a completed RoomPlan scan. Use Apple's camera APIs for QR recognition; a universal link or App Store release is not required. Never send an unfinished capture.
 
 The web app creates a capture session belonging to its authenticated user and displays this JSON as the QR payload:
 
@@ -87,10 +87,16 @@ Only retry network failures, 429, and 5xx automatically. A user cancel must stop
 - Limit file size while reading, validate the supported RoomPlan structure, and enforce expiration on the server. Reject malformed geometry.
 - Use transactional claim/completion operations and payload digests to prevent two claims or retries from replacing an accepted scan. Clean up orphaned uploads and expired sessions.
 - Keep tokens out of logs and client-visible session query results. Store credential verifiers rather than bearer secrets, with an explicit secure approach for retrying claim responses.
-- Allow at most five sessions per owner per ten minutes and twenty upload attempts per session. A claim is single-use except for retries with the same claim ID. Revoke credentials on cancellation. Delete session records and stored capture files 24 hours after session creation.
+- Allow at most five sessions per owner per ten minutes and twenty upload attempts per session. A claim is single-use except for retries with the same claim ID. Revoke credentials when canceling waiting or paired sessions. Cancellation after upload is a no-op so closing the web dialog cannot delete an accepted room before import. Delete session records and stored capture files 24 hours after session creation.
 - Show waiting for phone, paired, loading the accepted upload, import success/failure, and unavailable/expired states. Do not present an inactive QR service as connected.
 
 Authentication configuration and deployment ownership must be established before exposing these endpoints. Do not deploy a public anonymous session-creation endpoint as a shortcut.
+
+## Implementation and rollout
+
+The native implementation is in `ios/RumiCapture/CaptureClient.swift`, `CaptureConnection.swift`, and `PairingScreen.swift`. A confirmed claim closes the QR camera before starting a new room scan. Completed/restored scans can pair and send without rescanning. The web QR includes a quiet border and instructions matching these controls.
+
+Sync the updated `convex/captures.ts` to the owner's deployment before testing the close/upload race fix. No schema migration is required. Install the updated iPhone app through Xcode. Fedora checks cover TypeScript and backend behavior; the updated native app still requires Xcode tests and a physical device handoff. See [the native checklist](../ios/README.md#physical-device-checklist).
 
 ## Testing the handoff
 
