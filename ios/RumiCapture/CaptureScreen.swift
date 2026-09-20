@@ -114,7 +114,7 @@ struct CaptureScreen: View {
             ProgressView("Starting camera…")
             Button("Start over") { confirmsDiscard = true }
         case .scanning:
-            Text("Move slowly around furniture and show its sides. Photos capture its appearance; hidden surfaces remain unknown.")
+            Text("\(model.photoCount) photos saved · \(model.photoGuidance)")
                 .font(.footnote).foregroundStyle(.secondary)
             primary("Finish Scan", action: model.finish)
             Button("Start over") { confirmsDiscard = true }

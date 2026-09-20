@@ -4,7 +4,11 @@ import schema from "../convex/schema";
 import { api, internal } from "../convex/_generated/api";
 import type { GenericDatabaseWriter, SystemDataModel } from "convex/server";
 import { hashToken, scanContentType } from "../shared/capture/pairing";
-import { syntheticCaptureZip } from "./fixtures/capture-package";
+import {
+  syntheticCaptureFiles,
+  syntheticCaptureZip,
+} from "./fixtures/capture-package";
+import { strToU8, zipSync } from "fflate";
 import { readPackage } from "../shared/capture/package";
 import { syntheticRoomPlan } from "../shared/fixtures/roomplan";
 
@@ -277,6 +281,28 @@ describe("complete scan transfer", () => {
         .withIdentity({ tokenIdentifier: "test|other" })
         .query(api.captures.get, { sessionId: c.body.sessionId }),
     ).toBeNull();
+  });
+  it("accepts the expanded photo budget through the validated scan endpoint", async () => {
+    const { files, manifest } = syntheticCaptureFiles();
+    const frame = manifest.frames[0];
+    manifest.frames = Array.from({ length: 160 }, (_, index) => {
+      const image = `photos/${index}.jpg`;
+      const depth = `photos/${index}-depth.bin`;
+      const confidence = `photos/${index}-confidence.bin`;
+      files[image] = files[frame.image];
+      files[depth] = files[frame.depth];
+      files[confidence] = files[frame.confidence];
+      return { ...frame, image, depth, confidence, timestamp: index };
+    });
+    files["manifest.json"] = strToU8(JSON.stringify(manifest));
+    const c = await scanSetup(zipSync(files, { level: 0 }));
+    expect((await c.start()).status).toBe(200);
+    expect((await c.complete(await c.store())).status).toBe(200);
+    const accepted = await c.t
+      .withIdentity({ tokenIdentifier: "test|owner" })
+      .query(api.captures.get, { sessionId: c.body.sessionId });
+    expect(accepted?.state).toBe("uploaded");
+    expect(accepted?.format).toBe("zip");
   });
   it("resumes validation after attaching a file without uploading it again", async () => {
     const c = await scanSetup();

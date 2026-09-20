@@ -18,6 +18,8 @@ final class ScanModel: ObservableObject {
     @Published private(set) var isPreparingSurface = false
     @Published private(set) var surfaceMessage: String?
     @Published private(set) var hasSurfacePackage = false
+    @Published private(set) var photoCount = 0
+    @Published private(set) var photoGuidance = "Move slowly. Photos are captured automatically."
 
     private(set) var controller: RoomScanViewController?
     private let store: RoomFileStore
@@ -76,7 +78,13 @@ final class ScanModel: ObservableObject {
                 return
             }
             guard self.lifecycle.authorize(id, supported: true, cameraAllowed: allowed) else { return }
+            self.photoCount = 0
+            self.photoGuidance = "Move slowly. Photos are captured automatically."
             let capture = RoomScanViewController()
+            capture.onPhotoProgress = { [weak self] count, message in
+                self?.photoCount = count
+                self?.photoGuidance = message
+            }
             capture.onStarted = { [weak self] in self?.lifecycle.didStart(id) }
             capture.onProcessing = { [weak self] in self?.beginProcessing(id) }
             capture.onCompleted = { [weak self] room in self?.complete(room, id: id) }

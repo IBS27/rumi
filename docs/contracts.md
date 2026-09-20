@@ -49,4 +49,4 @@ The live path is two levels. `convex/agent.ts` runs the main agent, which plans 
 
 ## Detailed capture package
 
-The native-to-web `rumi.capture` v1 ZIP carries the unchanged final RoomPlan JSON, ARKit mesh buffers, JPEGs, camera calibration, depth, and confidence. `shared/capture/package.ts` validates it. [Surface capture](surface-capture.md) defines units, binary layouts, coordinate transforms, limits, local persistence, and the boundary between measured surfaces and editable furniture. This does not change the `RoomSnapshot` or the JSON-only QR upload contract.
+The native-to-web `rumi.capture` v1 ZIP carries the unchanged final RoomPlan JSON, ARKit mesh buffers, JPEGs, camera calibration, depth, and confidence. `shared/capture/package.ts` validates it. [Surface capture](surface-capture.md) defines units, binary layouts, coordinate transforms, limits, local persistence, and the boundary between measured surfaces and editable furniture. This does not change `RoomSnapshot`. The [pairing contract](room-capture-pairing.md#complete-scan-transfer) adds an optional direct-storage ZIP transfer alongside the original JSON endpoint.

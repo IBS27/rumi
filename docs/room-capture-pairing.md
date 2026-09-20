@@ -107,6 +107,11 @@ Native development can use a mocked transport conforming to this contract, expli
 
 ## Complete scan transfer
 
+If a downloaded scan fails browser import, **Try again** retries the same file.
+**Start a new transfer** creates a fresh pairing code so a corrected scan can be
+sent without reloading. Closing and reopening the dialog still preserves a
+pending download. Replaced uploads retain the existing expiry cleanup policy.
+
 The claim response advertises `maxScanBytes: 134217728` alongside the legacy JSON limit. Older phones ignore the added field and keep using `/capture/v1/room`. A new phone refuses to silently downgrade a complete scan if the server lacks this capability.
 
 1. The phone hashes its saved ZIP on a background task and retains its file URL and UUID idempotency key. It sends `POST /capture/v1/scan/start` with the upload bearer token and JSON `{ sessionId, idempotencyKey, digest, size }`. `digest` is the Base64 SHA-256 of the exact ZIP bytes. The maximum is 128 MiB.

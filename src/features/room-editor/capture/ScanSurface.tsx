@@ -4,6 +4,7 @@ import {
   BufferGeometry,
   DoubleSide,
   MeshBasicMaterial,
+  LinearFilter,
   MeshStandardMaterial,
   SRGBColorSpace,
   Texture,
@@ -35,10 +36,12 @@ export function ScanSurface({
     const items: Resources["items"] = [];
     async function prepare() {
       try {
-        // Sequential decode bounds transient image memory and avoids a 96-image burst.
+        // Decode atlases sequentially to bound transient image memory.
         for (const image of scan.images) {
           const bitmap = await createImageBitmap(
-            new Blob([image.bytes.slice().buffer], { type: "image/jpeg" }),
+            new Blob([image.bytes.slice().buffer], {
+              type: image.atlas ? "image/png" : "image/jpeg",
+            }),
           );
           if (canceled) {
             bitmap.close();
@@ -54,6 +57,11 @@ export function ScanSurface({
           const texture = new Texture(bitmap);
           texture.flipY = false;
           texture.colorSpace = SRGBColorSpace;
+          // Atlas islands have a one-pixel gutter. Mipmaps would mix neighboring islands.
+          if (image.atlas) {
+            texture.generateMipmaps = false;
+            texture.minFilter = LinearFilter;
+          }
           texture.needsUpdate = true;
           textures.set(image.name, texture);
         }

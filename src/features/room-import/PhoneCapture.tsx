@@ -93,13 +93,15 @@ export function PhoneCapture({
     if (isOpen && !node.open) node.showModal();
     if (!isOpen && node.open) node.close();
   }, [isOpen]);
-  async function start() {
+  async function start(replaceFailedTransfer = false) {
     if (changingSession.current) return;
     setIsOpen(true);
     // Reopening an accepted scan must preserve its download or retry state.
-    if (session?.state === "uploaded" && !received) return;
+    if (session?.state === "uploaded" && !received && !replaceFailedTransfer)
+      return;
     changingSession.current = true;
     setError("");
+    setLoading("");
     setBusy(true);
     setReceived(false);
     try {
@@ -242,6 +244,17 @@ export function PhoneCapture({
               >
                 Try again
               </Button>
+              {session?.state === "uploaded" && !received && (
+                <Button
+                  variant="quiet"
+                  className="justify-self-start"
+                  onClick={() => {
+                    void start(true);
+                  }}
+                >
+                  Start a new transfer
+                </Button>
+              )}
             </>
           )}
           <Muted className="text-xs">
