@@ -1,5 +1,16 @@
 .DS_Store
+
+# Xcode build output and test results
 DerivedData/
+build/
 *.xcresult/
+*.xcarchive/
+*.ipa
+*.dSYM/
+
+# Swift Package Manager build cache
+.build/
+
+# Personal Xcode settings; shared projects and schemes stay tracked
 xcuserdata/
 *.xcuserstate
