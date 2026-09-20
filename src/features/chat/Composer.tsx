@@ -1,6 +1,6 @@
 import { Button, TextArea, TextInput } from "../../ui";
 import { useRef, useState } from "react";
-import { ImagePlus } from "lucide-react";
+import { ArrowUp, ImagePlus } from "lucide-react";
 
 export function Composer({
   onSend,
@@ -46,7 +46,7 @@ export function Composer({
         </p>
       )}
       <form
-        className="flex items-end gap-1.5 rounded-tile border-[1.5px] border-line bg-white p-1 focus-within:border-teal"
+        className="flex items-end gap-1.5 rounded-tile bg-white p-1 transition-colors focus-within:bg-panel-soft"
         onSubmit={(event) => {
           event.preventDefault();
           void submit();
@@ -54,7 +54,7 @@ export function Composer({
       >
         <TextArea
           embedded
-          className="min-h-9 max-h-32 flex-1 px-2 py-2 text-[12.5px] leading-5"
+          className="min-h-9 max-h-32 flex-1 px-2 py-2 text-[12.5px] leading-5 focus-visible:!outline-none"
           aria-label="Message Rumi"
           value={value}
           onChange={(event) => setValue(event.target.value)}
@@ -104,11 +104,11 @@ export function Composer({
           size="sm"
           type="submit"
           variant="primary"
-          className="self-end"
+          className="size-8 self-end rounded-full border-0 p-1 focus-visible:!outline-none focus-visible:ring-2 focus-visible:ring-teal/25"
           aria-label="Send message"
           disabled={disabled || busy || !value.trim()}
         >
-          {busy ? "Sending…" : "Send"}
+          <ArrowUp size={17} />
         </Button>
       </form>
       <div className="mt-1 flex items-center justify-between">

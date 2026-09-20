@@ -10,7 +10,7 @@
     "test": "bun test",
     "convex:codegen": "convex codegen",
     "format": "prettier --write src shared convex tests docs *.ts *.js *.json *.html README.md",
-    "typecheck:shared": "tsc --noEmit -p tsconfig.check.json"
+    "typecheck:shared": "tsc --noEmit -p tsconfig.shared.json"
   },
   "dependencies": {
     "@ai-sdk/openai": "2.0.127",

@@ -40,3 +40,17 @@ export const getByIds = internalQuery({
     return found;
   },
 });
+
+export const attachAsset = internalMutation({
+  args: { productId: v.string(), assetId: v.string() },
+  handler: async (ctx, { productId, assetId }): Promise<boolean> => {
+    const existing = await ctx.db
+      .query("products")
+      .withIndex("by_catalog_id", (q) => q.eq("id", productId))
+      .unique();
+    if (!existing) return false;
+    const product = productSchema.parse({ ...existing, assetId });
+    await ctx.db.replace(existing._id, product);
+    return true;
+  },
+});

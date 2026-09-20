@@ -46,7 +46,23 @@ export default defineSchema({
     ),
     kind: v.optional(v.literal("question")),
     imageId: v.optional(v.id("images")),
+    recommendationProductId: v.optional(v.string()),
     content: v.string(),
+    activity: v.optional(
+      v.array(
+        v.object({
+          id: v.string(),
+          tool: v.string(),
+          label: v.string(),
+          detail: v.optional(v.string()),
+          status: v.union(
+            v.literal("running"),
+            v.literal("done"),
+            v.literal("error"),
+          ),
+        }),
+      ),
+    ),
     options: v.optional(v.array(v.string())),
     multiSelect: v.optional(v.boolean()),
     answer: v.optional(v.array(v.string())),
@@ -94,5 +110,18 @@ export default defineSchema({
     digest: v.optional(v.string()),
     idempotencyKey: v.optional(v.string()),
     uploadAttempts: v.number(),
-  }).index("by_ownerId", ["ownerId"]),
+    format: v.optional(v.union(v.literal("json"), v.literal("zip"))),
+    scanUpload: v.optional(
+      v.object({
+        idempotencyKey: v.string(),
+        digest: v.string(),
+        size: v.number(),
+        startedAt: v.number(),
+      }),
+    ),
+    scanValidationAttempts: v.optional(v.number()),
+    scanStorageId: v.optional(v.id("_storage")),
+  })
+    .index("by_ownerId", ["ownerId"])
+    .index("by_scanStorageId", ["scanStorageId"]),
 });

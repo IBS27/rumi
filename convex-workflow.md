@@ -9,7 +9,7 @@ Invite teammates through this team's **Team Settings → Team Members**, using t
 
 Each teammate uses their own Convex account and personal development deployment within this project. Git shares the schema and functions; each deployment has its own running code and database. Do not share a dev deployment between people or run watchers from different branches against the same deployment: they can overwrite each other's backend code.
 
-The project and Srinivas's `dev/srinivas` deployment have been created. Other teammates must configure their own deployments. The room reconstruction branch adds the capture workspace, Clerk integration, and capture-session backend functions; live capture requires Clerk setup and a deliberate backend sync. See `docs/room-reconstruction.md`. Creating the project alone did not push the schema. No production deployment has been set up for this workflow; a custom domain is not required for one.
+The project, Srinivas's `dev/srinivas` deployment, and Kristen's `dev/kristen-ho` deployment have been created. Other teammates must configure their own deployments. The room reconstruction branch adds the capture workspace, Clerk integration, and capture-session backend functions; live capture requires Clerk setup and a deliberate backend sync. See `docs/room-reconstruction.md`. Creating the project alone did not push the schema. No production deployment has been set up for this workflow; a custom domain is not required for one.
 
 ## First-time setup
 
@@ -27,6 +27,15 @@ The project and Srinivas's `dev/srinivas` deployment have been created. Other te
    ```
 
    Sign in with your own account if prompted. Verify the team, project, and personal deployment before syncing. Do not create another `rumi` project or select someone else's deployment. This command pushes the checked-out backend code and stays running to watch for changes.
+
+   The first push fails until your deployment has the Clerk issuer, because `convex/auth.config.ts` reads it. Set it, then run the command again:
+
+   ```sh
+   bunx convex env set CLERK_JWT_ISSUER_DOMAIN https://wondrous-hagfish-7431.clerk.accounts.dev
+   bunx convex env set CHAT_ALLOWED_ORIGINS http://localhost:5173
+   ```
+
+   `docs/room-reconstruction.md` covers the rest of the Clerk setup, and `docs/agent-integration.md` the provider keys the chat and search need.
 
 4. In another terminal, start the frontend:
 

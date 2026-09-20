@@ -94,6 +94,8 @@ export function tierFor(maxPriceCents: number): Tier {
 }
 
 export function domainsFor(maxPriceCents: number): string[] {
+  if (maxPriceCents <= 0)
+    return [...new Set(TIERS.flatMap((definition) => definition.domains))];
   const tier = tierFor(maxPriceCents);
   const through = TIERS.findIndex((definition) => definition.tier === tier);
   return [

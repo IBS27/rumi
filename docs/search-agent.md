@@ -27,18 +27,27 @@ unknown is still returned, ranked below every sized candidate, and flagged.
 
 ```ts
 { query, category, maxPriceCents, maxFootprint: {width, depth} | null,
-  maxHeight: number | null, styleTerms: string[], palette: string[], excludeTags: string[] }
+  maxHeight: number | null, styleTerms: string[], palette: string[],
+  miscellaneous: string[], excludeTags: string[] }
 ```
 
-`maxPriceCents` is the only price field: no floor, no target. `palette` is a list of hex
+`maxPriceCents` is the only price field: no floor, no target. Use `0` when the user
+has not specified a budget; that disables the price ceiling. `miscellaneous` is required,
+even when empty, and holds up to twelve additional requested specifications. These
+phrases influence retrieval and ranking; a match is verified only when the page supports it.
+`styleTerms`, `palette`, and `miscellaneous` are soft preferences. Price, size,
+availability, and `excludeTags` are checked in code.
+
+`palette` is a list of hex
 values from the main agent; colour is scored against it, never filtered by it. `category`
 is an open string supplied by the main agent, not a bedroom-only enum. The `query` names
 the actual item to retrieve, such as `wishbone dining chair` or `outdoor side table`.
 
 ## Output
 
-`searchProducts` answers one task; `searchCategories` answers up to eight at once, three
-at a time, so the main agent does not spend a tool step per category.
+`searchProducts` answers one task. The internal `searchCategories` action answers up to
+eight at once, three at a time. Each action returns at most one candidate per task.
+The main agent currently exposes only `searchProducts` in its tool set.
 
 ```ts
 { category, query, candidates: RankedCandidate[], explanation, failures: SearchFailure[] }
@@ -70,8 +79,8 @@ The catalogue spans mass retailers and furniture specialists: IKEA, Target, Walm
 Wayfair, Home Depot, Lowe's, Costco, World Market, AllModern, Joss & Main,
 Article, West Elm, CB2, Burrow, Floyd, Room & Board, Crate & Barrel, Pottery Barn,
 Joybird, Castlery, Rugs USA, Ruggable, Lamps Plus and others. Price tiers are cumulative,
-so a $900 ceiling searches value and mid-tier stores. If fewer than three merchants
-surface—or fewer than three surviving merchants publish usable dimensions—the open web
+so a $900 ceiling searches value and mid-tier stores. If fewer than two merchants
+surface, fewer than six hits arrive, or fewer than two surviving merchants publish usable dimensions, the open web
 is queried to discover stores outside the catalogue, including independent Shopify
 storefronts. Amazon is excluded because its indexed product URLs did not reliably open
 for users.
@@ -93,9 +102,11 @@ slug, which is what separates a gallery photograph from the site's own banner.
 When the host is Shopify — `cdn.shopify.com` in the markup, or a valid response from
 `/products/{handle}.json` — price, every variant, stock and image URLs come from that JSON. These
 are the merchant's own values, so they replace a model reading a page and remove the
-worst error class: a sale price, a "from" price, or the wrong variant. The variant chosen
-is the cheapest in-stock one within the ceiling whose finish name sits closest to the
-palette. Shopify does not publish dimensions, so the cascade still runs.
+worst error class: a sale price, a "from" price, or the wrong variant. Variant selection
+prefers in-stock options within the ceiling, ranks them by palette proximity, and breaks
+ties by price. If that pool is empty it considers other in-stock variants, then all
+variants; the later hard filters still reject unavailable or over-budget products.
+Shopify does not publish dimensions, so the cascade still runs.
 
 Otherwise a model reads those fields from the page text. That prompt names no price
 ceiling: told one, the model suppressed a $6,795 listing instead of reading it, and the
@@ -250,7 +261,7 @@ normalised title and price proximity, so it cannot fill the whole result.
 | Signal       | Weight | Definition                                                                                                    |
 | ------------ | ------ | ------------------------------------------------------------------------------------------------------------- |
 | Fit          | 0.30   | How much of the allowed footprint the piece uses. Far below it is penalised; above it was already eliminated. |
-| Style        | 0.30   | Overlap of `styleTerms` with title, tags and variant.                                                         |
+| Style        | 0.30   | Overlap of `styleTerms` and `miscellaneous` with title, tags and variant.                                     |
 | Colour       | 0.10   | OKLab proximity to the palette; unread colour is neutral.                                                     |
 | Price        | 0.15   | Rewards sensible use of the ceiling; below a fifth of it, penalised as an accessory.                          |
 | Completeness | 0.15   | `structured` dimensions beat `image` ones; known stock and real photographs beat unknowns.                    |
@@ -261,10 +272,11 @@ type dictionary that can block a new category.
 
 ## Fill to K
 
-Filtering to three candidates and then finding that none of them publish dimensions
-leaves the room with a hole. So the ranked list is walked, paying for a drawing only
-until **K = 3** candidates fit, with at most 3 vision reads per task. Skipping a candidate
-costs nothing.
+The ranked list is walked until the configured number of candidates fit, with at most
+three vision reads per task. The default target is **K = 1**. Offline callers can override
+the pipeline target; both Convex search actions cap their returned candidates at one.
+If no sized candidate survives, an unresolved candidate may be returned with unknown
+dimensions. Skipping a candidate costs no vision call.
 
 ## Modules
 
@@ -296,15 +308,16 @@ are covered without an API key. `tests/golden.test.ts` runs against snapshots ca
 from live retailer pages, including the parts that do not work yet, so a change in
 behaviour is visible.
 
-`bun run typecheck:shared` typechecks this code without a Convex deployment.
+`bun run typecheck:shared` uses `tsconfig.shared.json` to check shared code, offline
+tests, and their dependencies without generated Convex bindings or a deployment. The
+full frontend and backend still require `bun run typecheck` with generated bindings.
 
-One provider note: an image is passed to the model as a URL. A provider that does not
-declare URL support makes the SDK download the file first, so a hotlink-protected or
-missing image throws. That is caught per candidate and degrades to unknown dimensions
-rather than failing the search.
+The drawing reader downloads images itself, checks their MIME type and size, and passes
+bytes to the model. Unreadable images are skipped. If no image can be read, dimensions
+remain unknown; a failed model call is caught per candidate rather than failing the search.
 
 Live runs against four bedroom briefs — a lamp, a rug, a wardrobe, a print — are the
-working benchmark. The 2026-09-19 regression run returned 10 sized candidates out of 12
+historical benchmark with a target of three per task. The 2026-09-19 regression run returned 10 sized candidates out of 12
 and exposed two retrieval issues now covered by tests: one merchant could dominate after
 dimension checks, and indexed Amazon URLs could be dead for the user.
 
@@ -320,15 +333,15 @@ Both model calls default to `gpt-5.6-luna`, the house default for small, well-sc
 jobs; `RUMI_EXTRACTION_MODEL` and `RUMI_VISION_MODEL` override it per deployment. All of these are
 deployment environment variables, never `VITE_` variables.
 
-## Contract changes to agree with the main agent's owner
+## Current shared contract
 
-1. `measurementSchema` gains
+1. `measurementSchema` includes
    `evidence: { kind: "structured" | "spec-text" | "image" | "mixed" | "none", detail: string | null }`.
-2. `searchTaskSchema` gains `maxHeight` and `palette`.
+2. `searchTaskSchema` includes `maxHeight`, `palette`, and required `miscellaneous`.
 3. `searchTaskResultSchema` returns `candidates: RankedCandidate[]` in place of
-   `products`, and adds `category` and `query`. **This one is breaking**: a caller reading
+   `products`, with `category` and `query`. A caller still reading
    `.products` must move to `.candidates[].product`.
-4. `productSchema` gains `images: string[]`, the gallery, best first. `imageUrl` stays as
+4. `productSchema` includes `images: string[]`, the gallery, best first. `imageUrl` stays as
    its first entry so product cards do not change.
 
 ## Out of scope

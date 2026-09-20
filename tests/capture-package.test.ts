@@ -139,6 +139,9 @@ describe("single-scan package", () => {
         manifest.frames[0].width = 128;
       },
       ({ manifest }) => {
+        manifest.frames[0].fx = 1e308;
+      },
+      ({ manifest }) => {
         manifest.frames.push(structuredClone(manifest.frames[0]));
       },
       ({ manifest }) => {

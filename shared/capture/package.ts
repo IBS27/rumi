@@ -8,12 +8,13 @@ import {
 } from "./roomplan";
 
 export const MAX_PACKAGE_BYTES = 128 * 1024 * 1024;
+export const MAX_PHOTO_PIXELS = 800_000_000;
 const path = z
   .string()
   .max(100)
   .regex(/^[a-zA-Z0-9_-]+(?:\/[a-zA-Z0-9_-]+)*\.[a-z0-9]+$/);
 const positive = z.number().finite().positive();
-const size = z.number().int().min(1).max(1920);
+const size = z.number().int().min(1).max(4096);
 const boundedTransform = captureTransformSchema.refine(
   (matrix) => matrix.slice(12, 15).every((value) => Math.abs(value) <= 10_000),
   "Scan poses must be within 10 km of the tracking origin.",
@@ -56,7 +57,7 @@ export const captureManifestSchema = z.object({
         timestamp: z.number().finite().nonnegative(),
       }),
     )
-    .max(96),
+    .max(160),
   warnings: z.array(z.string().max(500)).max(20),
 });
 export type CaptureManifest = z.infer<typeof captureManifestSchema>;
@@ -176,9 +177,14 @@ export function readPackage(bytes: Uint8Array): CapturePackage {
   for (const frame of manifest.frames) {
     reference(frame.image, frame.depth, frame.confidence);
     photoPixels += frame.width * frame.height;
-    if (photoPixels > 72_000_000)
+    if (photoPixels > MAX_PHOTO_PIXELS)
       throw new Error("The scan contains too many photo pixels.");
-    if (frame.cx >= frame.width || frame.cy >= frame.height)
+    if (
+      frame.cx >= frame.width ||
+      frame.cy >= frame.height ||
+      frame.fx > frame.width * 20 ||
+      frame.fy > frame.height * 20
+    )
       throw new Error("Invalid camera calibration.");
     exact(frame.depth, frame.depthWidth * frame.depthHeight * 4);
     exact(frame.confidence, frame.depthWidth * frame.depthHeight);
@@ -187,7 +193,7 @@ export function readPackage(bytes: Uint8Array): CapturePackage {
     const jpeg = files[frame.image];
     if (
       !jpeg ||
-      jpeg.byteLength > 2 * 1024 * 1024 ||
+      jpeg.byteLength > 8 * 1024 * 1024 ||
       jpeg[0] !== 0xff ||
       jpeg[1] !== 0xd8
     )

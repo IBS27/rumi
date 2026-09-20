@@ -11,7 +11,7 @@
 - USD prices use integer cents. Product price is per instance; owned furniture costs zero in the new selection.
 - Product IDs identify one purchasable variant in the normalized catalog. Object IDs identify instances, allowing future multiple quantities. Asset IDs are independent.
 - Unknown product dimensions are `null` with source `unknown`. Never infer a physical fit from an unscaled image. Synthetic data is explicitly marked.
-- GLB assets use meters after applying their normalization scale/rotation. `ready` requires a URL; placeholders need no external asset. Geometry accuracy and availability are independent.
+- GLB assets use meters after applying their normalization scale/rotation. A `ready` asset requires either a URL or a validated parametric scene. Parametric scenes use normalized part coordinates and carry their physical dimensions in meters; placeholders need no external asset. Geometry accuracy and availability are independent.
 
 ## Boundaries
 
@@ -29,7 +29,11 @@ The first proposal operation is additions only. Define explicit move/remove oper
 
 The fixture adapter is synchronous. A live search implementation may return a promise of the same validated result and report progress separately. The renderer must not depend on a model provider or search API response format.
 
-The live path is two levels. `convex/agent.ts` runs the main agent, which plans the room and calls `convex/search.ts` (`searchProducts`, or `searchCategories` for several categories at once) with a `SearchTask` carrying hard constraints: `maxPriceCents`, `maxFootprint`, `maxHeight`, `styleTerms`, `palette`, and `excludeTags`. The search agent reads product pages, normalizes them into `ProductCandidate` records, enforces those constraints in code, and returns a `SearchTaskResult` of `RankedCandidate` entries — each a product with a score and its breakdown — plus `failures` explaining why the rest were dropped. Extracted dimensions are always `estimated`, never `confirmed`, and `measurement.evidence` records where each one came from: structured merchant data, a printed specification, a dimension drawing, or nothing. A product carries its gallery in `images`, with `imageUrl` as the first entry. Agent and search functions are internal. Public project and message functions require authenticated ownership; the room workspace chat calls them. See [the search agent](search-agent.md) for the pipeline and [agent integration](agent-integration.md) for API and migration details.
+The live path is two levels. `convex/agent.ts` plans the room and calls the internal `convex/search.ts` action `searchProducts` with a `SearchTask`. Hard constraints are `maxPriceCents`, `maxFootprint`, `maxHeight`, and `excludeTags`; `maxPriceCents: 0` means no price ceiling. `styleTerms`, `palette`, and required `miscellaneous` are soft preferences that influence retrieval and ranking. Use an empty `miscellaneous` array when there are no additional requested specifications.
+
+The search agent reads product pages, normalizes them into `ProductCandidate` records, and checks availability and hard constraints in code. The action returns a `SearchTaskResult` with at most one `RankedCandidate`, including its score breakdown, plus `failures` explaining extraction and filtering problems. The internal `searchCategories` action supports up to eight tasks with the same per-task limit, but is not currently exposed in the main agent's tool set.
+
+Extracted dimensions are always `estimated`, never `confirmed`, and `measurement.evidence` records their source: structured merchant data, a printed specification, a dimension drawing, or nothing. A product carries its gallery in `images`, with `imageUrl` as the first entry. Agent and search functions are internal. Public project and message functions require authenticated ownership; the room workspace chat calls them. See [the search agent](search-agent.md) for the pipeline and [agent integration](agent-integration.md) for API and migration details.
 
 ## Applying a result
 
@@ -38,6 +42,14 @@ The live path is two levels. `convex/agent.ts` runs the main agent, which plans 
 3. Validate proposal revision, product availability, exact variant dimensions, room bounds, collisions, doorway clearance, and budget.
 4. Apply atomically. Keep existing/locked objects unchanged.
 5. Render a placeholder immediately. Asset generation/loading is a separate job.
+
+The initial image-to-3D path creates an approximate parametric scene rather than an
+arbitrary triangle mesh. Astra reviews up to eight gallery photos, selects a dimension
+drawing plus distinct viewing angles when available, and sends only those selected four
+images into reconstruction. It describes visible parts using bounded boxes, cylinders,
+and spheres. The application owns the product's
+physical dimensions and scales the scene to them; the model cannot change the room
+footprint. See [image-to-3D assets](asset-generation.md).
 
 `shared/geometry` supplies deterministic validation and a simple placement scan. It is a starter, not an interior-design optimizer. Rug overlaps are allowed; a door uses a conservative square clearance. Electrical, installation, delivery-fit, and ergonomic checks remain future work.
 
@@ -49,4 +61,4 @@ The live path is two levels. `convex/agent.ts` runs the main agent, which plans 
 
 ## Detailed capture package
 
-The native-to-web `rumi.capture` v1 ZIP carries the unchanged final RoomPlan JSON, ARKit mesh buffers, JPEGs, camera calibration, depth, and confidence. `shared/capture/package.ts` validates it. [Surface capture](surface-capture.md) defines units, binary layouts, coordinate transforms, limits, local persistence, and the boundary between measured surfaces and editable furniture. This does not change the `RoomSnapshot` or the JSON-only QR upload contract.
+The native-to-web `rumi.capture` v1 ZIP carries the unchanged final RoomPlan JSON, ARKit mesh buffers, JPEGs, camera calibration, depth, and confidence. `shared/capture/package.ts` validates it. [Surface capture](surface-capture.md) defines units, binary layouts, coordinate transforms, limits, local persistence, and the boundary between measured surfaces and editable furniture. This does not change `RoomSnapshot`. The [pairing contract](room-capture-pairing.md#complete-scan-transfer) adds an optional direct-storage ZIP transfer alongside the original JSON endpoint.
