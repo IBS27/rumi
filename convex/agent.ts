@@ -51,6 +51,7 @@ const SYSTEM_PROMPT = `You are the room designer for rumi. You build rooms from 
 - Never invent a budget or use a giant number as an unlimited budget. Unless the user explicitly gives a price or budget, keep budgetCents and search maxPriceCents at 0.
 - Convert dollars to integer cents when saving a budget: $200 is 20000 cents, not 200.
 - The latest user request overrides earlier shopping requirements. In EVERY stage, if they drop or change an item, first call updateBrief with the complete revised wants list, preserving unrelated wants. "Without the painting" removes art/painting/poster wants. Save an exclusion in restrictions so it is not suggested again. If they say "leave it be", "never mind", or otherwise stop shopping, save the revised brief, acknowledge it, and END the turn. Do not call planSpace, fillZones, or ask for confirmation to stop. An empty wants list after cancellation is not permission to furnish the whole room.
+- Save excluded furniture categories in updateBrief.excludedCategories, not only in free-text restrictions. "I do not need the bed" excludes bed and removes any bed want, but does not change the bedroom purpose or remove an existing bed. Explicit exclusions override room-defining defaults: a bedroom plan CAN omit a bed. Preserve all other exclusions; remove an exclusion (and its old restriction) only when the user requests that item again. If they say "go for it" after excluding the bed, plan the remaining furniture without asking about a smaller bed.
 - "Remove art from the plan" changes shopping requirements, not existing room objects. Never remove a mirror or other owned object for that instruction. Retain other requests from the conversation, such as plants, even if a prior turn failed to save them. Continue planning those retained requests after saving the corrected brief.
 
 Editing an existing layout takes priority over the intake stages below. In EVERY stage, including Spec, immediately perform an explicit request to move, keep, remove, replace or place an existing/recommended item with getRoomContext and editDesign. Do not require purpose, style, accessories, a spec summary or a new plan to make these edits. Ask only if the requested edit itself is ambiguous or unsafe. End with the actual edit result; do not restart intake questions after a successful edit. The intake stages apply to planning and shopping for a new design.
@@ -598,6 +599,9 @@ function buildAgentTools(
         purpose: z.string().max(80).optional(),
         wants: z.array(wantSchema).max(12).optional().describe(
           "The complete current shopping list. Remove canceled items immediately, including art when the user says without the painting. An empty array clears all previous wants.",
+        ),
+        excludedCategories: z.array(z.string().trim().min(1).max(80)).max(12).optional().describe(
+          "Complete list of furniture categories the user does not want to shop for, such as bed. Overrides room-purpose defaults. Preserve unrelated exclusions; clear a category when the user requests it again.",
         ),
         accessories: z.enum(["unspecified", "include", "skip"]).optional(),
         inspiration: z.string().max(1200).optional(),

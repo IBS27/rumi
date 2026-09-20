@@ -16,7 +16,8 @@ import { selectionTotal } from "../budget";
 import { colorFromWords } from "../search/color";
 import { buildSpaceModel, type SpaceModel } from "./space";
 import {
-  definingPieceForPurpose,
+  categoryIsExcluded,
+  requiredDefiningPiece,
   isAccessoryMount,
   matchesDefiningPiece,
   planScope,
@@ -30,6 +31,7 @@ export {
   MAX_ZONES,
   SPACING_FACTOR,
   definingPieceForPurpose,
+  requiredDefiningPiece,
   describeScope,
   matchesDefiningPiece,
   planScope,
@@ -158,7 +160,10 @@ export function buildDesignPlan({
     .filter((object) => object.owned || object.locked)
     .map((object) => object.category.toLowerCase());
   const scope = planScope(brief);
-  const definingPiece = definingPieceForPurpose(brief.purpose);
+  const excludedZone = parsed.zones.find((zone) => categoryIsExcluded(zone.category, scope.excluded));
+  if (excludedZone)
+    throw new Error(`The user excluded ${excludedZone.category}. Remove it and plan only the remaining allowed furniture; do not ask to add it back.`);
+  const definingPiece = requiredDefiningPiece(brief);
   const definingPiecePresent =
     definingPiece !== null &&
     room.objects.some((object) =>

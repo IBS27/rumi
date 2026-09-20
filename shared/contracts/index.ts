@@ -207,6 +207,9 @@ export const briefSchema = z.object({
   purpose: z.string().max(80).default(""),
   // Empty means the user left item choice to the planner.
   wants: z.array(wantSchema).max(12).default([]),
+  // Explicit shopping exclusions override room-purpose defaults. They do not
+  // authorize removal of existing furniture. Optional for older saved briefs.
+  excludedCategories: z.array(z.string().trim().min(1).max(80)).max(12).optional(),
   // Whether the user asked for accessories (art, rugs, lamps) or ruled them out.
   accessories: z
     .enum(["unspecified", "include", "skip"])

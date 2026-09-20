@@ -10,6 +10,7 @@ import type { DesignBrief, Spacing, ZoneMount } from "../contracts";
 export interface PlanScope {
   mode: "delegated" | "directed";
   required: string[];
+  excluded: string[];
   maxExtraFurniture: number;
   accessories: DesignBrief["accessories"];
   maxZones: number;
@@ -22,9 +23,7 @@ export interface DefiningPiece {
   aliases: string[];
 }
 
-// A delegated plan still has a non-negotiable functional anchor. This is kept
-// deliberately narrow: it prevents a bedroom without a bed without imposing a
-// complete product taxonomy on the planner.
+// Default anchor for delegated furnishing, subordinate to the user's scope.
 export function definingPieceForPurpose(purpose: string): DefiningPiece | null {
   const value = purpose.toLowerCase();
   if (/bedroom|guest room|primary room|master room/.test(value))
@@ -44,12 +43,49 @@ export function matchesDefiningPiece(piece: DefiningPiece, category: string): bo
   return piece.aliases.some((alias) => sameCategory(alias, category));
 }
 
+export function excludedCategoriesForBrief(brief: DesignBrief): string[] {
+  const excluded = [...(brief.excludedCategories ?? [])];
+  // Compatibility for existing conversations that stored "No bed" only as
+  // a restriction. Match complete exclusion statements, not constraints such
+  // as "no bed wider than 2 m" or "no bed bugs".
+  const piece = definingPieceForPurpose(brief.purpose);
+  if (piece && brief.restrictions.some((restriction) => {
+    const value = restriction.toLowerCase().trim().replace(/[.!]+$/, "");
+    return piece.aliases.some((alias) => new RegExp(
+      `^(?:(?:i )?(?:do not|don't) (?:need|want|include)|no|without|exclude|skip) (?:a |an |the |any |new )?${alias}s?$`,
+    ).test(value));
+  })) excluded.push(piece.category);
+  return [...new Set(excluded)];
+}
+
+export function categoryIsExcluded(category: string, excluded: string[]): boolean {
+  // Apply default-piece aliases too (e.g. excluding bed excludes daybed).
+  const pieces = ["bedroom", "living room", "dining room", "office", "nursery"]
+    .map(definingPieceForPurpose).filter((piece): piece is DefiningPiece => piece !== null);
+  return excluded.some((item) => sameCategory(item, category) || pieces.some(
+    (piece) => matchesDefiningPiece(piece, item) && matchesDefiningPiece(piece, category),
+  ));
+}
+
+export function requiredDefiningPiece(brief: DesignBrief): DefiningPiece | null {
+  const piece = definingPieceForPurpose(brief.purpose);
+  if (!piece || categoryIsExcluded(piece.category, excludedCategoriesForBrief(brief)))
+    return null;
+  // A specific shopping list is not a request to furnish the whole room.
+  if (brief.wants.length && !brief.wants.some((want) => matchesDefiningPiece(piece, want.category)))
+    return null;
+  return piece;
+}
+
 export function planScope(brief: DesignBrief): PlanScope {
-  const required = brief.wants.map((want) => want.category);
-  const delegated = required.length === 0;
+  const excluded = excludedCategoriesForBrief(brief);
+  const required = brief.wants.map((want) => want.category)
+    .filter((category) => !categoryIsExcluded(category, excluded));
+  const delegated = brief.wants.length === 0;
   return {
     mode: delegated ? "delegated" : "directed",
     required,
+    excluded,
     maxExtraFurniture: delegated ? MAX_ZONES : 1,
     accessories: brief.accessories,
     maxZones: MAX_ZONES,
@@ -97,15 +133,20 @@ export function describeScope(
   const defining = missingDefiningPiece
     ? `The room is missing its defining ${missingDefiningPiece.category}. It MUST be a priority-1 zone; reserve it before secondary furniture.`
     : "";
+  const exclusions = scope.excluded.length
+    ? `Do not plan or search these excluded furniture categories (including equivalents): ${scope.excluded.join(", ")}. User exclusions override room-purpose defaults; do not insist on an excluded anchor.`
+    : "";
   if (scope.mode === "delegated")
     return [
       defining,
-      `The user has not listed items. Choose the furniture ${room} needs for its purpose and style, sized to the free floor space. Start with the piece that defines the room, then what makes it usable (storage, a surface, seating), then comfort and light. A furnished room usually has 4 to 6 floor pieces plus accessories; propose the full set the purpose calls for and let the code drop what does not fit, rather than leaving obvious needs out. Clearances may share walkways, so pieces can sit closer than their clearances suggest.`,
+      exclusions,
+      `The user has not listed items. Choose the non-excluded furniture ${room} needs for its purpose and style, sized to the free floor space. Start with the most useful allowed piece, then storage, surfaces, seating, comfort and light as needed. A furnished room usually has 4 to 6 floor pieces plus accessories, but exclusions and existing furniture reduce what is needed. Clearances may share walkways, so pieces can sit closer than their clearances suggest.`,
       spacing,
       accessories,
     ].join(" ");
   return [
     defining,
+    exclusions,
     `Items the user asked for, each of which MUST get its own zone with a matching category: ${scope.required.join(", ")}.`,
     scope.maxExtraFurniture > 0
       ? `You may add at most ${scope.maxExtraFurniture} extra floor piece that ${room} clearly needs.`

@@ -18,7 +18,7 @@ import {
 import {
   buildDesignPlan,
   buildSpaceModel,
-  definingPieceForPurpose,
+  requiredDefiningPiece,
   describeScope,
   matchesDefiningPiece,
   planScope,
@@ -71,7 +71,7 @@ export async function proposeZones(
   const occupied = room.objects
     .filter((object) => object.owned || object.locked)
     .map((object) => object.category);
-  const definingPiece = definingPieceForPurpose(brief.purpose);
+  const definingPiece = requiredDefiningPiece(brief);
   const missingDefiningPiece =
     definingPiece &&
     !room.objects.some((object) =>
@@ -112,7 +112,7 @@ export async function proposeZones(
       "Never output coordinates. Code reserves the exact position, applies clearance margins, and rejects zones that do not fit.",
       "One zone per category. Avoid unsolicited duplicates of owned or locked furniture, but ALWAYS include items the user explicitly requested, even when the room already contains that broad category. A scan's art category may be a vanity mirror; it does not satisfy a request for paintings or posters. Preserve existing objects and let geometry decide whether an additional item fits.",
       "Use relatedObjectId with the exact id of an existing object when a zone belongs beside it, for example a lamp beside a bed.",
-      "Beds use real mattress footprints: king about 1.93 × 2.03 m, queen 1.52 × 2.03 m, full 1.37 × 1.91 m, twin 0.99 × 1.91 m. Unless the user named a size, propose the largest reasonable maximum; code will try smaller standard sizes if needed. Never invent a proportionally shortened bed.",
+      "Reserve the OUTER BED FRAME, not just its mattress: approximate compact frame envelopes are king 2.05 × 2.20 m, queen 1.65 × 2.15 m, full 1.50 × 2.05 m, twin 1.10 × 2.05 m. Upholstered or bulky frames can need more. The reserved footprint becomes a hard search ceiling; mattress-only dimensions can exclude real beds. Unless the user named a size, propose the largest reasonable maximum; code will try smaller standard frame envelopes if needed. Never invent a proportionally shortened bed.",
       "Priority 1 is the piece that defines the room. Accents come last.",
       "Put the user's material, feature, or usage requirements into miscellaneous as short phrases.",
     ].join("\n"),

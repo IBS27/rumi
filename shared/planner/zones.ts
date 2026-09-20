@@ -34,10 +34,13 @@ interface FootprintOption {
 }
 
 const BED_SIZES: { sizeName: string; width: number; depth: number }[] = [
-  { sizeName: "king", width: 1.93, depth: 2.03 },
-  { sizeName: "queen", width: 1.52, depth: 2.03 },
-  { sizeName: "full", width: 1.37, depth: 1.91 },
-  { sizeName: "twin", width: 0.99, depth: 1.91 },
+  // Approximate compact FRAME envelopes, not bare mattress dimensions.
+  // These become hard product-search ceilings; actual merchant dimensions
+  // still have to fit, and bulkier frames may need a larger reservation.
+  { sizeName: "king", width: 2.05, depth: 2.2 },
+  { sizeName: "queen", width: 1.65, depth: 2.15 },
+  { sizeName: "full", width: 1.5, depth: 2.05 },
+  { sizeName: "twin", width: 1.1, depth: 2.05 },
 ];
 
 function isBed(category: string): boolean {
@@ -46,7 +49,7 @@ function isBed(category: string): boolean {
 
 function bedSizeName(width: number): string {
   if (width >= 1.75) return "king";
-  if (width >= 1.47) return "queen";
+  if (width >= 1.52) return "queen";
   if (width >= 1.2) return "full";
   return "twin";
 }
@@ -252,6 +255,37 @@ function candidatePositions(
   const sideInset = width / 2 + margins.sides + 0.02;
   const steps = 24;
   const walls = () => {
+    // The scan's X/Z bounds are not its walls. Follow the measured floor
+    // edges, including inset/rotated edges, and try both normals (the full
+    // polygon fit check chooses the inward one, even in concave rooms).
+    for (const floor of model.shape === "polygon" ? model.floor : []) {
+      for (let edge = 0; edge < floor.length; edge++) {
+        const start = floor[edge];
+        const end = floor[(edge + 1) % floor.length];
+        const length = Math.hypot(end.x - start.x, end.z - start.z);
+        if (length < width + 2 * POSITION_ROUNDING_PAD) continue;
+        const dx = (end.x - start.x) / length;
+        const dz = (end.z - start.z) / length;
+        const alongInset = width / 2 + POSITION_ROUNDING_PAD;
+        const span = length - 2 * alongInset;
+        const samples = Math.max(1, Math.ceil(span / 0.1));
+        for (const side of [-1, 1]) {
+          const nx = -dz * side, nz = dx * side;
+          // A shallow wall fitting can prevent flush placement without
+          // preventing furniture a little further into the room.
+          for (const offset of [0, 0.1, 0.2, 0.3]) {
+            for (let i = 0; i <= samples; i++) {
+              const along = alongInset + span * i / samples;
+              push(
+                start.x + dx * along + nx * (wallInset + offset),
+                start.z + dz * along + nz * (wallInset + offset),
+                Math.atan2(nx, nz),
+              );
+            }
+          }
+        }
+      }
+    }
     for (let i = 0; i <= steps; i++) {
       const t = i / steps;
       const x = minX + sideInset + t * Math.max(0, roomWidth - 2 * sideInset);
@@ -386,8 +420,10 @@ function fits(
       obstacle.category !== "rug" && ringsOverlap(ring, obstacle.footprint),
   );
   if (blocking) return `overlaps ${blocking.name}`;
+  // A bedside/foot walkway may share the doorway's empty walking space.
+  // Only furniture bodies block it, as in final designPlacementIssue checks.
   const clearance = model.clearances.find((zone) =>
-    ringsOverlap(ring, zone.footprint),
+    ringsOverlap(body, zone.footprint),
   );
   if (clearance) return clearance.reason;
   for (const other of reserved) {
@@ -641,7 +677,7 @@ export function reserveZones(
     const issues = new Map<string, number>();
     let lastIssue = "no free floor space";
     outer: for (const option of footprintOptions(request)) {
-      const { width, depth } = option;
+      const width = cm(option.width), depth = cm(option.depth);
       for (const candidate of candidatePositions(
         model,
         request,
@@ -651,6 +687,8 @@ export function reserveZones(
         zones,
         placementHint,
       )) {
+        // Validate exactly the coordinates that will be persisted/searched.
+        candidate.position = { x: cm(candidate.position.x), z: cm(candidate.position.z) };
         const ring = reservationRing(
           candidate.position,
           width,

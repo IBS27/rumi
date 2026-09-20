@@ -54,6 +54,22 @@ describe("spec status", () => {
     );
   });
 
+  it("does not force planning before exclusions, revised wants, or cancellation are saved", () => {
+    const failed = "The bed couldn't fit because of space constraints.";
+    for (const message of [
+      "i do not need the bed", "I don't want a bed", "Start planning without a bed",
+      "no", "stop planning", "Add a desk instead", "I only want storage",
+    ]) expect(shouldForcePlanSpace("plan", message, failed)).toBe(false);
+    expect(shouldForcePlanSpace("plan", "no go for it", failed)).toBe(true);
+    expect(shouldForcePlanSpace("plan", "try a smaller bed", failed)).toBe(true);
+  });
+
+  it("shows saved furniture exclusions in the brief summary", () => {
+    expect(specSummaryText({ ...empty(), excludedCategories: ["bed"] }))
+      .toContain("Do not shop for: bed");
+    expect(briefSchema.parse(empty()).excludedCategories).toBeUndefined();
+  });
+
   it("starts with nothing decided and lists the topics in asking order", () => {
     const status = specStatus(empty());
     expect(status.decided).toEqual([]);

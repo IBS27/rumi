@@ -4,6 +4,12 @@
 
 `shared/contracts/index.ts` is the authority. All runtime inputs pass through its Zod schemas; TypeScript types are inferred from those schemas.
 
+`DesignBrief.excludedCategories` optionally lists furniture the user does not want
+to shop for. Missing means no structured exclusions (older saved briefs remain
+valid). Exclusions override room-purpose defaults and conflicting wants; they
+never authorize deleting existing objects. The agent updates the complete list
+when preferences change, and clears an exclusion when that item is requested again.
+
 - Meters; right-handed, Y-up coordinates. Rectangular fixtures use a northwest floor origin, +X east and +Z south. Captures preserve the scan's axis orientation and translate the minimum X/Z bounds and lowest floor elevation to zero. Object position is its local base center, not its geometric center; for tilted objects this point includes the full object rotation.
 - Width is X, height is Y, depth is Z. Rotation is radians. The rectangular placement validator supports yaw around Y and rejects pitch/roll. Captured furniture retains all three rotation axes for rendering.
 - Polygon captures retain surface polygons and column-major local-to-room matrices. Their room dimensions are overall bounds; floors may be absent. Original scan JSON is retained independently of user corrections. Furniture placement is checked against measured floor polygons, including concavities and gaps, walls, object overlap and conservative doorway clearances. Missing floors remain explicitly unverified.
