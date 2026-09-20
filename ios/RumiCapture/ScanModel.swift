@@ -18,6 +18,8 @@ final class ScanModel: ObservableObject {
     @Published private(set) var isPreparingSurface = false
     @Published private(set) var surfaceMessage: String?
     @Published private(set) var hasSurfacePackage = false
+    @Published private(set) var photoCount = 0
+    @Published private(set) var photoGuidance = "Move slowly. Photos are captured automatically."
 
     private(set) var controller: RoomScanViewController?
     private let store: RoomFileStore
@@ -76,7 +78,13 @@ final class ScanModel: ObservableObject {
                 return
             }
             guard self.lifecycle.authorize(id, supported: true, cameraAllowed: allowed) else { return }
+            self.photoCount = 0
+            self.photoGuidance = "Move slowly. Photos are captured automatically."
             let capture = RoomScanViewController()
+            capture.onPhotoProgress = { [weak self] count, message in
+                self?.photoCount = count
+                self?.photoGuidance = message
+            }
             capture.onStarted = { [weak self] in self?.lifecycle.didStart(id) }
             capture.onProcessing = { [weak self] in self?.beginProcessing(id) }
             capture.onCompleted = { [weak self] room in self?.complete(room, id: id) }
@@ -131,7 +139,7 @@ final class ScanModel: ObservableObject {
                     case .success(let url):
                         self.packageURL = url
                         self.hasSurfacePackage = true
-                        self.surfaceMessage = "Detailed surfaces and photos are saved. Import the scan ZIP in Rumi to view the textured room. The preview above shows the RoomPlan layout."
+                        self.surfaceMessage = "Detailed scan saved. Send to Rumi to open the captured surfaces and available photos. The preview above shows the RoomPlan layout."
                     case .failure(let error):
                         self.surfaceMessage = "Detailed capture could not be prepared: \(error.localizedDescription) Your room layout is retained."
                     }
@@ -166,6 +174,14 @@ final class ScanModel: ObservableObject {
         } catch {
             exportMessage = "Could not save JSON: \(error.localizedDescription) Your scan is still in memory. Tap Export JSON to retry before closing the app."
         }
+    }
+
+    func completedScanFile() throws -> URL {
+        guard lifecycle.phase == .completed, !isPreparingSurface, hasSurfacePackage,
+              let packageURL, FileManager.default.isReadableFile(atPath: packageURL.path) else {
+            throw CaptureError.detailedUnavailable
+        }
+        return packageURL
     }
 
     func completedBytes() throws -> Data {

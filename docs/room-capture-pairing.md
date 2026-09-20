@@ -4,7 +4,7 @@ This is the version 1 integration contract implemented in this branch. The QR se
 
 ## Native app responsibilities
 
-The native app keeps the JSON export/share workflow and provides an in-app **Connect to Rumi** QR scanner and a **Send to Rumi** action for a completed RoomPlan scan. Use Apple's camera APIs for QR recognition; a universal link or App Store release is not required. Never send an unfinished capture.
+The native app keeps the JSON export/share workflow and provides an in-app **Connect to Rumi** QR scanner and a **Send to Rumi** action for a completed detailed scan. It uploads the original ZIP with layout, mesh, photos, depth, and confidence. **Send layout only** is an explicit fallback when detailed capture is unavailable. Use Apple's camera APIs for QR recognition; a universal link or App Store release is not required. Never send an unfinished capture.
 
 The web app creates a capture session belonging to its authenticated user and displays this JSON as the QR payload:
 
@@ -38,13 +38,16 @@ The server atomically consumes the pairing token. The same token and claim ID ca
   "sessionId": "<opaque-session-id>",
   "uploadToken": "<session-scoped-secret>",
   "expiresAt": "2026-09-19T21:00:00.000Z",
-  "maxBytes": 10485760
+  "maxBytes": 10485760,
+  "maxScanBytes": 134217728
 }
 ```
 
 The pairing token expires after 10 minutes. The upload token expires 60 minutes after pairing, permits one room upload, and grants no room reads or unrelated writes. Server time is authoritative. Keep upload credentials in memory; reconnect if the app restarts.
 
-### Send the completed room
+### Send layout only, legacy endpoint
+
+New phones use the complete-scan flow below by default. This endpoint remains for older phones and the explicit layout-only fallback.
 
 `POST {baseUrl}/capture/v1/room?sessionId=<URL-encoded-session-id>`
 
@@ -101,3 +104,25 @@ Sync the updated `convex/captures.ts` to the owner's deployment before testing t
 ## Testing the handoff
 
 Native development can use a mocked transport conforming to this contract, explicitly labeled as a simulation. Keep real JSON export available. End-to-end verification requires a deployed backend, an authenticated browser session, and a physical phone. Exercise expired QR codes, simultaneous claims, canceled sessions, interrupted uploads, idempotent retries, and unauthorized file access.
+
+## Complete scan transfer
+
+If a downloaded scan fails browser import, **Try again** retries the same file.
+**Start a new transfer** creates a fresh pairing code so a corrected scan can be
+sent without reloading. Closing and reopening the dialog still preserves a
+pending download. Replaced uploads retain the existing expiry cleanup policy.
+
+The claim response advertises `maxScanBytes: 134217728` alongside the legacy JSON limit. Older phones ignore the added field and keep using `/capture/v1/room`. A new phone refuses to silently downgrade a complete scan if the server lacks this capability.
+
+1. The phone hashes its saved ZIP on a background task and retains its file URL and UUID idempotency key. It sends `POST /capture/v1/scan/start` with the upload bearer token and JSON `{ sessionId, idempotencyKey, digest, size }`. `digest` is the Base64 SHA-256 of the exact ZIP bytes. The maximum is 128 MiB.
+2. The server reserves those immutable values and returns `{ uploaded, uploadUrl, storageId, contentType }`. An accepted retry returns `uploaded: true`. An attached but unfinished file returns `storageId` so the phone can resume validation. Otherwise the phone posts the file directly to the returned Convex storage URL using the returned `contentType`, `application/zip; rumi-session=<sessionId>`. The non-secret MIME parameter lets expiry cleanup find uploads even if their storage-ID response is lost. It uses a disk upload with progress, refuses redirects, and only accepts the paired deployment's `.convex.cloud` storage-upload path. The bearer token is never sent to that URL.
+3. The phone retains the storage response's `storageId` and sends `POST /capture/v1/scan/complete` with the upload bearer token and JSON `{ sessionId, idempotencyKey, storageId }`. The server checks expiration, reserved digest and size, creation time, and exclusive file association before reading the file. An internal Node action validates the whole package with the same validator as the browser. Only valid packages become `uploaded`.
+4. The authenticated browser subscription includes `format: "zip"` and the file URL. The browser downloads with size limits and progress, awaits the existing import worker, saves the original ZIP in IndexedDB, and opens captured surfaces. Import errors remain retryable; a download alone is not reported as success. JSON transfers retain `format: "json"`.
+
+Control requests retry network failures, 429, and 5xx up to three attempts. A disk-upload failure retains the file and key for a manual retry. Retrying confirmation after a successful storage response does not upload the file again. The complete operation rechecks cancellation and expiration before committing. There are at most twenty upload URL requests and twenty validation attempts per session. Registered unfinished files, accepted files, and tagged uploads whose response was lost expire after 24 hours. Cleanup scans storage metadata within the session’s possible upload window in bounded pages and deletes only files carrying that session’s tag, plus its explicitly registered files.
+
+### Rollout and verification
+
+Deploy the updated schema, `captures.ts`, `capturePackages.ts`, and `http.ts` together on the owner's development deployment, then ship the web frontend and install the updated iPhone app. All new table fields are optional; existing sessions remain valid and old phone JSON transfers remain supported. These changes have not been deployed by this task.
+
+Local verification covers authenticated ZIP completion, unchanged source bytes, confirmation retries, content substitution, invalid packages, cancellation, expiration, legacy JSON, and bounded browser download. Browser verification uses a clearly labeled synthetic phone handoff through the real download/import functions, then reload, furniture edit, and ZIP download. The Swift transport tests cover disk upload, storage-origin validation, and confirmation retries, but require Xcode to execute. A physical phone transfer against the updated backend remains required.
