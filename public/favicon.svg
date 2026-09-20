@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="rumi">
+  <rect width="32" height="32" rx="7.5" fill="#1e6b63"/>
+  <path transform="translate(6.658 26.500) scale(0.03925 -0.03925)" fill="#f7f6f2" d="M71 0V262V523H177L175 343H193Q202 407 221.0 449.5Q240 492 274.0 513.5Q308 535 358 535Q368 535 379.5 534.0Q391 533 405 529L400 396Q384 402 367.5 404.5Q351 407 337 407Q298 407 269.5 387.0Q241 367 223.5 330.5Q206 294 197 244V0Z"/>
+</svg>
