@@ -110,5 +110,18 @@ export default defineSchema({
     digest: v.optional(v.string()),
     idempotencyKey: v.optional(v.string()),
     uploadAttempts: v.number(),
-  }).index("by_ownerId", ["ownerId"]),
+    format: v.optional(v.union(v.literal("json"), v.literal("zip"))),
+    scanUpload: v.optional(
+      v.object({
+        idempotencyKey: v.string(),
+        digest: v.string(),
+        size: v.number(),
+        startedAt: v.number(),
+      }),
+    ),
+    scanValidationAttempts: v.optional(v.number()),
+    scanStorageId: v.optional(v.id("_storage")),
+  })
+    .index("by_ownerId", ["ownerId"])
+    .index("by_scanStorageId", ["scanStorageId"]),
 });

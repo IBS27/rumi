@@ -10,6 +10,7 @@ import { QRCodeSVG } from "qrcode.react";
 import { api } from "../../../convex/_generated/api";
 import type { FunctionReturnType } from "convex/server";
 import { Button, Dialog, Heading, Muted } from "../../ui";
+import { downloadCapture } from "./downloadCapture";
 
 type Pairing = FunctionReturnType<typeof api.captures.create>;
 
@@ -19,14 +20,14 @@ function countdown(ms: number) {
 }
 
 /**
- * Pairs an iPhone with this session and hands back the uploaded room text.
+ * Pairs an iPhone with this session and imports the uploaded layout or complete scan.
  * `children` renders the trigger and receives `open`.
  */
 export function PhoneCapture({
   onReceive,
   children,
 }: {
-  onReceive: (text: string) => void;
+  onReceive: (file: File, signal?: AbortSignal) => Promise<void>;
   children: (open: () => void, busy: boolean) => ReactNode;
 }) {
   const create = useAction(api.captures.create);
@@ -35,9 +36,11 @@ export function PhoneCapture({
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [received, setReceived] = useState(false);
+  const [loading, setLoading] = useState("");
   const [retry, setRetry] = useState(0);
   const [now, setNow] = useState(Date.now);
   const dialog = useRef<HTMLDialogElement>(null);
+  const changingSession = useRef(false);
   const session = useQuery(
     api.captures.get,
     pairing ? { sessionId: pairing.sessionId } : "skip",
@@ -55,9 +58,22 @@ export function PhoneCapture({
       .then(async (response) => {
         if (!response.ok)
           throw new Error("The uploaded room could not be downloaded.");
-        const text = await response.text();
+        const file = await downloadCapture(
+          response,
+          session.format,
+          abort.signal,
+          (bytes, total) => {
+            setLoading(
+              total
+                ? `Receiving scan… ${Math.round((bytes / total) * 100)}%`
+                : "Receiving scan…",
+            );
+          },
+        );
         if (!abort.signal.aborted) {
-          receive(text);
+          setLoading("Preparing captured surfaces and photos…");
+          await receive(file, abort.signal);
+          if (abort.signal.aborted) return;
           setReceived(true);
           setError("");
         }
@@ -69,7 +85,7 @@ export function PhoneCapture({
           );
       });
     return () => abort.abort();
-  }, [session?.fileUrl, retry]);
+  }, [session?.fileUrl, session?.format, retry]);
   const [isOpen, setIsOpen] = useState(false);
   useEffect(() => {
     const node = dialog.current;
@@ -77,11 +93,15 @@ export function PhoneCapture({
     if (isOpen && !node.open) node.showModal();
     if (!isOpen && node.open) node.close();
   }, [isOpen]);
-  async function start() {
+  async function start(replaceFailedTransfer = false) {
+    if (changingSession.current) return;
     setIsOpen(true);
     // Reopening an accepted scan must preserve its download or retry state.
-    if (session?.state === "uploaded" && !received) return;
+    if (session?.state === "uploaded" && !received && !replaceFailedTransfer)
+      return;
+    changingSession.current = true;
     setError("");
+    setLoading("");
     setBusy(true);
     setReceived(false);
     try {
@@ -94,6 +114,7 @@ export function PhoneCapture({
         "Could not connect to the capture service. Check your connection and try again.",
       );
     } finally {
+      changingSession.current = false;
       setBusy(false);
     }
   }
@@ -102,21 +123,30 @@ export function PhoneCapture({
     void start();
   };
   async function close() {
-    if (busy) return;
-    if (pairing && session?.state !== "uploaded") {
-      try {
-        await cancel({ sessionId: pairing.sessionId });
-      } catch {
-        /* An unrevoked token still expires automatically. */
+    if (changingSession.current) return;
+    changingSession.current = true;
+    setBusy(true);
+    try {
+      if (pairing && session?.state !== "uploaded") {
+        try {
+          await cancel({ sessionId: pairing.sessionId });
+        } catch {
+          /* An unrevoked token still expires automatically. */
+        }
       }
+      setIsOpen(false);
+      // Keep watching until delivery succeeds: closing may race an upload that
+      // the subscription has not reported yet. Cancel preserves accepted rooms.
+      if (received) {
+        setPairing(null);
+        setError("");
+      }
+    } finally {
+      changingSession.current = false;
+      setBusy(false);
     }
-    setIsOpen(false);
-    // The accepted upload still belongs to this workspace after dismissal.
-    // Keep its query alive until delivery succeeds, including on retry.
-    if (session?.state === "uploaded" && !received) return;
-    setPairing(null);
-    setError("");
   }
+
   const expiresAt =
     session?.expiresAt ?? (pairing ? Date.parse(pairing.expiresAt) : 0);
   const expired = pairing && now >= expiresAt && session?.state !== "uploaded";
@@ -125,11 +155,14 @@ export function PhoneCapture({
   const waiting = pairing && session?.state === "waiting" && !expired;
   return (
     <>
+      {/* The render prop attaches open to a click handler; it does not call it. */}
+      {/* eslint-disable-next-line react-hooks/refs */}
       {children(open, busy)}
       <Dialog
         ref={dialog}
+        aria-label="Pair your iPhone"
         onClose={() => {
-          void close();
+          if (isOpen) void close();
         }}
         closeDisabled={busy}
         onCancel={(event) => {
@@ -155,25 +188,26 @@ export function PhoneCapture({
               </Button>
             </>
           ) : waiting ? (
-            <div className="grid grid-cols-[164px_1fr] items-center gap-4 rounded-[14px] bg-blue p-4">
-              <div className="rounded-tile bg-white p-2.5">
+            <div className="grid justify-items-center gap-4 rounded-tile bg-blue p-4">
+              <div className="w-full max-w-64 rounded-tile bg-white p-3">
                 <QRCodeSVG
                   value={JSON.stringify(pairing)}
-                  size={144}
-                  marginSize={0}
+                  size={256}
+                  marginSize={4}
                   level="M"
                   className="block h-auto w-full"
                   title="Pair your iPhone with this Rumi session"
                 />
               </div>
-              <div className="text-[#34424d]">
+              <div className="text-ink">
                 <p>
-                  Open Rumi on your iPhone and scan this code, then choose{" "}
-                  <strong>Connect to Rumi</strong>.
+                  Open <strong>Rumi Capture</strong> on your iPhone, tap{" "}
+                  <strong>Connect to Rumi</strong>, and scan this code. Confirm
+                  the connection, then scan your room.
                 </p>
-                <p className="mt-2 text-xs text-[#5b6a75]">
+                <p className="mt-2 text-xs text-mute">
                   Code expires in{" "}
-                  <b className="font-semibold text-[#2e4656] tabular-nums">
+                  <b className="font-semibold text-ink tabular-nums">
                     {countdown(expiresAt - now)}
                   </b>
                 </p>
@@ -190,10 +224,10 @@ export function PhoneCapture({
           ) : pairing ? (
             <p role="status">
               {session?.state === "uploaded"
-                ? "Loading your room…"
+                ? loading || "Receiving your scan…"
                 : session === undefined
                   ? "Connecting…"
-                  : "Phone connected. Finish your scan and tap Send to Rumi."}
+                  : "Phone connected. Finish Scan on your iPhone, review the room, then tap Send to Rumi to transfer the complete scan. Keep this window open."}
             </p>
           ) : null}
           {error && (
@@ -210,10 +244,22 @@ export function PhoneCapture({
               >
                 Try again
               </Button>
+              {session?.state === "uploaded" && !received && (
+                <Button
+                  variant="quiet"
+                  className="justify-self-start"
+                  onClick={() => {
+                    void start(true);
+                  }}
+                >
+                  Start a new transfer
+                </Button>
+              )}
             </>
           )}
           <Muted className="text-xs">
-            Only this capture session is shared with your phone.
+            Requires Rumi Capture on a LiDAR-equipped iPhone. Only this capture
+            session is shared with your phone.
           </Muted>
         </div>
       </Dialog>

@@ -15,10 +15,16 @@ final class ScanModel: ObservableObject {
     @Published var alertMessage: String?
     @Published var shareFile: ShareFile?
     @Published private(set) var isSharing = false
+    @Published private(set) var isPreparingSurface = false
+    @Published private(set) var surfaceMessage: String?
+    @Published private(set) var hasSurfacePackage = false
+    @Published private(set) var photoCount = 0
+    @Published private(set) var photoGuidance = "Move slowly. Photos are captured automatically."
 
     private(set) var controller: RoomScanViewController?
     private let store: RoomFileStore
     private var savedURL: URL?
+    private var packageURL: URL?
     private var hasUnreadableSave = false
     private var processingTimeout: Task<Void, Never>?
 
@@ -38,6 +44,11 @@ final class ScanModel: ObservableObject {
             if let url = try store.currentFile() {
                 room = try JSONDecoder().decode(CapturedRoom.self, from: Data(contentsOf: url))
                 savedURL = url
+                let package = url.deletingPathExtension().appendingPathExtension("zip")
+                if FileManager.default.isReadableFile(atPath: package.path) {
+                    packageURL = package
+                    hasSurfacePackage = true
+                }
                 lifecycle.restoreCompleted()
             }
         } catch {
@@ -67,7 +78,13 @@ final class ScanModel: ObservableObject {
                 return
             }
             guard self.lifecycle.authorize(id, supported: true, cameraAllowed: allowed) else { return }
+            self.photoCount = 0
+            self.photoGuidance = "Move slowly. Photos are captured automatically."
             let capture = RoomScanViewController()
+            capture.onPhotoProgress = { [weak self] count, message in
+                self?.photoCount = count
+                self?.photoGuidance = message
+            }
             capture.onStarted = { [weak self] in self?.lifecycle.didStart(id) }
             capture.onProcessing = { [weak self] in self?.beginProcessing(id) }
             capture.onCompleted = { [weak self] room in self?.complete(room, id: id) }
@@ -102,6 +119,49 @@ final class ScanModel: ObservableObject {
         processingTimeout?.cancel()
         room = result
         persistResult()
+        prepareSurfacePackage()
+    }
+
+    private func prepareSurfacePackage() {
+        guard let controller, let savedURL else { return }
+        do {
+            let json = try Data(contentsOf: savedURL)
+            let destination = savedURL.deletingPathExtension().appendingPathExtension("zip")
+            isPreparingSurface = true
+            surfaceMessage = nil
+            UIApplication.shared.isIdleTimerDisabled = true
+            controller.preparePackage(roomJSON: json, destination: destination) { [weak self] result in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    self.isPreparingSurface = false
+                    UIApplication.shared.isIdleTimerDisabled = false
+                    switch result {
+                    case .success(let url):
+                        self.packageURL = url
+                        self.hasSurfacePackage = true
+                        self.surfaceMessage = "Detailed scan saved. Send to Rumi to open the captured surfaces and available photos. The preview above shows the RoomPlan layout."
+                    case .failure(let error):
+                        self.surfaceMessage = "Detailed capture could not be prepared: \(error.localizedDescription) Your room layout is retained."
+                    }
+                }
+            }
+        } catch { surfaceMessage = "Could not prepare detailed capture: \(error.localizedDescription)" }
+    }
+
+    func retrySurfacePackage() {
+        guard lifecycle.phase == .completed, !isSharing, !isPreparingSurface, !hasSurfacePackage else { return }
+        persistResult()
+        prepareSurfacePackage()
+    }
+
+    func exportScan() {
+        guard !isPreparingSurface, !isSharing, let packageURL else { return }
+        guard FileManager.default.isReadableFile(atPath: packageURL.path) else {
+            hasSurfacePackage = false
+            surfaceMessage = "The detailed package is missing. Export JSON to retain your room layout."
+            return
+        }
+        presentShare(packageURL)
     }
 
     private func persistResult() {
@@ -114,6 +174,24 @@ final class ScanModel: ObservableObject {
         } catch {
             exportMessage = "Could not save JSON: \(error.localizedDescription) Your scan is still in memory. Tap Export JSON to retry before closing the app."
         }
+    }
+
+    func completedScanFile() throws -> URL {
+        guard lifecycle.phase == .completed, !isPreparingSurface, hasSurfacePackage,
+              let packageURL, FileManager.default.isReadableFile(atPath: packageURL.path) else {
+            throw CaptureError.detailedUnavailable
+        }
+        return packageURL
+    }
+
+    func completedBytes() throws -> Data {
+        guard lifecycle.phase == .completed else { throw CaptureError.invalidRoom }
+        persistResult()
+        guard let savedURL else {
+            throw NSError(domain: "RumiCapture", code: 1, userInfo: [NSLocalizedDescriptionKey:
+                "Could not save the scan. Free some storage and try again. Your room is still in memory."])
+        }
+        return try Data(contentsOf: savedURL)
     }
 
     func export() {
@@ -144,7 +222,7 @@ final class ScanModel: ObservableObject {
     func shareDismissed() { isSharing = false; shareFile = nil }
 
     func startOver() {
-        guard !isSharing else { return }
+        guard !isSharing, !isPreparingSurface else { return }
         do { try store.discard() }
         catch { alertMessage = "Could not discard the saved scan: \(error.localizedDescription)"; return }
         controller?.invalidate()
@@ -152,6 +230,9 @@ final class ScanModel: ObservableObject {
         processingTimeout?.cancel()
         room = nil
         savedURL = nil
+        packageURL = nil
+        hasSurfacePackage = false
+        surfaceMessage = nil
         hasUnreadableSave = false
         exportMessage = nil
         lifecycle.reset()

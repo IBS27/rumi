@@ -89,11 +89,11 @@ function SignedInWorkspace() {
                 );
               return (
                 <PhoneCapture onReceive={receive}>
-                  {(open) =>
+                  {(open, busy) =>
                     placement === "start" ? (
-                      <ScanAction onClick={open} />
+                      <ScanAction onClick={open} disabled={busy} />
                     ) : (
-                      <Button onClick={open}>
+                      <Button onClick={open} disabled={busy}>
                         <Smartphone /> Scan with iPhone
                       </Button>
                     )

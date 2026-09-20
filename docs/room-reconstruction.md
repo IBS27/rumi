@@ -2,9 +2,15 @@
 
 ## Working locally
 
-Run `bun install` and `bun run dev`. Choose **Explore a sample room**, or import the raw JSON produced by `JSONEncoder().encode(finalCapturedRoom)` in the native RoomPlan app. The bundled L-shaped room is synthetic. Files are limited to 10 MiB.
+Run `bun install` and `bun run dev`. Choose **Explore a sample room**, or import the raw JSON produced by `JSONEncoder().encode(finalCapturedRoom)` in the native RoomPlan app. The bundled L-shaped room is synthetic. Layout JSON files are limited to 10 MiB. Detailed scan ZIPs are supported up to 128 MiB. See [surface capture](surface-capture.md) for capture, texturing, storage, and verification limits.
 
-The workspace renders walls with opening cutouts, captured floor polygons, door/window outlines, and dimensioned furniture boxes. Select furniture to edit its name, category, dimensions, position, rotation, and measurement status. Reset restores that object's original scan values; undo retains the last ten changes in the current session. Changes are saved in this browser, separately for each signed-in identity. Download preserves the edited room and the original scan for reimport. Browser storage is not a cloud backup; clearing it removes local rooms.
+Detailed ZIP imports also provide a captured-surfaces view of the original measured scene. Selecting furniture switches to the editable layout; edits do not move the unseparated surface mesh.
+
+The layout workspace renders walls with opening cutouts, captured floor polygons, door/window outlines, and dimensioned furniture boxes. Select furniture to edit its name, category, dimensions, position, rotation, and measurement status. Reset restores that object's original scan values; undo retains the last ten changes in the current session. Changes are saved in this browser, separately for each signed-in identity. Download preserves the edited room and the original scan for reimport. Browser storage is not a cloud backup; clearing it removes local rooms.
+
+In **3D view**, choose **Walk inside** for an eye-level first-person view that fills the browser viewport. The header collapses and both sidebars slide away; **Exit first person** or Escape restores them with their selections and chat state intact. These transitions respect reduced-motion preferences. Drag with a mouse or finger to look around, use WASD or arrow keys to move, and Q/E to turn with the keyboard. The on-screen arrows support holding with touch, a mouse, or Space/Enter. **Reset position** returns to the starting location and direction.
+
+Walking requires a captured, nearly level floor with enough unobstructed standing space. Movement crosses adjoining or overlapping floor patches within the room, while preserving clearance around the combined outline, holes, and real gaps. It stops at wall segments and furniture footprints, including rotated or tilted furniture. Doorways remain boundaries; this is a single-room walkthrough. Missing or steep floors and rooms without a clear starting position show an explanation instead of inventing walkable space. Small floor-height changes up to 18 cm are allowed only where a complete standing footprint fits. This does not add stairs or multiroom navigation. Imported scan ZIPs can also be walked with captured surfaces visible; collision checks then use the original RoomPlan layout. See [surface capture](surface-capture.md). Camera movement is temporary and does not edit or save room geometry.
 
 Scanned dimensions remain estimates until reviewed. Detection confidence is not a measurement error bound. Overall room extents are bounding-box dimensions, not an assertion that the room is rectangular. Captured floor area is distinct from usable empty space. Free-space regions, clearance analysis, multiroom stitching, curved walls, photorealistic assets, and editing wall geometry are not implemented. Existing rectangular placement checks refuse polygon rooms until polygon-aware fit validation is available. Exports without floor polygons retain walls without inventing a floor boundary.
 
@@ -19,6 +25,7 @@ Set `RUMI_PREVIEW_HOST` in `.env.local` to the exact proxy hostname, without a s
 - `shared/contracts/index.ts`: canonical rectangle/polygon room union, surfaces, and furniture. Existing rectangle producers remain compatible.
 - `shared/capture/roomplan.ts`: bounded input validation, column-major transforms, origin normalization, object base positions, category mapping, preserved originals, and saved-room format.
 - `shared/capture/surfaces.ts`: shared surface triangulation inputs and floor area.
+- `shared/capture/walkthrough.ts`: first-person spawn selection, standing clearance, and movement collision checks.
 - `src/features/room-editor/`: import, local persistence, inspector, and React Three Fiber viewer.
 - `src/features/room-import/PhoneCapture.tsx`: authenticated QR modal and uploaded-file import.
 - `convex/captures.ts` and `convex/http.ts`: owner-bound capture sessions, claim/upload endpoints, token expiration, retry handling, and cleanup.

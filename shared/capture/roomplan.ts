@@ -13,7 +13,7 @@ const tuple = z.tuple([
   z.number().finite(),
   z.number().finite(),
 ]);
-const transform = z
+export const captureTransformSchema = z
   .array(z.number().finite())
   .length(16)
   .refine((m) => {
@@ -38,7 +38,7 @@ const element = z
   .object({
     identifier: z.string().min(1),
     dimensions: tuple,
-    transform,
+    transform: captureTransformSchema,
     category: z.record(z.string(), z.unknown()),
     confidence: z.record(z.string(), z.unknown()).optional(),
     parentIdentifier: z.string().nullable().optional(),
@@ -303,7 +303,7 @@ export const savedRoomSchema = z
       });
     for (const item of surfaces) {
       if (
-        !transform.safeParse(item.transform).success ||
+        !captureTransformSchema.safeParse(item.transform).success ||
         (item.polygonCorners.length > 0 && item.polygonCorners.length < 3)
       )
         ctx.addIssue({

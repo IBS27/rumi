@@ -19,6 +19,14 @@
 		959F7D2228B37E3C3FF8C077 /* ScanLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CF3A37C969BA7CFA7CA0CFE /* ScanLifecycle.swift */; };
 		CE51A008633F108E1FF7226A /* RumiCaptureUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0791B1A66C2F42372CC296BA /* RumiCaptureUITests.swift */; };
 		DAC95BF1586CBD54EF0F8FBE /* RoomFileStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59C817B0712D20EF32D9110B /* RoomFileStoreTests.swift */; };
+		FC0000000000000000000002 /* CaptureArchive.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC0000000000000000000001 /* CaptureArchive.swift */; };
+		FC0000000000000000000012 /* SurfaceRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC0000000000000000000011 /* SurfaceRecorder.swift */; };
+		FC0000000000000000000022 /* CaptureArchiveTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC0000000000000000000021 /* CaptureArchiveTests.swift */; };
+		77EA2558E7E90997E25E27CA /* CaptureClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2B50AEDF4D92A7F9A85C5E5 /* CaptureClient.swift */; };
+		46F990DF4E4774F663053BCE /* CaptureConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 376C39D72908DD1585A237F5 /* CaptureConnection.swift */; };
+		708C66638ECA163501442562 /* PairingScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30B1507DBFC8D650EB34A3A9 /* PairingScreen.swift */; };
+		7B067EA17721F0958C144E1F /* CaptureClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CAE62D622B1EA09539B43FF /* CaptureClientTests.swift */; };
+		0B34402A449E006A39D83247 /* CaptureConnectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C07FC65CB5C7F819A5C3D414 /* CaptureConnectionTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -52,6 +60,14 @@
 		A6216FEEDC53F5AEBB8823A3 /* ScanModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ScanModel.swift; sourceTree = "<group>"; };
 		B871B44101049FF1C28895FC /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
 		E813561E80DE5510188F4557 /* RumiCaptureUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RumiCaptureUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		FC0000000000000000000001 /* CaptureArchive.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureArchive.swift; sourceTree = "<group>"; };
+		FC0000000000000000000011 /* SurfaceRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceRecorder.swift; sourceTree = "<group>"; };
+		FC0000000000000000000021 /* CaptureArchiveTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureArchiveTests.swift; sourceTree = "<group>"; };
+		A2B50AEDF4D92A7F9A85C5E5 /* CaptureClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureClient.swift; sourceTree = "<group>"; };
+		376C39D72908DD1585A237F5 /* CaptureConnection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureConnection.swift; sourceTree = "<group>"; };
+		30B1507DBFC8D650EB34A3A9 /* PairingScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingScreen.swift; sourceTree = "<group>"; };
+		1CAE62D622B1EA09539B43FF /* CaptureClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureClientTests.swift; sourceTree = "<group>"; };
+		C07FC65CB5C7F819A5C3D414 /* CaptureConnectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureConnectionTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -85,7 +101,10 @@
 		1DF8D3C40A33B391F7CC9FEB /* RumiCaptureTests */ = {
 			isa = PBXGroup;
 			children = (
+				C07FC65CB5C7F819A5C3D414 /* CaptureConnectionTests.swift */,
+				1CAE62D622B1EA09539B43FF /* CaptureClientTests.swift */,
 				59C817B0712D20EF32D9110B /* RoomFileStoreTests.swift */,
+				FC0000000000000000000021 /* CaptureArchiveTests.swift */,
 				736200C3EBB5E1646904ADF4 /* ScanLifecycleTests.swift */,
 			);
 			path = RumiCaptureTests;
@@ -139,12 +158,17 @@
 		EE407DE78784E6B743C12270 /* RumiCapture */ = {
 			isa = PBXGroup;
 			children = (
+				30B1507DBFC8D650EB34A3A9 /* PairingScreen.swift */,
+				376C39D72908DD1585A237F5 /* CaptureConnection.swift */,
+				A2B50AEDF4D92A7F9A85C5E5 /* CaptureClient.swift */,
 				3DAF8D5A242D88349EB8D8C5 /* CaptureScreen.swift */,
 				726771A3FB147098EB6DA8FC /* RoomFileStore.swift */,
 				3166799A7E0C12F32082B29A /* RoomScanViewController.swift */,
 				93402C270E1DB26AAFE9AAB0 /* RumiCaptureApp.swift */,
 				1CF3A37C969BA7CFA7CA0CFE /* ScanLifecycle.swift */,
 				A6216FEEDC53F5AEBB8823A3 /* ScanModel.swift */,
+				FC0000000000000000000011 /* SurfaceRecorder.swift */,
+				FC0000000000000000000001 /* CaptureArchive.swift */,
 			);
 			path = RumiCapture;
 			sourceTree = "<group>";
@@ -272,7 +296,10 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				0B34402A449E006A39D83247 /* CaptureConnectionTests.swift in Sources */,
+				7B067EA17721F0958C144E1F /* CaptureClientTests.swift in Sources */,
 				DAC95BF1586CBD54EF0F8FBE /* RoomFileStoreTests.swift in Sources */,
+				FC0000000000000000000022 /* CaptureArchiveTests.swift in Sources */,
 				101D67B8DE4D1643A7160B8F /* ScanLifecycleTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -281,12 +308,17 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				708C66638ECA163501442562 /* PairingScreen.swift in Sources */,
+				46F990DF4E4774F663053BCE /* CaptureConnection.swift in Sources */,
+				77EA2558E7E90997E25E27CA /* CaptureClient.swift in Sources */,
 				8D896EC7A3868C6787C9B4A8 /* CaptureScreen.swift in Sources */,
 				105B1E384C02DDACBF3691C3 /* RoomFileStore.swift in Sources */,
 				1C397A31323F26A341145900 /* RoomScanViewController.swift in Sources */,
 				4BBB2EE7B81559277544FFBA /* RumiCaptureApp.swift in Sources */,
 				959F7D2228B37E3C3FF8C077 /* ScanLifecycle.swift in Sources */,
 				3409A75C0D223F919DA76D3A /* ScanModel.swift in Sources */,
+				FC0000000000000000000012 /* SurfaceRecorder.swift in Sources */,
+				FC0000000000000000000002 /* CaptureArchive.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -320,7 +352,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Rumi Capture";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.lifestyle";
-				INFOPLIST_KEY_NSCameraUsageDescription = "Rumi uses your camera and LiDAR to scan a room and save its geometry on this iPhone.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Rumi uses your camera for QR pairing and your camera and LiDAR to save room layout, surface shapes, and room photos.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
@@ -562,7 +594,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Rumi Capture";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.lifestyle";
-				INFOPLIST_KEY_NSCameraUsageDescription = "Rumi uses your camera and LiDAR to scan a room and save its geometry on this iPhone.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Rumi uses your camera for QR pairing and your camera and LiDAR to save room layout, surface shapes, and room photos.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;

@@ -1,11 +1,18 @@
 import {
   lazy,
   Suspense,
+  useCallback,
+  useEffect,
   useMemo,
   useRef,
   useState,
   type ReactNode,
 } from "react";
+import { z } from "zod";
+import { MAX_PACKAGE_BYTES } from "../../../shared/capture/package";
+import type { TexturedScan } from "../../../shared/capture/texture";
+import { processScan, downloadScan } from "./capture/processing";
+import { readScan, saveScan } from "./capture/storage";
 import { Download, MessageCircle, Undo2, Upload } from "lucide-react";
 import {
   importRoomPlan,
@@ -15,6 +22,9 @@ import {
   savedRoomSchema,
   type SavedRoom,
 } from "../../../shared/capture/roomplan";
+import { createWalkthrough } from "../../../shared/capture/walkthrough";
+import type { WalkInput } from "./FirstPersonCamera";
+import { WalkControls } from "./WalkControls";
 import type { CapturedRoom, RoomObject } from "../../../shared/contracts";
 import { syntheticRoomPlan } from "../../../shared/fixtures/roomplan";
 import {
@@ -35,13 +45,26 @@ const RoomViewer = lazy(() =>
   import("./RoomViewer").then((module) => ({ default: module.RoomViewer })),
 );
 
-type Workspace = SavedRoom & { room: CapturedRoom };
+type Workspace = SavedRoom & { room: CapturedRoom; scanId?: string };
+const localWorkspaceSchema = savedRoomSchema.safeExtend({
+  scanId: z
+    .string()
+    .regex(/^[a-f0-9]{32}$/)
+    .optional(),
+});
+type ScanResource = {
+  id: string;
+  blob?: Blob;
+  scan?: TexturedScan;
+  error?: string;
+  persisted?: boolean;
+};
 
 function readSaved(key: string): Workspace | null {
   try {
     const text = localStorage.getItem(key);
     if (!text) return null;
-    const result = savedRoomSchema.safeParse(JSON.parse(text));
+    const result = localWorkspaceSchema.safeParse(JSON.parse(text));
     return result.success && result.data.room.shape === "polygon"
       ? { ...result.data, room: result.data.room }
       : null;
@@ -66,7 +89,7 @@ export function RoomWorkspace({
   account?: ReactNode;
   scan?: (
     placement: "start" | "bar",
-    receive: (text: string) => void,
+    receive: (file: File, signal?: AbortSignal) => Promise<void>,
   ) => ReactNode;
   chat: (context: ChatContext) => ReactNode;
 }) {
@@ -82,18 +105,90 @@ export function RoomWorkspace({
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState(false);
   const [view, setView] = useState<ViewMode>("3d");
+  const [walking, setWalking] = useState(false);
+  const [walkSession, setWalkSession] = useState(0);
+  const walkInput = useRef<WalkInput>({ pressed: new Set() });
+  const root = useRef<HTMLDivElement>(null);
   const [wallsVisible, setWallsVisible] = useState(true);
   const [dimensionsVisible, setDimensionsVisible] = useState(false);
+  const [showScan, setShowScan] = useState(true);
+  const [capture, setCapture] = useState<ScanResource | null>(null);
+  const activeImport = useRef<AbortController | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const importRequest = useRef(0);
   const room = workspace?.room;
+  const scanId = workspace?.scanId;
+  const resource = capture?.id === scanId ? capture : null;
+  const scanVisible = showScan && view === "3d" && !!resource?.scan;
+  const original = workspace?.original;
+  const originalRoom = useMemo(
+    () => (original ? importRoomPlan(original) : undefined),
+    [original],
+  );
+  useEffect(() => {
+    if (!scanId || capture?.id === scanId) return;
+    const controller = new AbortController();
+    void readScan(identity, scanId)
+      .then(async (blob) => {
+        const result = await processScan(blob, controller.signal);
+        if (!controller.signal.aborted)
+          setCapture({ id: scanId, blob, scan: result.scan });
+      })
+      .catch((cause: unknown) => {
+        if (!controller.signal.aborted)
+          setCapture({
+            id: scanId,
+            error:
+              cause instanceof Error
+                ? cause.message
+                : "Could not restore the detailed scan. Import its ZIP again.",
+          });
+      });
+    return () => controller.abort();
+  }, [identity, scanId, capture?.id]);
+  useEffect(() => () => activeImport.current?.abort(), []);
+  const scanError = useCallback((message: string) => {
+    setError(message);
+    setShowScan(false);
+    setWalking(false);
+  }, []);
+  // Captured surfaces never move with furniture edits. Match collisions to the
+  // layout represented by the visible scene, including when walking a ZIP scan.
+  const walkRoom = scanVisible ? originalRoom : room;
+  const walkthrough = useMemo(
+    () => (walkRoom ? createWalkthrough(walkRoom) : null),
+    [walkRoom],
+  );
+  const exitWalk = useCallback(() => {
+    setWalking(false);
+    walkInput.current.pressed.clear();
+    requestAnimationFrame(() =>
+      root.current
+        ?.querySelector<HTMLButtonElement>("[data-walk-entry]")
+        ?.focus(),
+    );
+  }, []);
+  function enterWalk() {
+    if (!walkthrough?.start) {
+      setError(
+        "First person needs a flat captured floor with enough clear space to stand. Try a more complete room scan.",
+      );
+      return;
+    }
+    setError("");
+    setWalking(true);
+  }
 
   function persist(next: Workspace | null) {
     setWorkspace(next);
     try {
       if (next) localStorage.setItem(key, JSON.stringify(next));
       else localStorage.removeItem(key);
-      setStatus("Saved on this browser");
+      setStatus(
+        next?.scanId === capture?.id && capture?.persisted === false
+          ? "Edits saved. The detailed scan is only in memory; download your room before closing this tab."
+          : "Saved on this browser",
+      );
     } catch {
       setStatus(
         "Browser storage is full or unavailable. Download your room to keep these changes.",
@@ -114,17 +209,65 @@ export function RoomWorkspace({
       );
     commit({ ...next, room: next.room });
     setSelected(null);
+    setWalking(false);
   }
-  async function importFile(file?: File) {
+  async function importFile(
+    file?: File,
+    propagate = false,
+    signal?: AbortSignal,
+  ) {
     if (!file) return;
+    signal?.throwIfAborted();
     const request = ++importRequest.current;
+    activeImport.current?.abort();
+    const controller = new AbortController();
+    activeImport.current = controller;
+    const abort = () => controller.abort();
+    signal?.addEventListener("abort", abort, { once: true });
     setBusy(true);
     setError("");
     try {
+      if (/\.zip$/i.test(file.name)) {
+        if (file.size > MAX_PACKAGE_BYTES)
+          throw new Error("Choose a scan ZIP smaller than 128 MB.");
+        const result = await processScan(file, controller.signal);
+        controller.signal.throwIfAborted();
+        if (request !== importRequest.current)
+          throw new DOMException("Import superseded.", "AbortError");
+        if (result.saved.room.shape !== "polygon")
+          throw new Error("This scan has no room layout.");
+        const id = Array.from(
+          crypto.getRandomValues(new Uint8Array(16)),
+          (byte) => byte.toString(16).padStart(2, "0"),
+        ).join("");
+        let stored = true;
+        try {
+          await saveScan(identity, id, file);
+        } catch {
+          stored = false;
+        }
+        controller.signal.throwIfAborted();
+        if (request !== importRequest.current)
+          throw new DOMException("Import superseded.", "AbortError");
+        setCapture({ id, blob: file, scan: result.scan, persisted: stored });
+        setShowScan(true);
+        setView("3d");
+        setWalking(false);
+        commit({ ...result.saved, room: result.saved.room, scanId: id });
+        setSelected(null);
+        if (!stored)
+          setStatus(
+            "The detailed scan is only in memory. Download your room before closing this tab.",
+          );
+        return;
+      }
       if (file.size > MAX_CAPTURE_BYTES)
         throw new Error("Choose a JSON file smaller than 10 MB.");
       const text = await file.text();
-      if (request === importRequest.current) loadText(text, file.name);
+      controller.signal.throwIfAborted();
+      if (request !== importRequest.current)
+        throw new DOMException("Import superseded.", "AbortError");
+      loadText(text, file.name);
     } catch (cause) {
       if (request === importRequest.current)
         setError(
@@ -132,11 +275,14 @@ export function RoomWorkspace({
             ? cause.message
             : "Could not import this file.",
         );
+      if (propagate) throw cause;
     } finally {
+      signal?.removeEventListener("abort", abort);
       if (request === importRequest.current) setBusy(false);
     }
   }
   function sample() {
+    activeImport.current?.abort();
     ++importRequest.current;
     setBusy(false);
     commit({
@@ -148,6 +294,7 @@ export function RoomWorkspace({
     setSelected(null);
   }
   function editObjects(objects: RoomObject[]) {
+    setShowScan(false);
     if (workspace)
       commit({
         ...workspace,
@@ -158,18 +305,33 @@ export function RoomWorkspace({
         },
       });
   }
-  function download() {
+  async function download() {
     if (!workspace) return;
-    const url = URL.createObjectURL(
-      new Blob([JSON.stringify(workspace, null, 2)], {
-        type: "application/json",
-      }),
-    );
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "rumi-room.json";
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    setBusy(true);
+    try {
+      // Local asset IDs stay in this browser. A ZIP embeds both the original scan and edits.
+      const saved = savedRoomSchema.parse(workspace);
+      const blob = workspace.scanId
+        ? await downloadScan(
+            resource?.blob ?? (await readScan(identity, workspace.scanId)),
+            saved,
+          )
+        : new Blob([JSON.stringify(saved, null, 2)], {
+            type: "application/json",
+          });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = workspace.scanId ? "rumi-room.zip" : "rumi-room.json";
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "Could not export this room.",
+      );
+    } finally {
+      setBusy(false);
+    }
   }
   function undo() {
     if (!history.length) return;
@@ -177,28 +339,12 @@ export function RoomWorkspace({
     setHistory((previous) => previous.slice(0, -1));
     setSelected(null);
   }
-  function receive(text: string) {
-    ++importRequest.current;
-    setBusy(false);
-    try {
-      loadText(text, "My scanned room");
-    } catch (cause) {
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : "Could not import uploaded room.",
-      );
-      throw cause;
-    }
+  async function receive(file: File, signal?: AbortSignal) {
+    await importFile(file, true, signal);
   }
 
-  const original = workspace?.original;
-  const originalObjects = useMemo(
-    () => (original ? importRoomPlan(original).objects : []),
-    [original],
-  );
   const originalObject = (id: string) =>
-    originalObjects.find((item) => item.id === id);
+    originalRoom?.objects.find((item) => item.id === id);
   const chatToggle = (
     <Button
       aria-pressed={chatOpen}
@@ -208,11 +354,18 @@ export function RoomWorkspace({
     </Button>
   );
   /** Keeps floating controls clear of the chat panel while it is open. */
-  const clearChat = chatOpen ? "right-[328px]" : "right-4";
+  const clearChat = chatOpen ? "right-4 lg:right-[328px]" : "right-4";
   const chatDock = chatOpen && (
     <FloatingPanel
       aria-label="Design chat"
-      className="top-4 right-4 bottom-4 flex w-[296px] max-w-[calc(100%-32px)] flex-col overflow-hidden p-0"
+      inert={walking}
+      aria-hidden={walking}
+      className={cx(
+        "right-4 bottom-4 flex w-[296px] max-w-[calc(100%-32px)] flex-col overflow-hidden p-0 transition-[translate,opacity] duration-400 ease-in-out motion-reduce:transition-none",
+        room ? "top-28 lg:top-4" : "top-4",
+        walking &&
+          "translate-x-[calc(100%+32px)] opacity-0 pointer-events-none",
+      )}
     >
       {chat({ room, onCollapse: () => setChatOpen(false) })}
     </FloatingPanel>
@@ -220,19 +373,25 @@ export function RoomWorkspace({
 
   return (
     <div
-      className="flex h-full flex-col bg-chalk"
+      ref={root}
+      className={cx(
+        "flex h-dvh flex-col bg-chalk",
+        room ? "overflow-hidden" : "overflow-auto",
+      )}
       onDragOver={(event) => event.preventDefault()}
       onDrop={(event) => {
         event.preventDefault();
-        void importFile(event.dataTransfer.files[0]);
+        if (!walking) void importFile(event.dataTransfer.files[0]);
       }}
     >
       <input
         ref={fileInput}
         type="file"
-        accept=".json,application/json"
+        accept=".json,.zip,application/json,application/zip"
         className="sr-only"
-        aria-label="Import room JSON"
+        aria-label="Import room JSON or scan ZIP"
+        inert={walking}
+        aria-hidden={walking}
         onChange={(event) => {
           void importFile(event.target.files?.[0]);
           event.target.value = "";
@@ -278,40 +437,52 @@ export function RoomWorkspace({
         </>
       ) : (
         <>
-          <TopBar
-            title={
-              <>
-                {room.name}
-                {room.capture.synthetic && <Pill>sample</Pill>}
-              </>
-            }
+          <div
+            inert={walking}
+            aria-hidden={walking}
+            className={cx(
+              "grid shrink-0 transition-[grid-template-rows,opacity] duration-400 ease-in-out motion-reduce:transition-none",
+              walking
+                ? "grid-rows-[0fr] opacity-0"
+                : "grid-rows-[1fr] opacity-100",
+            )}
           >
-            {status && <Muted className="text-xs">{status}</Muted>}
-            {chatToggle}
-            <Button disabled={!history.length} onClick={undo}>
-              <Undo2 /> Undo
-            </Button>
-            <Button onClick={download}>
-              <Download /> Download room
-            </Button>
-            {
-              // eslint-disable-next-line react-hooks/refs -- scan renders a control; receive runs only when a scan arrives.
-              scan?.("bar", receive)
-            }
-            <Button
-              variant="primary"
-              disabled={busy}
-              onClick={() => fileInput.current?.click()}
-            >
-              <Upload />
-              {busy ? "Importing…" : "Import a scan"}
-            </Button>
-            {account}
-          </TopBar>
+            <div className="min-h-0 overflow-x-auto">
+              <TopBar
+                className="min-w-max"
+                title={
+                  <>
+                    {room.name}
+                    {room.capture.synthetic && <Pill>sample</Pill>}
+                  </>
+                }
+              >
+                {status && <Muted className="text-xs">{status}</Muted>}
+                {chatToggle}
+                <Button disabled={!history.length} onClick={undo}>
+                  <Undo2 /> Undo
+                </Button>
+                <Button disabled={busy} onClick={() => void download()}>
+                  <Download /> Download room
+                </Button>
+                {// eslint-disable-next-line react-hooks/refs -- scan renders a control; receive runs only when a scan arrives.
+                scan?.("bar", receive)}
+                <Button
+                  disabled={busy}
+                  onClick={() => fileInput.current?.click()}
+                >
+                  <Upload />
+                  {busy ? "Importing…" : "Import a scan"}
+                </Button>
+                {account}
+              </TopBar>
+            </div>
+          </div>
 
           <main
             className="relative min-h-0 flex-1 bg-sage"
             aria-label="Room view"
+            data-view={walking ? "first-person" : view}
           >
             <div className="absolute inset-0">
               <Suspense
@@ -323,11 +494,16 @@ export function RoomWorkspace({
               >
                 <RoomViewer
                   room={room}
-                  selected={selected}
+                  selected={walking ? null : selected}
                   onSelect={setSelected}
                   top={view === "plan"}
-                  wallsVisible={wallsVisible}
-                  dimensionsVisible={dimensionsVisible}
+                  wallsVisible={walking || wallsVisible}
+                  dimensionsVisible={!walking && dimensionsVisible}
+                  walkthrough={walking ? walkthrough : null}
+                  walkInput={walkInput}
+                  walkSession={walkSession}
+                  scan={scanVisible ? resource?.scan : undefined}
+                  onScanError={scanError}
                 />
               </Suspense>
             </div>
@@ -337,11 +513,26 @@ export function RoomWorkspace({
                 {error}
               </Notice>
             )}
+            {resource?.error && (
+              <Notice tone="warn" floating>
+                {resource.error}
+              </Notice>
+            )}
+            {scanId && !resource && (
+              <Notice tone="info" floating>
+                Preparing captured surfaces… You can use the room layout while
+                it loads.
+              </Notice>
+            )}
 
             <ScanDock
+              hidden={walking}
               room={room}
               selected={selected}
-              onSelect={setSelected}
+              onSelect={(id) => {
+                setSelected(id);
+                if (id) setShowScan(false);
+              }}
               originalObject={originalObject}
               onSave={(next) =>
                 editObjects(
@@ -363,27 +554,45 @@ export function RoomWorkspace({
                 editObjects(room.objects.filter((item) => item.id !== id));
                 setSelected(null);
               }}
+              captureWarnings={resource?.scan?.warnings}
             />
 
             <ViewerTools
               view={view}
+              hidden={walking}
+              onWalk={enterWalk}
               onView={setView}
               walls={wallsVisible}
               onWalls={setWallsVisible}
               dimensions={dimensionsVisible}
               onDimensions={setDimensionsVisible}
               className={clearChat}
+              scan={
+                resource?.scan && view === "3d"
+                  ? {
+                      visible: showScan,
+                      onChange: (value) => {
+                        setShowScan(value);
+                        if (value) setSelected(null);
+                      },
+                    }
+                  : undefined
+              }
             />
 
             <div
+              inert={walking}
+              aria-hidden={walking}
               className={cx(
-                "absolute bottom-4 z-10 flex gap-3 rounded-full bg-chalk/80 px-2.5 py-[5px] text-[11px] text-[#3f5049]",
+                walking && "translate-y-20 opacity-0 pointer-events-none",
+                "transition-[translate,opacity] duration-400 motion-reduce:transition-none absolute bottom-4 z-10 flex gap-3 rounded-full bg-chalk/80 px-2.5 py-[5px] text-[11px] text-[#3f5049]",
                 clearChat,
               )}
             >
               <span>
-                Walls are from the scan. Ceiling height{" "}
-                {room.dimensions.height.toFixed(2)} m.
+                {scanVisible && resource?.scan
+                  ? `Original captured surfaces. ${Math.round((resource.scan.texturedFaceCount / resource.scan.faceCount) * 100)}% of triangles textured. Edits appear in the layout view.`
+                  : `Walls are from the scan. Ceiling height ${room.dimensions.height.toFixed(2)} m.`}
               </span>
               <span>
                 {view === "plan"
@@ -392,6 +601,18 @@ export function RoomWorkspace({
               </span>
             </div>
             {chatDock}
+            {walking && (
+              <WalkControls
+                name={room.name}
+                synthetic={room.capture.synthetic}
+                input={walkInput}
+                onExit={exitWalk}
+                onReset={() => {
+                  walkInput.current.pressed.clear();
+                  setWalkSession((value) => value + 1);
+                }}
+              />
+            )}
           </main>
         </>
       )}
