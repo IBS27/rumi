@@ -15,7 +15,13 @@ import {
   OrthographicCamera,
   PerspectiveCamera,
 } from "@react-three/drei";
-import { DoubleSide, Matrix4, ShapeGeometry, Vector3 } from "three";
+import {
+  DoubleSide,
+  Matrix4,
+  ShapeGeometry,
+  Vector3,
+  PCFShadowMap,
+} from "three";
 import type {
   CapturedRoom,
   CapturedSurface,
@@ -29,6 +35,14 @@ import { surfaceShape } from "../../../shared/capture/surfaces";
 import type { TexturedScan } from "../../../shared/capture/texture";
 import { ScanSurface } from "./capture/ScanSurface";
 import { ParametricModel } from "./ParametricModel";
+import type { ReconstructedScene } from "../../../shared/reconstruction/contracts";
+import { SimulatedArchitecture } from "./reconstruction/SimulatedArchitecture";
+import {
+  MaterialEnvironment,
+  MaterialResources,
+} from "./reconstruction/SurfaceMaterial";
+import { SceneLighting } from "./reconstruction/SceneLighting";
+import { SceneEffects } from "./reconstruction/SceneEffects";
 
 function Surface({
   value,
@@ -66,7 +80,7 @@ function Furniture({
   onSelect,
 }: {
   object: RoomObject;
-  model?: ParametricModelData;
+  model?: Pick<ParametricModelData, "label" | "parts" | "dimensions">;
   selected: boolean;
   onSelect: (id: string) => void;
 }) {
@@ -209,6 +223,8 @@ export function RoomViewer({
   walkInput,
   walkSession,
   assetScenes = {},
+  reconstruction,
+  cutaway = true,
 }: {
   room: CapturedRoom;
   selected: string | null;
@@ -223,12 +239,23 @@ export function RoomViewer({
   walkSession: number;
   /** Validated scenes keyed by RoomObject.assetId. Missing scenes use a box. */
   assetScenes?: Readonly<Record<string, ParametricModelData>>;
+  reconstruction?: ReconstructedScene;
+  cutaway?: boolean;
 }) {
+  const reconstructed = useMemo(
+    () =>
+      new Map(
+        reconstruction?.objects.map((object) => [object.objectId, object]) ??
+          [],
+      ),
+    [reconstruction],
+  );
   return (
     <ViewerBoundary key={room.id}>
       <Canvas
-        shadows
-        dpr={[1, 2]}
+        shadows={{ type: PCFShadowMap }}
+        frameloop={walkthrough ? "always" : "demand"}
+        dpr={[1, 1.75]}
         onPointerMissed={() => {
           if (!walkthrough) onSelect(null);
         }}
@@ -245,102 +272,145 @@ export function RoomViewer({
           </div>
         }
       >
-        <color attach="background" args={["#dce6dd"]} />
-        <ambientLight intensity={1.5} />
-        <directionalLight
-          position={[3, 10, 5]}
-          intensity={2}
-          castShadow
-          shadow-mapSize={[2048, 2048]}
-          shadow-camera-left={-12}
-          shadow-camera-right={12}
-          shadow-camera-top={12}
-          shadow-camera-bottom={-12}
-        />
-        <Suspense fallback={null}>
-          {walkthrough ? (
-            <FirstPersonCamera
-              key={walkSession}
-              model={walkthrough}
-              input={walkInput}
-              width={room.dimensions.width}
-              depth={room.dimensions.depth}
+        <MaterialResources>
+          <color
+            attach="background"
+            args={[reconstruction ? "#e9e2d6" : "#dce6dd"]}
+          />
+          {reconstruction && <MaterialEnvironment />}
+          {reconstruction ? (
+            <SceneLighting
+              room={room}
+              inside={!!walkthrough}
+              scene={reconstruction}
+              walls={wallsVisible}
+              cutaway={cutaway}
             />
           ) : (
-            <Cameras room={room} top={top} />
-          )}
-          {scan && (
-            <ScanSurface
-              scan={scan}
-              wallsVisible={wallsVisible}
-              onError={onScanError}
-            />
-          )}
-          {!scan && (
             <>
-              {room.floors.map((floor) => (
-                <Surface key={floor.id} value={floor} openings={[]} />
-              ))}
-              {wallsVisible &&
-                room.walls.map((wall) => (
-                  <Surface
-                    key={wall.id}
-                    value={wall}
-                    openings={room.openings}
-                  />
-                ))}
-              {room.openings.map((opening) => {
-                const points = worldCorners(opening);
-                points.push(points[0]);
-                return (
-                  <Line
-                    key={opening.id}
-                    points={points}
-                    color={opening.kind === "window" ? "#5b7c99" : "#124f49"}
-                    lineWidth={2}
-                  />
-                );
-              })}
-              {room.objects.map((object) => (
-                <Furniture
-                  key={object.id}
-                  object={object}
-                  model={
-                    object.assetId ? assetScenes[object.assetId] : undefined
-                  }
-                  selected={selected === object.id}
-                  onSelect={(id) => {
-                    if (!walkthrough) onSelect(id);
-                  }}
-                />
-              ))}
+              <ambientLight intensity={1.5} />
+              <directionalLight
+                position={[3, 10, 5]}
+                intensity={2}
+                castShadow
+                shadow-bias={-0.0003}
+                shadow-normalBias={0.025}
+                shadow-radius={3}
+                shadow-mapSize={[2048, 2048]}
+                shadow-camera-left={-12}
+                shadow-camera-right={12}
+                shadow-camera-top={12}
+                shadow-camera-bottom={-12}
+              />
             </>
           )}
-          {dimensionsVisible &&
-            room.walls.map((wall) => {
-              const point = new Vector3(
-                0,
-                -wall.dimensions.height / 2 + 0.03,
-                0,
-              ).applyMatrix4(new Matrix4().fromArray(wall.transform));
-              const corners = localCorners(wall);
-              return (
-                <Html
-                  key={wall.id}
-                  center
-                  position={point}
-                  style={{ pointerEvents: "none" }}
-                  className="rounded bg-chalk/95 px-1.5 py-0.5 text-[10px] whitespace-nowrap text-teal-deep tabular-nums"
-                >
-                  {(
-                    Math.max(...corners.map((p) => p.x)) -
-                    Math.min(...corners.map((p) => p.x))
-                  ).toFixed(2)}{" "}
-                  m
-                </Html>
-              );
-            })}
-        </Suspense>
+          <Suspense fallback={null}>
+            {reconstruction && <SceneEffects />}
+            {walkthrough ? (
+              <FirstPersonCamera
+                key={walkSession}
+                model={walkthrough}
+                input={walkInput}
+                width={room.dimensions.width}
+                depth={room.dimensions.depth}
+              />
+            ) : (
+              <Cameras room={room} top={top} />
+            )}
+            {scan && (
+              <ScanSurface
+                scan={scan}
+                wallsVisible={wallsVisible}
+                onError={onScanError}
+              />
+            )}
+            {!scan && (
+              <>
+                {reconstruction ? (
+                  <SimulatedArchitecture
+                    room={room}
+                    scene={reconstruction}
+                    walls={wallsVisible}
+                    inside={!!walkthrough}
+                    cutaway={cutaway}
+                  />
+                ) : (
+                  <>
+                    {room.floors.map((floor) => (
+                      <Surface key={floor.id} value={floor} openings={[]} />
+                    ))}
+                    {wallsVisible &&
+                      room.walls.map((wall) => (
+                        <Surface
+                          key={wall.id}
+                          value={wall}
+                          openings={room.openings}
+                        />
+                      ))}
+                    {room.openings.map((opening) => {
+                      const points = worldCorners(opening);
+                      points.push(points[0]);
+                      return (
+                        <Line
+                          key={opening.id}
+                          points={points}
+                          color={
+                            opening.kind === "window" ? "#5b7c99" : "#124f49"
+                          }
+                          lineWidth={2}
+                        />
+                      );
+                    })}
+                  </>
+                )}
+                {room.objects.map((object) => (
+                  <Furniture
+                    key={object.id}
+                    object={object}
+                    model={
+                      reconstructed.has(object.id)
+                        ? {
+                            ...reconstructed.get(object.id)!,
+                            dimensions: object.dimensions,
+                          }
+                        : object.assetId
+                          ? assetScenes[object.assetId]
+                          : undefined
+                    }
+                    selected={selected === object.id}
+                    onSelect={(id) => {
+                      if (!walkthrough) onSelect(id);
+                    }}
+                  />
+                ))}
+              </>
+            )}
+            {dimensionsVisible &&
+              room.walls.map((wall) => {
+                const point = new Vector3(
+                  0,
+                  -wall.dimensions.height / 2 + 0.03,
+                  0,
+                ).applyMatrix4(new Matrix4().fromArray(wall.transform));
+                const corners = localCorners(wall);
+                return (
+                  <Html
+                    key={wall.id}
+                    center
+                    position={point}
+                    style={{ pointerEvents: "none" }}
+                    className="rounded bg-chalk/95 px-1.5 py-0.5 text-[10px] whitespace-nowrap text-teal-deep tabular-nums"
+                  >
+                    {(
+                      Math.max(...corners.map((p) => p.x)) -
+                      Math.min(...corners.map((p) => p.x))
+                    ).toFixed(2)}{" "}
+                    m
+                  </Html>
+                );
+              })}
+          </Suspense>
+        </MaterialResources>
       </Canvas>
     </ViewerBoundary>
   );

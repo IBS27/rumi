@@ -1,6 +1,8 @@
 import { exportPackage, readPackage } from "../../../../shared/capture/package";
 import { blendCapture } from "../../../../shared/capture/texture-atlas";
 import type { SavedRoom } from "../../../../shared/capture/roomplan";
+import { buildReconstructionEvidence } from "../../../../shared/reconstruction/evidence";
+import type { ReconstructionInput } from "../../../../shared/reconstruction/contracts";
 
 type Request =
   | { kind: "import"; bytes: ArrayBuffer }
@@ -18,6 +20,54 @@ self.onmessage = async (event: MessageEvent<Request>) => {
       return;
     }
     const capture = readPackage(bytes);
+    let evidence: ReconstructionInput | undefined;
+    let evidenceError: string | undefined;
+    try {
+      evidence = await buildReconstructionEvidence(
+        capture,
+        async (bytes, frame) => {
+          const scale = Math.min(1, 1024 / Math.max(frame.width, frame.height));
+          const bitmap = await createImageBitmap(
+            new Blob([bytes.slice().buffer], { type: "image/jpeg" }),
+            {
+              resizeWidth: Math.max(1, Math.round(frame.width * scale)),
+              resizeHeight: Math.max(1, Math.round(frame.height * scale)),
+              resizeQuality: "high",
+            },
+          );
+          try {
+            const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+            const context = canvas.getContext("2d");
+            if (!context) throw new Error("Photo processing is unavailable.");
+            context.drawImage(bitmap, 0, 0);
+            const pixels = context.getImageData(0, 0, bitmap.width, bitmap.height);
+            const blob = await canvas.convertToBlob({
+              type: "image/jpeg",
+              quality: 0.8,
+            });
+            const data = new Uint8Array(await blob.arrayBuffer());
+            let binary = "";
+            for (let i = 0; i < data.length; i += 8192)
+              binary += String.fromCharCode(...data.subarray(i, i + 8192));
+            canvas.width = canvas.height = 0;
+            return {
+              jpeg: btoa(binary),
+              width: bitmap.width,
+              height: bitmap.height,
+              pixels: { data: pixels.data, width: pixels.width, height: pixels.height },
+            };
+          } finally {
+            bitmap.close();
+          }
+        },
+      );
+    } catch (error) {
+      // A reconstruction problem must not destroy a valid measured scan.
+      evidenceError =
+        error instanceof Error
+          ? error.message
+          : "Could not prepare room reconstruction.";
+    }
     const frames = new Map(
       capture.manifest.frames.map((frame) => [frame.image, frame]),
     );
@@ -91,7 +141,7 @@ self.onmessage = async (event: MessageEvent<Request>) => {
       ...scan.images.map((image) => image.bytes.buffer as ArrayBuffer),
     );
     self.postMessage(
-      { kind: "import", saved: capture.saved, scan },
+      { kind: "import", saved: capture.saved, scan, evidence, evidenceError },
       { transfer },
     );
   } catch (error) {

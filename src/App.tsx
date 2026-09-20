@@ -2,6 +2,7 @@ import { SignInButton, UserButton, useUser } from "@clerk/react";
 import { useConvexAuth } from "convex/react";
 import { Smartphone } from "lucide-react";
 import { ChatPanel, ChatUnavailable } from "./features/chat/ChatPanel";
+import { RoomReconstruction } from "./features/room-editor/reconstruction/RoomReconstruction";
 import { SessionShell } from "./features/workspace/SessionShell";
 import { PhoneCapture } from "./features/room-import/PhoneCapture";
 import { ScanAction } from "./features/room-setup/StartScreen";
@@ -22,6 +23,13 @@ function SignedInWorkspace() {
     <SessionShell
       key={user?.id ?? "local"}
       identity={user?.id ?? "local"}
+      reconstruct={
+        isAuthenticated
+          ? (input, onReady) => (
+              <RoomReconstruction input={input} onReady={onReady} />
+            )
+          : undefined
+      }
       chat={(context) =>
         isAuthenticated && user ? (
           <ChatPanel {...context} identity={user.id} />

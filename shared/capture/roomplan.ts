@@ -277,6 +277,7 @@ export const savedRoomSchema = z
     version: z.literal(1),
     room: roomSchema,
     original: roomPlanSchema.passthrough(),
+    reconstructionObjectIds: z.array(z.string().min(1)).max(1000).optional(),
   })
   .superRefine((value, ctx) => {
     try {
