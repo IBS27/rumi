@@ -8,6 +8,8 @@ import {
   hashToken,
   MAX_ROOM_BYTES,
   MAX_SCAN_BYTES,
+  scanUploadSchema,
+  scanCompleteSchema,
 } from "../shared/capture/pairing";
 import { importRoomPlan } from "../shared/capture/roomplan";
 
@@ -77,8 +79,8 @@ function errorResponse(error: unknown): Response {
     ALREADY_CLAIMED: 409,
     ALREADY_UPLOADED: 409,
     RATE_LIMITED: 429,
-    INVALID_PACKAGE: 422,
-    FILE_TOO_LARGE: 413,
+    INVALID_SCAN: 422,
+    INVALID_REQUEST: 400,
   };
   const status =
     error instanceof RequestError ? error.status : (statuses[code] ?? 500);
@@ -131,7 +133,7 @@ http.route({
           uploadToken,
           expiresAt: new Date(expiresAt).toISOString(),
           maxBytes: MAX_ROOM_BYTES,
-          maxPackageBytes: MAX_SCAN_BYTES,
+          maxScanBytes: MAX_SCAN_BYTES,
         },
         { headers: { "Cache-Control": "no-store" } },
       );
@@ -194,49 +196,44 @@ http.route({
     }
   }),
 });
-for (const step of ["begin", "complete"] as const) {
+for (const path of ["start", "complete"] as const) {
   http.route({
-    path: `/capture/v1/package/${step}`,
+    path: `/capture/v1/scan/${path}`,
     method: "POST",
     handler: httpAction(async (ctx, request) => {
       try {
         const uploadHash = await hashToken(token(request));
-        const parsed = z
-          .object({
-            sessionId: z.string().min(1).max(200),
-            idempotencyKey: z.uuid(),
-            storageId: z.string().min(1).max(200).optional(),
-          })
-          .safeParse(JSON.parse(await readBody(request, 2048)));
-        if (!parsed.success) throw new RequestError("INVALID_REQUEST", 400);
-        const { sessionId, idempotencyKey, storageId } = parsed.data;
-        if (step === "begin") {
-          const result = await ctx.runMutation(internal.captures.beginPackage, {
-            sessionId,
-            idempotencyKey,
-            uploadHash,
-          });
+        let input: unknown;
+        try {
+          input = JSON.parse(await readBody(request, 2048));
+        } catch (error) {
+          if (error instanceof RequestError) throw error;
+          throw new RequestError("INVALID_REQUEST", 400);
+        }
+        if (path === "start") {
+          const body = scanUploadSchema.safeParse(input);
+          if (!body.success) throw new RequestError("INVALID_REQUEST", 400);
+          const result = await ctx.runMutation(
+            internal.captures.startScanUpload,
+            { ...body.data, uploadHash },
+          );
           return Response.json(result, {
             headers: { "Cache-Control": "no-store" },
           });
         }
-        if (!storageId) throw new RequestError("INVALID_REQUEST", 400);
-        await ctx.runMutation(internal.captures.completePackage, {
-          sessionId,
-          idempotencyKey,
+        const body = scanCompleteSchema.safeParse(input);
+        if (!body.success) throw new RequestError("INVALID_REQUEST", 400);
+        const status = await ctx.runAction(internal.capturePackages.accept, {
+          ...body.data,
           uploadHash,
-          storageId,
         });
+        if (status === "invalid") throw new RequestError("INVALID_SCAN", 422);
         return Response.json(
-          { sessionId, status: "uploaded" },
+          { sessionId: body.data.sessionId, status },
           { headers: { "Cache-Control": "no-store" } },
         );
       } catch (error) {
-        return errorResponse(
-          error instanceof SyntaxError
-            ? new RequestError("INVALID_REQUEST", 400)
-            : error,
-        );
+        return errorResponse(error);
       }
     }),
   });

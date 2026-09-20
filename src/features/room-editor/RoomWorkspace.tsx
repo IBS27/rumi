@@ -76,7 +76,7 @@ function readSaved(key: string): Workspace | null {
 /**
  * The whole app frame: top bar, then either the start screen or the room
  * review. `scan` renders the phone-pairing control for a given placement and
- * receives the uploaded room file; it is omitted when pairing is unavailable.
+ * receives the uploaded room text; it is omitted when pairing is unavailable.
  * `chat` renders the design chat, which floats at the right of either screen.
  */
 export function RoomWorkspace({
@@ -89,7 +89,7 @@ export function RoomWorkspace({
   account?: ReactNode;
   scan?: (
     placement: "start" | "bar",
-    receive: (file: File) => Promise<void>,
+    receive: (file: File, signal?: AbortSignal) => Promise<void>,
   ) => ReactNode;
   chat: (context: ChatContext) => ReactNode;
 }) {
@@ -211,12 +211,19 @@ export function RoomWorkspace({
     setSelected(null);
     setWalking(false);
   }
-  async function importFile(file?: File, reportFailure = false) {
+  async function importFile(
+    file?: File,
+    propagate = false,
+    signal?: AbortSignal,
+  ) {
     if (!file) return;
+    signal?.throwIfAborted();
     const request = ++importRequest.current;
     activeImport.current?.abort();
     const controller = new AbortController();
     activeImport.current = controller;
+    const abort = () => controller.abort();
+    signal?.addEventListener("abort", abort, { once: true });
     setBusy(true);
     setError("");
     try {
@@ -224,7 +231,9 @@ export function RoomWorkspace({
         if (file.size > MAX_PACKAGE_BYTES)
           throw new Error("Choose a scan ZIP smaller than 128 MB.");
         const result = await processScan(file, controller.signal);
-        if (request !== importRequest.current) return;
+        controller.signal.throwIfAborted();
+        if (request !== importRequest.current)
+          throw new DOMException("Import superseded.", "AbortError");
         if (result.saved.room.shape !== "polygon")
           throw new Error("This scan has no room layout.");
         const id = Array.from(
@@ -238,7 +247,8 @@ export function RoomWorkspace({
           stored = false;
         }
         controller.signal.throwIfAborted();
-        if (request !== importRequest.current) return;
+        if (request !== importRequest.current)
+          throw new DOMException("Import superseded.", "AbortError");
         setCapture({ id, blob: file, scan: result.scan, persisted: stored });
         setShowScan(true);
         setView("3d");
@@ -255,7 +265,9 @@ export function RoomWorkspace({
         throw new Error("Choose a JSON file smaller than 10 MB.");
       const text = await file.text();
       controller.signal.throwIfAborted();
-      if (request === importRequest.current) loadText(text, file.name);
+      if (request !== importRequest.current)
+        throw new DOMException("Import superseded.", "AbortError");
+      loadText(text, file.name);
     } catch (cause) {
       if (request === importRequest.current)
         setError(
@@ -263,8 +275,9 @@ export function RoomWorkspace({
             ? cause.message
             : "Could not import this file.",
         );
-      if (reportFailure) throw cause;
+      if (propagate) throw cause;
     } finally {
+      signal?.removeEventListener("abort", abort);
       if (request === importRequest.current) setBusy(false);
     }
   }
@@ -326,8 +339,8 @@ export function RoomWorkspace({
     setHistory((previous) => previous.slice(0, -1));
     setSelected(null);
   }
-  async function receive(file: File) {
-    await importFile(file, true);
+  async function receive(file: File, signal?: AbortSignal) {
+    await importFile(file, true, signal);
   }
 
   const originalObject = (id: string) =>
@@ -410,8 +423,8 @@ export function RoomWorkspace({
             />
             {notice && (
               <Notice tone="info" floating onDismiss={() => setNotice(false)}>
-                Phone pairing is not configured. Use Export scan on your phone
-                and import the ZIP here to include room photos and surfaces.
+                Phone pairing is not configured. Export the RoomPlan JSON from
+                your phone and import it here.
               </Notice>
             )}
             {error && (

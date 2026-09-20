@@ -9,11 +9,8 @@ import {
 import { QRCodeSVG } from "qrcode.react";
 import { api } from "../../../convex/_generated/api";
 import type { FunctionReturnType } from "convex/server";
-import {
-  MAX_SCAN_BYTES,
-  MAX_ROOM_BYTES,
-} from "../../../shared/capture/pairing";
 import { Button, Dialog, Heading, Muted } from "../../ui";
+import { downloadCapture } from "./downloadCapture";
 
 type Pairing = FunctionReturnType<typeof api.captures.create>;
 
@@ -23,14 +20,14 @@ function countdown(ms: number) {
 }
 
 /**
- * Pairs an iPhone with this session and hands back the uploaded room file.
+ * Pairs an iPhone with this session and imports the uploaded layout or complete scan.
  * `children` renders the trigger and receives `open`.
  */
 export function PhoneCapture({
   onReceive,
   children,
 }: {
-  onReceive: (file: File) => Promise<void>;
+  onReceive: (file: File, signal?: AbortSignal) => Promise<void>;
   children: (open: () => void, busy: boolean) => ReactNode;
 }) {
   const create = useAction(api.captures.create);
@@ -39,6 +36,7 @@ export function PhoneCapture({
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [received, setReceived] = useState(false);
+  const [loading, setLoading] = useState("");
   const [retry, setRetry] = useState(0);
   const [now, setNow] = useState(Date.now);
   const dialog = useRef<HTMLDialogElement>(null);
@@ -60,35 +58,21 @@ export function PhoneCapture({
       .then(async (response) => {
         if (!response.ok)
           throw new Error("The uploaded room could not be downloaded.");
-        const format = session.format ?? "json";
-        const limit = format === "zip" ? MAX_SCAN_BYTES : MAX_ROOM_BYTES;
-        if (Number(response.headers.get("Content-Length")) > limit) {
-          await response.body?.cancel();
-          throw new Error("The uploaded scan exceeds its size limit.");
-        }
-        const reader = response.body?.getReader();
-        if (!reader) throw new Error("The uploaded scan is empty.");
-        const chunks: ArrayBuffer[] = [];
-        let size = 0;
-        try {
-          while (true) {
-            const part = await reader.read();
-            if (part.done) break;
-            size += part.value.byteLength;
-            if (size > limit)
-              throw new Error("The uploaded scan exceeds its size limit.");
-            chunks.push(part.value.slice().buffer);
-          }
-        } finally {
-          await reader.cancel();
-          reader.releaseLock();
-        }
+        const file = await downloadCapture(
+          response,
+          session.format,
+          abort.signal,
+          (bytes, total) => {
+            setLoading(
+              total
+                ? `Receiving scan… ${Math.round((bytes / total) * 100)}%`
+                : "Receiving scan…",
+            );
+          },
+        );
         if (!abort.signal.aborted) {
-          await receive(
-            new File(chunks, `rumi-room.${format}`, {
-              type: format === "zip" ? "application/zip" : "application/json",
-            }),
-          );
+          setLoading("Preparing captured surfaces and photos…");
+          await receive(file, abort.signal);
           if (abort.signal.aborted) return;
           setReceived(true);
           setError("");
@@ -109,13 +93,15 @@ export function PhoneCapture({
     if (isOpen && !node.open) node.showModal();
     if (!isOpen && node.open) node.close();
   }, [isOpen]);
-  async function start() {
+  async function start(replaceFailedTransfer = false) {
     if (changingSession.current) return;
     setIsOpen(true);
     // Reopening an accepted scan must preserve its download or retry state.
-    if (session?.state === "uploaded" && !received) return;
+    if (session?.state === "uploaded" && !received && !replaceFailedTransfer)
+      return;
     changingSession.current = true;
     setError("");
+    setLoading("");
     setBusy(true);
     setReceived(false);
     try {
@@ -238,10 +224,10 @@ export function PhoneCapture({
           ) : pairing ? (
             <p role="status">
               {session?.state === "uploaded"
-                ? "Loading your room…"
+                ? loading || "Receiving your scan…"
                 : session === undefined
                   ? "Connecting…"
-                  : "Phone connected. Finish Scan on your iPhone, review the room, then tap Send to Rumi. Keep this window open."}
+                  : "Phone connected. Finish Scan on your iPhone, review the room, then tap Send to Rumi to transfer the complete scan. Keep this window open."}
             </p>
           ) : null}
           {error && (
@@ -258,6 +244,17 @@ export function PhoneCapture({
               >
                 Try again
               </Button>
+              {session?.state === "uploaded" && !received && (
+                <Button
+                  variant="quiet"
+                  className="justify-self-start"
+                  onClick={() => {
+                    void start(true);
+                  }}
+                >
+                  Start a new transfer
+                </Button>
+              )}
             </>
           )}
           <Muted className="text-xs">

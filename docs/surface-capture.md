@@ -14,7 +14,7 @@ Select furniture in the list to switch to the editable RoomPlan layout. Changing
 
 Large source packages are saved as Blobs in IndexedDB under the current identity. Only the small room snapshot and random local asset key go in localStorage. Download writes the original package plus validated edits to a new ZIP. Source photos, depth, and geometry remain unchanged. If browser storage fails, the current tab can still display and download the package; the UI asks the user to download before closing. Clearing browser storage removes these local copies.
 
-The native app offers **Send to Rumi** for a paired detailed ZIP transfer when a package is available, and **Send layout to Rumi** when only JSON is available. **Export scan** remains an offline fallback. The updated backend must advertise package support; old backends prompt the user to export the ZIP. File import does not require a backend. See the [transfer protocol](room-capture-pairing.md#detailed-scan-transfer).
+The native app offers **Send to Rumi** for paired transfer of the complete ZIP, including surfaces, photos, depth, confidence, and layout. The browser opens it automatically through the same importer used for files. **Export scan** remains an offline backup; **Send layout only** is an explicit fallback when detailed capture is unavailable. See [the paired transfer contract](room-capture-pairing.md#complete-scan-transfer) for upload, retry, and rollout details. File import still needs no backend deployment.
 
 ## Version 1 package
 
@@ -54,7 +54,7 @@ GPU resources and ImageBitmaps are disposed when switching views or rooms. The s
 
 ## Verification
 
-On Fedora, TypeScript, lint, and 239 Bun tests pass. Capture tests cover package validation, camera orientation, translated room origins, depth occlusion, missing confidence, invalid buffers, ZIP expansion limits, and preserving originals through export/reimport. Atlas tests cover linear-light blending, robust exposure correction, per-pixel occlusion, and projective sampling on tilted geometry. Transfer tests exercise ownership, MIME binding, identical retries, canceled sessions, changed payloads, file limits, and abandoned-file cleanup.
+TypeScript, lint, and the Bun suite check the web implementation. Capture tests cover package validation, camera orientation, translated room origins, depth occlusion, missing confidence, invalid buffers, ZIP expansion limits, and preserving originals through export/reimport. Atlas tests cover linear-light blending, robust exposure correction, per-pixel occlusion, and projective sampling on tilted geometry. Transfer tests exercise ownership, MIME and digest binding, malformed-package rejection, identical retries, canceled sessions, changed payloads, file limits, and expired-file cleanup.
 
 Browser verification used both the colored-triangle fixture and a synthetic ZIP with 100 photos at 2560 × 1920, totaling 491.5 million source pixels and 11.6 MB of archive data. Import, worker processing, GPU rendering, floor-plan/layout switching, editing a furniture width, walkthrough entry/exit, ZIP download, and reimport passed. The downloaded ZIP retained the edit and source photos. Reload restored the edited room and regenerated its textured view from IndexedDB. These synthetic tests do not establish physical scan quality.
 

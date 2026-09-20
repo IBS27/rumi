@@ -12,9 +12,20 @@ export const claimBodySchema = z.object({
   sessionId: z.string().min(1).max(200),
   claimId: z.uuid(),
 });
-export const PACKAGE_CONTENT_PREFIX = "application/vnd.rumi.capture.";
-export const MAX_SCAN_BYTES = 128 * 1024 * 1024;
 export const MAX_ROOM_BYTES = 10 * 1024 * 1024;
+export const MAX_SCAN_BYTES = 128 * 1024 * 1024;
+export const scanUploadSchema = z.object({
+  sessionId: z.string().min(1).max(200),
+  idempotencyKey: z.uuid(),
+  digest: z.string().regex(/^[A-Za-z0-9+/]{43}=$/),
+  size: z.number().int().positive().max(MAX_SCAN_BYTES),
+});
+export const scanCompleteSchema = scanUploadSchema
+  .pick({
+    sessionId: true,
+    idempotencyKey: true,
+  })
+  .extend({ storageId: z.string().min(1).max(200) });
 export const PAIRING_TTL = 10 * 60 * 1000;
 export const UPLOAD_TTL = 60 * 60 * 1000;
 export async function hashToken(value: string): Promise<string> {
@@ -30,4 +41,10 @@ export function randomToken(): string {
   return Array.from(crypto.getRandomValues(new Uint8Array(32)), (byte) =>
     byte.toString(16).padStart(2, "0"),
   ).join("");
+}
+
+// A non-secret MIME parameter associates even uploads with lost responses with
+// their capture session, so expiry cleanup can find them without guessing IDs.
+export function scanContentType(sessionId: string): string {
+  return `application/zip; rumi-session=${sessionId}`;
 }

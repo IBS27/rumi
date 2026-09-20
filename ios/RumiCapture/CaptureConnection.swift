@@ -1,18 +1,22 @@
 import Foundation
 import Combine
+import UIKit
 
 @MainActor
 final class CaptureConnection: ObservableObject {
     @Published private(set) var pairing: CapturePairing?
     @Published private(set) var grant: CaptureGrant?
-    @Published private(set) var isBusy = false
+    @Published private(set) var isBusy = false {
+        didSet { UIApplication.shared.isIdleTimerDisabled = isBusy }
+    }
     @Published private(set) var sent = false
     @Published private(set) var message: String?
 
     private let client: CaptureClient
     private var claimId = UUID()
-    private enum Payload { case layout(Data), package(URL) }
-    private var upload: (payload: Payload, key: UUID)?
+    private var upload: (bytes: Data, key: UUID)?
+    private var scanUpload: (url: URL, key: UUID, scan: ScanTransfer?, storageId: String?)?
+    @Published private(set) var uploadProgress: Double?
     private var operation: Task<Void, Never>?
     private var operationId: UUID?
 
@@ -35,6 +39,7 @@ final class CaptureConnection: ObservableObject {
                 grant = nil
                 claimId = UUID()
                 upload = nil
+                scanUpload = nil
                 sent = false
             }
             message = nil
@@ -56,31 +61,64 @@ final class CaptureConnection: ObservableObject {
         }
     }
 
-    func send(packageURL: URL? = nil, bytes: () throws -> Data) {
+    func send(bytes: () throws -> Data) {
         guard !isBusy, !sent, let pairing, let grant else { return }
         do {
             // Retain exactly these bytes and this key after failure or cancellation.
-            if upload == nil {
-                if let packageURL { upload = (.package(packageURL), UUID()) }
-                else { upload = (.layout(try bytes()), UUID()) }
-            }
+            if upload == nil { upload = (try bytes(), UUID()) }
         } catch { message = error.localizedDescription; return }
         guard let upload else { return }
         let id = begin()
         operation = Task {
             do {
-                switch upload.payload {
-                case .layout(let bytes):
-                    try await client.upload(bytes, pairing: pairing, grant: grant, key: upload.key)
-                case .package(let url):
-                    try await client.uploadPackage(url, pairing: pairing, grant: grant, key: upload.key)
-                }
+                try await client.upload(upload.bytes, pairing: pairing, grant: grant, key: upload.key)
                 guard operationId == id, !Task.isCancelled else { return }
                 sent = true
                 message = "Sent to Rumi. Review the room in your browser. Your scan is still saved on this iPhone."
                 finish(id)
             } catch { failed(error, id: id) }
         }
+    }
+
+    func sendScan(file: () throws -> URL) {
+        guard !isBusy, !sent, let pairing, let grant else { return }
+        do { if scanUpload == nil { scanUpload = (try file(), UUID(), nil, nil) } }
+        catch { message = error.localizedDescription; return }
+        guard let pending = scanUpload else { return }
+        let id = begin()
+        message = "Preparing complete scan…"
+        operation = Task {
+            do {
+                let scan: ScanTransfer
+                if let existing = pending.scan { scan = existing }
+                else {
+                    let hashing = Task.detached(priority: .utility) { try ScanTransfer.read(pending.url) }
+                    scan = try await withTaskCancellationHandler(operation: { try await hashing.value }, onCancel: { hashing.cancel() })
+                }
+                guard operationId == id, !Task.isCancelled else { return }
+                scanUpload?.scan = scan
+                message = "Sending complete scan…"
+                uploadProgress = 0
+                try await client.uploadScan(scan, pairing: pairing, grant: grant, key: pending.key, storageId: pending.storageId,
+                    onStored: { [weak self] storageId in
+                        await self?.rememberStorage(storageId, key: pending.key)
+                    }, progress: { [weak self] value in
+                        Task { @MainActor [weak self] in
+                            guard let self, self.operationId == id else { return }
+                            self.uploadProgress = value
+                            self.message = value == nil ? "Checking the complete scan in Rumi…" : "Sending complete scan…"
+                        }
+                    })
+                guard operationId == id, !Task.isCancelled else { return }
+                sent = true
+                message = "Complete scan sent to Rumi. Your surfaces, photos, and layout are ready to open in the browser."
+                finish(id)
+            } catch { failed(error, id: id) }
+        }
+    }
+
+    private func rememberStorage(_ storageId: String, key: UUID) {
+        if scanUpload?.key == key { scanUpload?.storageId = storageId }
     }
 
     func cancel() {
@@ -98,6 +136,7 @@ final class CaptureConnection: ObservableObject {
         pairing = nil
         grant = nil
         upload = nil
+        scanUpload = nil
         sent = false
         message = nil
         claimId = UUID()
@@ -106,13 +145,14 @@ final class CaptureConnection: ObservableObject {
     func prepareForNewScan() {
         // One room per grant. Keep a newly paired session through scan retries only
         // when no room has been sent or attempted with that grant.
-        if upload != nil { disconnect() }
+        if upload != nil || scanUpload != nil { disconnect() }
     }
 
     private func begin() -> UUID {
         let id = UUID()
         operationId = id
         isBusy = true
+        uploadProgress = nil
         message = nil
         return id
     }

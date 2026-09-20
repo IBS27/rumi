@@ -24,7 +24,7 @@ final class ScanModel: ObservableObject {
     private(set) var controller: RoomScanViewController?
     private let store: RoomFileStore
     private var savedURL: URL?
-    private(set) var packageURL: URL?
+    private var packageURL: URL?
     private var hasUnreadableSave = false
     private var processingTimeout: Task<Void, Never>?
 
@@ -139,7 +139,7 @@ final class ScanModel: ObservableObject {
                     case .success(let url):
                         self.packageURL = url
                         self.hasSurfacePackage = true
-                        self.surfaceMessage = "Detailed surfaces and photos are saved. Send to Rumi includes them. The preview above shows the RoomPlan layout."
+                        self.surfaceMessage = "Detailed scan saved. Send to Rumi to open the captured surfaces and available photos. The preview above shows the RoomPlan layout."
                     case .failure(let error):
                         self.surfaceMessage = "Detailed capture could not be prepared: \(error.localizedDescription) Your room layout is retained."
                     }
@@ -174,6 +174,14 @@ final class ScanModel: ObservableObject {
         } catch {
             exportMessage = "Could not save JSON: \(error.localizedDescription) Your scan is still in memory. Tap Export JSON to retry before closing the app."
         }
+    }
+
+    func completedScanFile() throws -> URL {
+        guard lifecycle.phase == .completed, !isPreparingSurface, hasSurfacePackage,
+              let packageURL, FileManager.default.isReadableFile(atPath: packageURL.path) else {
+            throw CaptureError.detailedUnavailable
+        }
+        return packageURL
     }
 
     func completedBytes() throws -> Data {
