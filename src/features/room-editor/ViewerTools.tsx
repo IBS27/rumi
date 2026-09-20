@@ -103,7 +103,7 @@ export function ViewerTools({
           Dimensions
         </Chip>
       </div>
-      <div className="flex w-full max-w-[560px] flex-col gap-2 pointer-events-auto">
+      <div className="flex w-fit max-w-[min(560px,100%)] flex-col gap-2 text-center leading-5 pointer-events-auto">
         {children}
       </div>
     </div>
