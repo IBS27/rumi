@@ -76,6 +76,14 @@ describe("query building", () => {
     ).toBe("minimalist oak wardrobe under $400");
   });
 
+  it("uses no price ceiling when the budget is unspecified", () => {
+    const task = makeTask({ maxPriceCents: 0 });
+    expect(buildExaQuery(task)).not.toContain("under $");
+    expect(searchDomains(task)).toEqual(
+      expect.arrayContaining(["ikea.com", "westelm.com", "dwr.com"]),
+    );
+  });
+
   it("requires the main agent to provide the item name", () => {
     expect(() => makeTask({ query: "" })).toThrow();
   });
@@ -223,6 +231,17 @@ describe("hard filters", () => {
     );
     expect(kept.map((product) => product.id)).toEqual(["ok"]);
     expect(failures).toHaveLength(4);
+  });
+
+  it("does not filter by price when no budget was specified", () => {
+    const { kept, failures } = filterCandidates(
+      [makeProduct({ id: "premium", priceCents: 500000 })],
+      makeTask({ maxPriceCents: 0 }),
+    );
+    expect(kept.map((product) => product.id)).toEqual(["premium"]);
+    expect(failures.some((failure) => failure.detail.includes("price"))).toBe(
+      false,
+    );
   });
 
   it("keeps a product whose dimensions are not known yet", () => {
@@ -385,6 +404,11 @@ describe("search hits", () => {
     ).toBe(false);
     expect(looksLikeListing("https://shop.test/collections/beds")).toBe(false);
     expect(
+      looksLikeListing(
+        "https://www.webstaurantstore.com/53011/kids-tables-and-chairs.html",
+      ),
+    ).toBe(false);
+    expect(
       looksLikeListing("https://shop.test/collections/beds/products/oak-bed"),
     ).toBe(true);
     expect(
@@ -409,8 +433,14 @@ describe("search hits", () => {
     expect(hits[0].url).toBe("https://www.dwr.com/line-wardrobe/2572723.html");
   });
 
-  it("drops Amazon URLs because indexed product links are not dependable", () => {
+  it("drops Amazon and non-USD country storefronts", () => {
     expect(isUnsupportedMerchant("https://www.amazon.com/dp/B08Z8GHPFV")).toBe(
+      true,
+    );
+    expect(
+      isUnsupportedMerchant("https://www.ikea.com.tr/en/product/chair"),
+    ).toBe(true);
+    expect(isUnsupportedMerchant("https://shop.example.co.uk/chair")).toBe(
       true,
     );
     expect(isUnsupportedMerchant("https://www.ikea.com/us/en/p/item/")).toBe(

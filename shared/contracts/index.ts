@@ -194,7 +194,11 @@ export const hexColorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/);
 export const searchTaskSchema = z.object({
   query: z.string().trim().min(1).max(200),
   category: searchCategorySchema,
-  maxPriceCents: z.number().int().nonnegative(),
+  maxPriceCents: z
+    .number()
+    .int()
+    .nonnegative()
+    .describe("Maximum price in cents. Use 0 when the user gave no budget."),
   maxFootprint: footprintSchema.nullable(),
   maxHeight: z.number().positive().nullable(),
   styleTerms: z.array(z.string()),

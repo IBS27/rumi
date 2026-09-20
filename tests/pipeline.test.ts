@@ -122,7 +122,7 @@ describe("the search pipeline", () => {
     const result = await runSearch(makeTask(), context.deps, {
       minTierHits: 1,
     });
-    expect(result.candidates.length).toBeGreaterThan(0);
+    expect(result.candidates).toHaveLength(1);
     expect(result.candidates[0].product.measurement.evidence.kind).toBe(
       "spec-text",
     );
@@ -282,9 +282,10 @@ describe("the search pipeline", () => {
       minTierHits: 1,
     });
     expect(searches).toContainEqual([]);
-    expect(
-      result.candidates.map((candidate) => candidate.product.merchant),
-    ).toEqual(expect.arrayContaining(["target.test", "wayfair.test"]));
+    expect(result.candidates).toHaveLength(1);
+    expect(["target.test", "wayfair.test"]).toContain(
+      result.candidates[0].product.merchant,
+    );
     expect(
       result.failures.some((failure) =>
         failure.detail.includes("passed the catalogue filters"),
@@ -330,6 +331,29 @@ describe("the search pipeline", () => {
     expect(
       result.failures.some((failure) =>
         failure.detail.includes("Dropped inaccessible product link"),
+      ),
+    ).toBe(true);
+  });
+
+  it("drops a browse page even when it contains product prices", async () => {
+    const url = "https://shop.test/kids-tables-and-chairs.html";
+    const page = specPage(url);
+    page.title = "Kids Tables and Chairs";
+    page.text = [
+      "Filters",
+      "Sort by Price: Low to High",
+      "Compare Products",
+      "Search within results",
+      "Red plastic chair $17.49",
+    ].join("\n");
+    const context = deps(pagesFrom([page]));
+    const result = await runSearch(makeTask({ query: "red plastic chair" }), context.deps, {
+      minTierHits: 1,
+    });
+    expect(result.candidates).toHaveLength(0);
+    expect(
+      result.failures.some((failure) =>
+        failure.detail.includes("Dropped category or explore page"),
       ),
     ).toBe(true);
   });
