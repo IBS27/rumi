@@ -208,11 +208,11 @@ export function RoomWorkspace({
     </Button>
   );
   /** Keeps floating controls clear of the chat panel while it is open. */
-  const clearChat = chatOpen ? "right-[372px]" : "right-4";
+  const clearChat = chatOpen ? "right-[328px]" : "right-4";
   const chatDock = chatOpen && (
     <FloatingPanel
       aria-label="Design chat"
-      className="top-4 right-4 bottom-4 flex w-[340px] flex-col overflow-hidden p-0"
+      className="top-4 right-4 bottom-4 flex w-[296px] max-w-[calc(100%-32px)] flex-col overflow-hidden p-0"
     >
       {chat({ room, onCollapse: () => setChatOpen(false) })}
     </FloatingPanel>

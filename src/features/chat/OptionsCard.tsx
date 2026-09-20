@@ -1,3 +1,4 @@
+import { Button, TextInput, Panel } from "../../ui";
 import { useState } from "react";
 import { useMutation } from "convex/react";
 import { Check, ArrowUp } from "lucide-react";
@@ -35,13 +36,17 @@ export function OptionsCard({
     }
   }
   return (
-    <div className="chat-question">
+    <Panel
+      tone="stone"
+      className="shrink-0 rounded-tile p-3 text-[12.5px] [&>p]:mb-2.5"
+    >
       <p>{message.content}</p>
-      <div className="chat-options">
+      <div className="flex flex-col gap-1.5 [&>button]:justify-between [&>button]:whitespace-normal [&>button]:text-left [&>button]:leading-relaxed [&>button[aria-pressed=true]]:border-teal [&>button[aria-pressed=true]]:bg-teal-tint [&>button[aria-pressed=true]]:opacity-100">
         {message.options?.map((option) => {
           const active = (message.answer ?? selected).includes(option);
           return (
-            <button
+            <Button
+              size="sm"
               key={option}
               aria-pressed={active}
               disabled={answered || disabled || busy}
@@ -57,13 +62,13 @@ export function OptionsCard({
             >
               <span>{option}</span>
               {active && <Check size={15} />}
-            </button>
+            </Button>
           );
         })}
       </div>
       {!answered && (
         <form
-          className="custom-answer"
+          className="mt-2 flex gap-1.5"
           onSubmit={(event) => {
             event.preventDefault();
             void respond(
@@ -73,7 +78,7 @@ export function OptionsCard({
             );
           }}
         >
-          <input
+          <TextInput
             aria-label="Custom answer"
             placeholder="Or your own answer…"
             value={custom}
@@ -81,7 +86,9 @@ export function OptionsCard({
             onChange={(event) => setCustom(event.target.value)}
             disabled={disabled || busy}
           />
-          <button
+          <Button
+            size="sm"
+            type="submit"
             aria-label="Submit answer"
             disabled={
               disabled ||
@@ -90,19 +97,22 @@ export function OptionsCard({
             }
           >
             <ArrowUp size={16} />
-          </button>
+          </Button>
         </form>
       )}
       {answered && (
-        <small className="chat-answer">
+        <small className="mt-2 block text-[11px] text-teal-deep">
           Answered: {message.answer?.join(", ")}
         </small>
       )}
       {error && (
-        <p className="chat-error" role="alert">
+        <p
+          className="text-xs leading-relaxed text-rust [overflow-wrap:anywhere]"
+          role="alert"
+        >
           {error}
         </p>
       )}
-    </div>
+    </Panel>
   );
 }

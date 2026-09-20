@@ -23,20 +23,20 @@ tab (`docs/design-parts/05-plaster.html`).
 
 ## Components
 
-| Component                                                 | Use for                                                                                                             |
-| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `TopBar`, `Brand`                                         | The app header. `title` for the room name, actions as children.                                                     |
-| `Button`                                                  | Every button. `variant`: `primary` (one per screen), `soft` (default), `quiet`, `danger`. `size`: `sm`, `md`, `lg`. |
-| `Segmented`                                               | Exclusive view switches (3D view / Floor plan).                                                                     |
-| `Chip`                                                    | On/off overlays and filters (Walls, Dimensions, Fit checks).                                                        |
-| `Pill`                                                    | Status labels. Tones: `neutral`, `estimated`, `ok`, `warn`, `locked`.                                               |
-| `Panel`                                                   | A tinted surface in normal flow. Tones: `chalk`, `stone`, `sage`, `blue`, `blush`.                                  |
-| `FloatingPanel`                                           | A panel positioned over the room view. Position with `className`.                                                   |
-| `Field`, `TextInput`, `NumberInput`, `Select`, `Checkbox` | Forms. Numbers are meters or degrees.                                                                               |
-| `Notice`                                                  | Inline or floating messages: `info`, `warn`, `error`. Say what happened and what to do.                             |
-| `Dialog`                                                  | Modal wrapper around the native `<dialog>`.                                                                         |
-| `Heading`, `Display`, `Muted`                             | Text roles.                                                                                                         |
-| `cx`                                                      | Class joiner.                                                                                                       |
+| Component                                                             | Use for                                                                                                             |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `TopBar`, `Brand`                                                     | The app header. `title` for the room name, actions as children.                                                     |
+| `Button`                                                              | Every button. `variant`: `primary` (one per screen), `soft` (default), `quiet`, `danger`. `size`: `sm`, `md`, `lg`. |
+| `Segmented`                                                           | Exclusive view switches (3D view / Floor plan).                                                                     |
+| `Chip`                                                                | On/off overlays and filters (Walls, Dimensions, Fit checks).                                                        |
+| `Pill`                                                                | Status labels. Tones: `neutral`, `estimated`, `ok`, `warn`, `locked`.                                               |
+| `Panel`                                                               | A tinted surface in normal flow. Tones: `chalk`, `stone`, `sage`, `blue`, `blush`.                                  |
+| `FloatingPanel`                                                       | A panel positioned over the room view. Position with `className`.                                                   |
+| `Field`, `TextInput`, `TextArea`, `NumberInput`, `Select`, `Checkbox` | Forms. Numbers are meters or degrees.                                                                               |
+| `Notice`                                                              | Inline or floating messages: `info`, `warn`, `error`. Say what happened and what to do.                             |
+| `Dialog`                                                              | Modal wrapper around the native `<dialog>`.                                                                         |
+| `Heading`, `Display`, `Muted`                                         | Text roles.                                                                                                         |
+| `cx`                                                                  | Class joiner.                                                                                                       |
 
 Import from `src/ui` (`import { Button, FloatingPanel } from "../../ui"`).
 

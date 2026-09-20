@@ -1,5 +1,7 @@
 import type {
+  ComponentPropsWithRef,
   InputHTMLAttributes,
+  TextareaHTMLAttributes,
   ReactNode,
   SelectHTMLAttributes,
 } from "react";
@@ -34,7 +36,7 @@ export function Field({
 export function TextInput({
   className,
   ...rest
-}: InputHTMLAttributes<HTMLInputElement>) {
+}: ComponentPropsWithRef<"input">) {
   return <input className={cx(control, className)} {...rest} />;
 }
 
@@ -70,5 +72,23 @@ export function Checkbox({
       <input type="checkbox" className="size-3.5 accent-teal" {...rest} />
       {label}
     </label>
+  );
+}
+
+/** Multiline input, optionally embedded in a composer with its own border. */
+export function TextArea({
+  className,
+  embedded = false,
+  ...rest
+}: TextareaHTMLAttributes<HTMLTextAreaElement> & { embedded?: boolean }) {
+  return (
+    <textarea
+      className={cx(
+        embedded ? "min-w-0 bg-transparent text-ink outline-none" : control,
+        "resize-none placeholder:text-mute",
+        className,
+      )}
+      {...rest}
+    />
   );
 }

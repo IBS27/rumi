@@ -1,8 +1,8 @@
+import { Button } from "../../ui";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import {
   History,
-  MessageCircle,
   PanelRightClose,
   Plus,
   RotateCcw,
@@ -26,21 +26,20 @@ function ChatHeader({
   children?: ReactNode;
 }) {
   return (
-    <div className="chat-header">
-      <div>
-        <MessageCircle size={18} />
-        <h2>Design with Rumi</h2>
-      </div>
-      <div className="chat-header-actions">
+    <div className="flex shrink-0 items-center justify-between gap-2">
+      <h2 className="text-[11px] font-medium text-mute">Your brief</h2>
+      <div className="flex items-center gap-0.5">
         {children}
-        <button
-          className="icon-button"
+        <Button
+          size="sm"
+          variant="quiet"
+          className="size-7 shrink-0 p-1 text-mute"
           aria-label="Collapse chat"
           title="Collapse chat"
           onClick={onCollapse}
         >
           <PanelRightClose size={17} />
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -55,16 +54,17 @@ export function ChatUnavailable({
   connecting?: boolean;
 }) {
   return (
-    <section className="chat-panel" aria-label="Design chat">
+    <section
+      className="flex h-full min-h-0 flex-col gap-2.5 px-4 pt-3.5 pb-3"
+      aria-label="Design chat"
+    >
       <ChatHeader onCollapse={onCollapse} />
-      <div className="chat-welcome">
-        <span className="chat-mark">
-          <MessageCircle size={24} />
-        </span>
-        <h3>A room that feels like you.</h3>
+      <div className="flex min-h-0 flex-1 flex-col items-start gap-3 overflow-y-auto pt-2 text-[12.5px] leading-relaxed">
+        <h3 className="font-display text-sm font-medium leading-snug">
+          What would you like to change?
+        </h3>
         <p>
-          Find your style, set a budget, and share inspiration. We’ll work
-          through your room together.
+          Tell Rumi about your room, your budget, or an idea you want to try.
         </p>
         {connecting ? (
           <p role="status">Connecting to your conversations…</p>
@@ -154,28 +154,38 @@ export function ChatPanel({
     }
   }
   return (
-    <section className="chat-panel" aria-label="Design chat">
+    <section
+      className="flex h-full min-h-0 flex-col gap-2.5 px-4 pt-3.5 pb-3"
+      aria-label="Design chat"
+    >
       <ChatHeader onCollapse={onCollapse}>
-        <button
-          className="icon-button"
+        <Button
+          size="sm"
+          variant="quiet"
+          className="size-7 shrink-0 p-1 text-mute"
           aria-label="Chat history"
           title="Chat history"
           aria-pressed={history}
           onClick={() => setHistory((value) => !value)}
         >
           <History size={17} />
-        </button>
-        <button
-          className="icon-button"
+        </Button>
+        <Button
+          size="sm"
+          variant="quiet"
+          className="size-7 shrink-0 p-1 text-mute"
           aria-label="New chat"
           title="New chat"
           onClick={() => select(null)}
         >
           <Plus size={18} />
-        </button>
+        </Button>
       </ChatHeader>
       {attachmentError && (
-        <p className="chat-error chat-panel-error" role="alert">
+        <p
+          className="shrink-0 text-xs text-rust [overflow-wrap:anywhere]"
+          role="alert"
+        >
           {attachmentError}
         </p>
       )}
@@ -195,21 +205,22 @@ export function ChatPanel({
         />
       ) : (
         <>
-          <div className="chat-welcome">
-            <span className="chat-mark">
-              <MessageCircle size={24} />
-            </span>
-            <h3>A room that feels like you.</h3>
+          <div className="flex min-h-0 flex-1 flex-col items-start gap-3 overflow-y-auto pt-2 text-[12.5px] leading-relaxed">
+            <h3 className="font-display text-sm font-medium leading-snug">
+              What would you like to change?
+            </h3>
             <p>
               Tell me what you’d like to change. We can start with a feeling, a
               budget, or an inspiration image.
             </p>
-            <div className="chat-room-label">
+            <div className="flex items-center gap-1.5 text-xs text-mute [&>svg]:shrink-0 [overflow-wrap:anywhere]">
               <ScanLine size={15} />
               {room ? room.name : "No room scan needed to start"}
             </div>
             {room?.capture.synthetic && (
-              <small className="muted">Using the synthetic sample room.</small>
+              <small className="text-mute">
+                Using the synthetic sample room.
+              </small>
             )}
           </div>
           <Composer
@@ -273,14 +284,19 @@ function Conversation({
   }, [newestId, pending]);
   if (context === null)
     return (
-      <div className="chat-welcome">
+      <div className="flex min-h-0 flex-1 flex-col items-start gap-3 overflow-y-auto pt-2 text-[12.5px] leading-relaxed">
         <p>This conversation is no longer available.</p>
-        <button onClick={onNew}>Start a new conversation</button>
+        <Button size="sm" onClick={onNew}>
+          Start a new conversation
+        </Button>
       </div>
     );
   if (!context || status === "LoadingFirstPage")
     return (
-      <div className="chat-welcome" role="status">
+      <div
+        className="flex min-h-0 flex-1 flex-col items-start gap-3 overflow-y-auto pt-2 text-[12.5px] leading-relaxed"
+        role="status"
+      >
         Loading your conversation…
       </div>
     );
@@ -300,15 +316,19 @@ function Conversation({
   }
   return (
     <>
-      <div className="chat-context">
-        <h3>{context.project.title}</h3>
-        <div className="chat-room-label">
+      <div className="max-h-[35%] shrink-0 overflow-y-auto border-b border-line pb-2.5">
+        <h3 className="mb-2 font-display text-sm font-medium leading-snug [overflow-wrap:anywhere]">
+          {context.brief.prompt || context.project.title}
+        </h3>
+        <div className="flex items-center gap-1.5 text-xs text-mute [&>svg]:shrink-0 [overflow-wrap:anywhere]">
           <ScanLine size={14} />
           <span>{context.room?.name ?? "No room attached yet"}</span>
         </div>
         {needsUpdate && (
-          <button
-            className="text-button"
+          <Button
+            size="sm"
+            variant="quiet"
+            className="justify-start whitespace-normal px-0 text-left"
             disabled={pending || updating}
             onClick={async () => {
               setUpdating(true);
@@ -331,10 +351,12 @@ function Conversation({
               : context.room
                 ? "Update room measurements"
                 : "Attach current room"}
-          </button>
+          </Button>
         )}
-        {(context.brief.budgetCents > 0 || context.brief.styles.length > 0) && (
-          <p className="chat-brief">
+        {(context.brief.budgetCents > 0 ||
+          context.brief.styles.length > 0 ||
+          context.brief.restrictions.length > 0) && (
+          <p className="mt-1.5 flex flex-wrap gap-x-2 gap-y-1 text-xs text-mute">
             {context.brief.budgetCents > 0 && (
               <span>
                 {new Intl.NumberFormat("en-US", {
@@ -345,26 +367,36 @@ function Conversation({
                 budget
               </span>
             )}
-            {context.brief.styles.map((style) => (
+            {[
+              ...new Set([
+                ...context.brief.styles,
+                ...context.brief.restrictions,
+              ]),
+            ].map((style) => (
               <span key={style}>{style}</span>
             ))}
           </p>
         )}
       </div>
       <div
-        className="chat-transcript"
+        className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto overscroll-contain py-0.5 text-[12.5px]"
         ref={scroll}
         role="log"
         aria-label="Conversation"
         aria-live="polite"
       >
         {status === "CanLoadMore" && (
-          <button className="text-button" onClick={() => loadMore(30)}>
+          <Button
+            size="sm"
+            variant="quiet"
+            className="justify-start whitespace-normal px-0 text-left"
+            onClick={() => loadMore(30)}
+          >
             Load earlier messages
-          </button>
+          </Button>
         )}
         {status === "LoadingMore" && (
-          <p className="muted">Loading earlier messages…</p>
+          <p className="text-mute">Loading earlier messages…</p>
         )}
         {[...results].reverse().map((message) => {
           if (message.kind === "question")
@@ -378,8 +410,12 @@ function Conversation({
             );
           if (message.status === "pending")
             return (
-              <div key={message._id} className="chat-thinking" role="status">
-                <span />
+              <div
+                key={message._id}
+                className="flex items-center gap-2 text-xs text-mute"
+                role="status"
+              >
+                <span className="size-1.5 rounded-full bg-teal motion-safe:animate-pulse" />
                 Rumi is thinking…
               </div>
             );
@@ -387,26 +423,32 @@ function Conversation({
           return (
             <div
               key={message._id}
-              className={`chat-message ${message.role === "user" ? "from-user" : "from-rumi"}`}
+              className={`shrink-0 leading-relaxed [overflow-wrap:anywhere] ${message.role === "user" ? "border-l-2 border-blue pl-3 text-mute" : "text-ink"}`}
             >
               {message.role === "assistant" && (
-                <span className="message-author">rumi</span>
+                <span className="mb-0.5 block text-[11px] font-medium text-teal-deep">
+                  Rumi
+                </span>
               )}
               {message.imageUrl && (
                 <a href={message.imageUrl} target="_blank" rel="noreferrer">
-                  <img src={message.imageUrl} alt="Your inspiration image" />
+                  <img
+                    className="mb-1.5 max-h-56 w-full rounded-ctrl object-contain"
+                    src={message.imageUrl}
+                    alt="Your inspiration image"
+                  />
                 </a>
               )}
               <p
-                className={
-                  message.status === "error" ? "chat-error" : undefined
-                }
+                className={`whitespace-pre-wrap ${message.status === "error" ? "text-rust" : ""}`}
               >
                 {message.imageUrl ? "Inspiration image" : message.content}
               </p>
               {message.status === "error" && message._id === newestId && (
-                <button
-                  className="text-button"
+                <Button
+                  size="sm"
+                  variant="quiet"
+                  className="justify-start whitespace-normal px-0 text-left"
                   disabled={pending}
                   onClick={async () => {
                     setError("");
@@ -422,27 +464,28 @@ function Conversation({
                   }}
                 >
                   <RotateCcw size={13} /> Retry reply
-                </button>
+                </Button>
               )}
             </div>
           );
         })}
         {!results.length && (
-          <p className="muted">
+          <p className="text-mute">
             Start with what you’d like to change about your room.
           </p>
         )}
       </div>
       {error && (
-        <p className="chat-error chat-panel-error" role="alert">
+        <p
+          className="shrink-0 text-xs text-rust [overflow-wrap:anywhere]"
+          role="alert"
+        >
           {error}
         </p>
       )}
       <Composer
         disabled={pending || updating}
-        placeholder={
-          pending ? "Rumi is thinking…" : "Ask for changes, or set a budget…"
-        }
+        placeholder={pending ? "Rumi is thinking…" : "Tell Rumi what to change"}
         onSend={async (content) => {
           await prepare();
           await send({ projectId, content });

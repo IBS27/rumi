@@ -1,7 +1,14 @@
 export { Button } from "./Button";
 export type { ButtonSize, ButtonVariant } from "./Button";
 export { Chip } from "./Chip";
-export { Checkbox, Field, NumberInput, Select, TextInput } from "./Field";
+export {
+  Checkbox,
+  Field,
+  NumberInput,
+  Select,
+  TextArea,
+  TextInput,
+} from "./Field";
 export { Dialog } from "./Dialog";
 export { Notice } from "./Notice";
 export type { NoticeTone } from "./Notice";

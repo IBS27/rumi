@@ -1,11 +1,12 @@
+import { Button, TextArea, TextInput } from "../../ui";
 import { useRef, useState } from "react";
-import { ArrowUp, ImagePlus } from "lucide-react";
+import { ImagePlus } from "lucide-react";
 
 export function Composer({
   onSend,
   onUpload,
   disabled = false,
-  placeholder = "Tell me what you have in mind…",
+  placeholder = "Tell Rumi what to change",
 }: {
   onSend: (text: string) => Promise<void>;
   onUpload: (file: File) => Promise<void>;
@@ -35,27 +36,32 @@ export function Composer({
     }
   }
   return (
-    <div className="composer-wrap">
+    <div className="mt-auto shrink-0">
       {error && (
-        <p className="chat-error" role="alert">
+        <p
+          className="text-xs leading-relaxed text-rust [overflow-wrap:anywhere]"
+          role="alert"
+        >
           {error}
         </p>
       )}
       <form
-        className="chat-composer"
+        className="flex items-end gap-1.5 rounded-tile border-[1.5px] border-line bg-white p-1 focus-within:border-teal"
         onSubmit={(event) => {
           event.preventDefault();
           void submit();
         }}
       >
-        <textarea
+        <TextArea
+          embedded
+          className="min-h-9 max-h-32 flex-1 px-2 py-2 text-[12.5px] leading-5"
           aria-label="Message Rumi"
           value={value}
           onChange={(event) => setValue(event.target.value)}
           disabled={disabled || busy}
           maxLength={16000}
           placeholder={placeholder}
-          rows={3}
+          rows={2}
           onKeyDown={(event) => {
             if (
               event.key === "Enter" &&
@@ -67,54 +73,61 @@ export function Composer({
             }
           }}
         />
-        <div className="composer-actions">
-          <input
-            ref={file}
-            type="file"
-            className="sr-only"
-            aria-label="Inspiration image"
-            accept="image/jpeg,image/png,image/webp,image/gif"
-            onChange={async (event) => {
-              const image = event.target.files?.[0];
-              event.target.value = "";
-              if (!image || disabled || busy) return;
-              setBusy(true);
-              setError("");
-              try {
-                await onUpload(image);
-              } catch (cause) {
-                setError(
-                  cause instanceof Error
-                    ? cause.message
-                    : "Could not upload this image.",
-                );
-              } finally {
-                setBusy(false);
-              }
-            }}
-          />
-          <button
-            type="button"
-            className="icon-button"
-            aria-label="Attach inspiration image"
-            title="Attach an inspiration image"
-            disabled={disabled || busy}
-            onClick={() => file.current?.click()}
-          >
-            <ImagePlus size={18} />
-          </button>
-          <span className="composer-hint">
-            {busy ? "Sending…" : "Shift + Enter for a new line"}
-          </span>
-          <button
-            className="primary send-button"
-            aria-label="Send message"
-            disabled={disabled || busy || !value.trim()}
-          >
-            <ArrowUp size={18} />
-          </button>
-        </div>
+
+        <TextInput
+          ref={file}
+          type="file"
+          hidden
+          disabled={disabled || busy}
+          aria-label="Inspiration image"
+          accept="image/jpeg,image/png,image/webp,image/gif"
+          onChange={async (event) => {
+            const image = event.target.files?.[0];
+            event.target.value = "";
+            if (!image || disabled || busy) return;
+            setBusy(true);
+            setError("");
+            try {
+              await onUpload(image);
+            } catch (cause) {
+              setError(
+                cause instanceof Error
+                  ? cause.message
+                  : "Could not upload this image.",
+              );
+            } finally {
+              setBusy(false);
+            }
+          }}
+        />
+        <Button
+          size="sm"
+          type="submit"
+          variant="primary"
+          className="self-end"
+          aria-label="Send message"
+          disabled={disabled || busy || !value.trim()}
+        >
+          {busy ? "Sending…" : "Send"}
+        </Button>
       </form>
+      <div className="mt-1 flex items-center justify-between">
+        <Button
+          size="sm"
+          type="button"
+          variant="quiet"
+          className="size-7 shrink-0 p-1 text-mute"
+          aria-label="Attach inspiration image"
+          title="Attach an inspiration image"
+          disabled={disabled || busy}
+          onClick={() => file.current?.click()}
+        >
+          <ImagePlus size={18} />
+        </Button>
+        <span className="text-[10px] text-mute">
+          Shift + Enter for a new line
+        </span>
+      </div>
     </div>
   );
 }
