@@ -14,7 +14,7 @@ Select furniture in the list to switch to the editable RoomPlan layout. Changing
 
 Large source packages are saved as Blobs in IndexedDB under the current identity. Only the small room snapshot and random local asset key go in localStorage. Download writes the original package plus validated edits to a new ZIP. Source photos, depth, and geometry remain unchanged. If browser storage fails, the current tab can still display and download the package; the UI asks the user to download before closing. Clearing browser storage removes these local copies.
 
-The native app offers **Send to Rumi** for paired layout transfer and **Export scan** for detailed ZIP sharing. Existing QR endpoints accept layout JSON only; sending ZIP packages through them is not part of this change. No backend changes or deployment are required for file import.
+The native app offers **Send to Rumi** for paired transfer of the complete ZIP, including surfaces, photos, depth, confidence, and layout. The browser opens it automatically through the same importer used for files. **Export scan** remains an offline backup; **Send layout only** is an explicit fallback when detailed capture is unavailable. See [the paired transfer contract](room-capture-pairing.md#complete-scan-transfer) for upload, retry, and rollout details. File import still needs no backend deployment.
 
 ## Version 1 package
 
