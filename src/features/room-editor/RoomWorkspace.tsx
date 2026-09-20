@@ -12,7 +12,6 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { z } from "zod";
 import { MAX_PACKAGE_BYTES } from "../../../shared/capture/package";
 import type { TexturedScan } from "../../../shared/capture/texture";
 import type {
@@ -28,12 +27,12 @@ import {
   parseRoomFile,
   roomPlanSchema,
   savedRoomSchema,
-  type SavedRoom,
 } from "../../../shared/capture/roomplan";
+import type { Workspace } from "../workspace/sessions";
 import { createWalkthrough } from "../../../shared/capture/walkthrough";
 import type { WalkInput } from "./FirstPersonCamera";
 import { WalkControls } from "./WalkControls";
-import type { CapturedRoom, RoomObject } from "../../../shared/contracts";
+import type { RoomObject } from "../../../shared/contracts";
 import { syntheticRoomPlan } from "../../../shared/fixtures/roomplan";
 import {
   Button,
@@ -53,13 +52,6 @@ const RoomViewer = lazy(() =>
   import("./RoomViewer").then((module) => ({ default: module.RoomViewer })),
 );
 
-type Workspace = SavedRoom & { room: CapturedRoom; scanId?: string };
-const localWorkspaceSchema = savedRoomSchema.safeExtend({
-  scanId: z
-    .string()
-    .regex(/^[a-f0-9]{32}$/)
-    .optional(),
-});
 type ScanResource = {
   id: string;
   blob?: Blob;
@@ -71,33 +63,33 @@ type ScanResource = {
   scene?: ReconstructedScene;
 };
 
-function readSaved(key: string): Workspace | null {
-  try {
-    const text = localStorage.getItem(key);
-    if (!text) return null;
-    const result = localWorkspaceSchema.safeParse(JSON.parse(text));
-    return result.success && result.data.room.shape === "polygon"
-      ? { ...result.data, room: result.data.room }
-      : null;
-  } catch {
-    return null;
-  }
-}
-
 /**
- * The whole app frame: top bar, then either the start screen or the room
- * review. `scan` renders the phone-pairing control for a given placement and
- * receives the uploaded room text; it is omitted when pairing is unavailable.
- * `chat` renders the design chat, which floats at the right of either screen.
+ * One session's frame: top bar, then either the start screen or the room
+ * review. The session shell owns persistence: `initial` is the saved room and
+ * `onPersist` stores each change (it throws when storage is unavailable).
+ * Remount with a new `key` to switch sessions. `brand` replaces the wordmark
+ * in the top bar. `scan` renders the phone-pairing control for a given
+ * placement and receives the uploaded room text; it is omitted when pairing is
+ * unavailable. `chat` renders the design chat, which floats at the right of
+ * either screen.
  */
 export function RoomWorkspace({
   identity = "local",
+  initial = null,
+  onPersist,
+  title,
+  brand,
   account,
   scan,
   chat,
   reconstruct,
 }: {
   identity?: string;
+  initial?: Workspace | null;
+  onPersist?: (next: Workspace | null) => void;
+  /** The session's name control; the room name shows when it is unset. */
+  title?: ReactNode;
+  brand?: ReactNode;
   account?: ReactNode;
   scan?: (
     placement: "start" | "bar",
@@ -109,10 +101,7 @@ export function RoomWorkspace({
     onReady: (scene: ReconstructedScene) => void,
   ) => ReactNode;
 }) {
-  const key = `rumi.room.v1.${identity}`;
-  const [workspace, setWorkspace] = useState<Workspace | null>(() =>
-    readSaved(key),
-  );
+  const [workspace, setWorkspace] = useState<Workspace | null>(initial);
   const [chatOpen, setChatOpen] = useState(() => workspace !== null);
   const [history, setHistory] = useState<(Workspace | null)[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
@@ -209,8 +198,7 @@ export function RoomWorkspace({
   function persist(next: Workspace | null) {
     setWorkspace(next);
     try {
-      if (next) localStorage.setItem(key, JSON.stringify(next));
-      else localStorage.removeItem(key);
+      onPersist?.(next);
       setStatus(
         next?.scanId === capture?.id && capture?.persisted === false
           ? "Edits saved. The detailed scan is only in memory; download your room before closing this tab."
@@ -438,7 +426,7 @@ export function RoomWorkspace({
 
       {!room ? (
         <>
-          <TopBar>
+          <TopBar brand={brand} title={title}>
             {chatToggle}
             {account}
           </TopBar>
@@ -488,9 +476,10 @@ export function RoomWorkspace({
             <div className="min-h-0 overflow-x-auto">
               <TopBar
                 className="min-w-max"
+                brand={brand}
                 title={
                   <>
-                    {room.name}
+                    {title ?? room.name}
                     {room.capture.synthetic && <Pill>sample</Pill>}
                   </>
                 }
