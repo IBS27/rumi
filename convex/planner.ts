@@ -12,12 +12,15 @@ import {
   type DesignBrief,
   type DesignPlan,
   type ProductCandidate,
+  type RoomObject,
   type RoomSnapshot,
 } from "../shared/contracts";
 import {
   buildDesignPlan,
   buildSpaceModel,
+  definingPieceForPurpose,
   describeScope,
+  matchesDefiningPiece,
   planScope,
 } from "../shared/planner";
 import { freeArea, type SpaceModel } from "../shared/planner/space";
@@ -62,11 +65,20 @@ export async function proposeZones(
   products: ProductCandidate[],
   instruction: string,
   correction = "",
+  placementHints: RoomObject[] = [],
 ): Promise<{ plan: DesignPlan; model: SpaceModel }> {
   const model = buildSpaceModel(room);
   const occupied = room.objects
     .filter((object) => object.owned || object.locked)
     .map((object) => object.category);
+  const definingPiece = definingPieceForPurpose(brief.purpose);
+  const missingDefiningPiece =
+    definingPiece &&
+    !room.objects.some((object) =>
+      matchesDefiningPiece(definingPiece, object.category),
+    )
+      ? definingPiece
+      : null;
   const { object } = await generateObject({
     model: openai(
       process.env.RUMI_PLANNER_MODEL ??
@@ -100,6 +112,7 @@ export async function proposeZones(
       "Never output coordinates. Code reserves the exact position, applies clearance margins, and rejects zones that do not fit.",
       "One zone per category. Avoid unsolicited duplicates of owned or locked furniture, but ALWAYS include items the user explicitly requested, even when the room already contains that broad category. A scan's art category may be a vanity mirror; it does not satisfy a request for paintings or posters. Preserve existing objects and let geometry decide whether an additional item fits.",
       "Use relatedObjectId with the exact id of an existing object when a zone belongs beside it, for example a lamp beside a bed.",
+      "Beds use real mattress footprints: king about 1.93 × 2.03 m, queen 1.52 × 2.03 m, full 1.37 × 1.91 m, twin 0.99 × 1.91 m. Unless the user named a size, propose the largest reasonable maximum; code will try smaller standard sizes if needed. Never invent a proportionally shortened bed.",
       "Priority 1 is the piece that defines the room. Accents come last.",
       "Put the user's material, feature, or usage requirements into miscellaneous as short phrases.",
     ].join("\n"),
@@ -108,7 +121,7 @@ export async function proposeZones(
       `Categories already covered: ${occupied.length ? occupied.join(", ") : "none"}.`,
       `Brief: ${brief.prompt || "(none)"}. Styles: ${brief.styles.join(", ") || "(none)"}. Palette: ${brief.palette.join(", ") || "(none)"}. Materials: ${brief.materials.join(", ") || "(none)"}. Restrictions: ${brief.restrictions.join(", ") || "(none)"}. Budget: ${brief.budgetCents > 0 ? `$${(brief.budgetCents / 100).toFixed(0)}` : "not specified"}.`,
       brief.inspiration ? `Inspiration: ${brief.inspiration}` : "",
-      describeScope(planScope(brief), brief.purpose),
+      describeScope(planScope(brief), brief.purpose, missingDefiningPiece),
       brief.wants.some((want) => want.notes)
         ? `Notes on requested items: ${brief.wants
             .filter((want) => want.notes)
@@ -129,12 +142,30 @@ export async function proposeZones(
           .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
           .join("; ")}`,
       );
-    return buildDesignPlan({ room, brief, products, request: request.data });
+    return buildDesignPlan({
+      room,
+      brief,
+      products,
+      request: request.data,
+      placementHints,
+    });
   } catch (error) {
     // One correction pass: the rules are stated in the rejection, so the model
     // can repair a plan that overreached or left out a want.
-    if (correction || !(error instanceof Error)) throw error;
-    return proposeZones(room, brief, products, instruction, error.message);
+    if (
+      correction ||
+      !(error instanceof Error) ||
+      /defining .+ could not be reserved/i.test(error.message)
+    )
+      throw error;
+    return proposeZones(
+      room,
+      brief,
+      products,
+      instruction,
+      error.message,
+      placementHints,
+    );
   }
 }
 
@@ -153,7 +184,26 @@ export const planRoom = internalAction({
       normalizeBrief(doc.brief),
       products,
       instruction,
+      "",
+      removedPlacementHints(doc.snapshot, doc.history ?? []),
     );
     return plan;
   },
 });
+
+export function removedPlacementHints(
+  room: RoomSnapshot,
+  history: RoomObject[][],
+): RoomObject[] {
+  const currentIds = new Set(room.objects.map((object) => object.id));
+  const seen = new Set<string>();
+  const removed: RoomObject[] = [];
+  for (const snapshot of [...history].reverse()) {
+    for (const object of snapshot) {
+      if (currentIds.has(object.id) || seen.has(object.id)) continue;
+      seen.add(object.id);
+      removed.push(object);
+    }
+  }
+  return removed;
+}

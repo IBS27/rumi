@@ -7,7 +7,7 @@ import { api, internal } from "../convex/_generated/api";
 import { sampleBrief, sampleProducts, sampleRoom } from "../shared/fixtures";
 import { MAX_IMAGE_BYTES } from "../shared/chat/uploads";
 import { buildDesignPlan } from "../shared/planner";
-import { SPEC_SUMMARY_OPTIONS } from "../shared/chat/spec";
+import { SPEC_SUMMARY_OPTIONS, specStatus } from "../shared/chat/spec";
 
 // Provider actions are excluded from these deterministic boundary tests.
 const skipAgent = internalAction({
@@ -189,6 +189,28 @@ describe("live chat boundaries", () => {
     const attached = await owner.query(api.projects.context, { projectId });
     expect(attached?.room).toEqual(sampleRoom);
     expect(attached?.brief.budgetCents).toBe(50000);
+  });
+
+  it("saves a purpose from the user's message before the agent chooses the next Spec question", async () => {
+    const { owner } = await setup();
+    const projectId = await owner.mutation(api.projects.create, {
+      title: "Bedroom furniture",
+      room: { ...sampleRoom, name: "My scanned room" },
+      firstMessage: "I need some furniture for my bedroom",
+    });
+    const context = await owner.query(api.projects.context, { projectId });
+    expect(context?.brief.purpose).toBe("bedroom");
+    expect(specStatus(context!.brief).missing[0]).toBe("style");
+
+    const existing = await setup();
+    await existing.owner.mutation(api.messages.send, {
+      projectId: existing.projectId,
+      content: "Let's find pieces for the living room",
+    });
+    const updated = await existing.owner.query(api.projects.context, {
+      projectId: existing.projectId,
+    });
+    expect(updated?.brief.purpose).toBe("living room");
   });
 
   it("treats the old unlimited-budget sentinel as no budget", async () => {

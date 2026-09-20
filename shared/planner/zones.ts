@@ -1,11 +1,12 @@
 import type {
+  RoomObject,
   ReservedZone,
   RoomSnapshot,
   ZoneRejection,
   ZoneRequest,
 } from "../contracts";
 import type { Spacing, ZoneMount } from "../contracts";
-import { SPACING_FACTOR } from "./scope";
+import { sameCategory, SPACING_FACTOR } from "./scope";
 import {
   FURNITURE_GAP,
   WALK_PATH,
@@ -19,11 +20,78 @@ import {
 } from "./space";
 
 const MIN_FOOTPRINT = 0.25;
+const POSITION_ROUNDING_PAD = 0.01;
 // Positions are reported to the centimeter.
 const cm = (value: number) => Math.round(value * 100) / 100 + 0;
 // Shrinking past 70% turns the request into a different piece of furniture, so
 // the planner reports a rejection instead and lets the model rethink the zone.
 const SHRINK_STEPS = [1, 0.9, 0.8, 0.7];
+
+interface FootprintOption {
+  width: number;
+  depth: number;
+  sizeName: string | null;
+}
+
+const BED_SIZES: { sizeName: string; width: number; depth: number }[] = [
+  { sizeName: "king", width: 1.93, depth: 2.03 },
+  { sizeName: "queen", width: 1.52, depth: 2.03 },
+  { sizeName: "full", width: 1.37, depth: 1.91 },
+  { sizeName: "twin", width: 0.99, depth: 1.91 },
+];
+
+function isBed(category: string): boolean {
+  return /\bbed\b|\bdaybed\b|murphy bed/i.test(category);
+}
+
+function bedSizeName(width: number): string {
+  if (width >= 1.75) return "king";
+  if (width >= 1.47) return "queen";
+  if (width >= 1.2) return "full";
+  return "twin";
+}
+
+function footprintOptions(request: ZoneRequest): FootprintOption[] {
+  const desired = request.desiredFootprint;
+  if (!isBed(request.category))
+    return SHRINK_STEPS.map((factor) => ({
+      width: Math.max(MIN_FOOTPRINT, desired.width * factor),
+      depth: Math.max(MIN_FOOTPRINT, desired.depth * factor),
+      sizeName: null,
+    }));
+
+  // Beds are sold in standard sizes. Proportional shrinking can create a
+  // physically meaningless 1.15 × 1.50 m "queen" zone that no product can
+  // satisfy. Try the requested maximum, then smaller real sizes in order.
+  const options: FootprintOption[] = [
+    {
+      width: desired.width,
+      depth: desired.depth,
+      sizeName: bedSizeName(desired.width),
+    },
+    ...BED_SIZES.filter(
+      (size) =>
+        size.width < desired.width - 0.02 &&
+        size.depth <= desired.depth + 0.02,
+    ),
+  ];
+  return options.filter(
+    (option, index) =>
+      options.findIndex(
+        (candidate) =>
+          Math.abs(candidate.width - option.width) < 0.01 &&
+          Math.abs(candidate.depth - option.depth) < 0.01,
+      ) === index,
+  );
+}
+
+function queryForSize(query: string, sizeName: string | null): string {
+  if (!sizeName) return query;
+  const size = /\b(?:california king|king|queen|full|double|twin|single)\b/i;
+  return size.test(query)
+    ? query.replace(size, sizeName)
+    : `${sizeName} ${query}`;
+}
 
 interface Margins {
   front: number;
@@ -34,7 +102,7 @@ interface Margins {
 // Clearance is a property of how a piece is used, not of the model's wording.
 export function marginsFor(category: string): Margins {
   const value = category.toLowerCase();
-  if (/bed/.test(value)) return { front: 0.75, back: 0.05, sides: 0.6 };
+  if (isBed(value)) return { front: 0.75, back: 0.05, sides: 0.6 };
   if (/desk|vanity|workstation/.test(value))
     return { front: 0.9, back: 0.05, sides: 0.3 };
   if (/dining|table/.test(value)) return { front: 0.9, back: 0.9, sides: 0.9 };
@@ -117,11 +185,38 @@ function candidatePositions(
   depth: number,
   margins: Margins,
   zones: ReservedZone[] = [],
+  placementHint: RoomObject | null = null,
 ): { position: Point2; rotationY: number }[] {
-  const { width: roomWidth, depth: roomDepth } = model.bounds;
+  // Captured floor polygons can be inset from the scan's wall-derived bounds.
+  // Candidate coordinates must follow the actual walkable polygon, not assume
+  // that it starts at (0, 0), or wall-aligned furniture gets pushed outside.
+  const floorPoints = model.floor.flat();
+  const minX = floorPoints.length
+    ? Math.min(...floorPoints.map((point) => point.x))
+    : 0;
+  const maxX = floorPoints.length
+    ? Math.max(...floorPoints.map((point) => point.x))
+    : model.bounds.width;
+  const minZ = floorPoints.length
+    ? Math.min(...floorPoints.map((point) => point.z))
+    : 0;
+  const maxZ = floorPoints.length
+    ? Math.max(...floorPoints.map((point) => point.z))
+    : model.bounds.depth;
+  const roomWidth = maxX - minX;
+  const roomDepth = maxZ - minZ;
   const candidates: { position: Point2; rotationY: number }[] = [];
   const push = (x: number, z: number, rotationY: number) =>
     candidates.push({ position: { x, z }, rotationY });
+  // An item removed through the editor was valid at this exact location. Try
+  // that footprint before the generic grid when planning a replacement of the
+  // same category.
+  if (placementHint)
+    push(
+      placementHint.position.x,
+      placementHint.position.z,
+      placementHint.rotation.y,
+    );
   const object = request.relatedObjectId
     ? model.obstacles.find((obstacle) => obstacle.id === request.relatedObjectId)
     : null;
@@ -155,39 +250,78 @@ function candidatePositions(
   // Back edge against the wall; the reservation ring already holds the margin.
   const wallInset = depth / 2 + margins.back + 0.02;
   const sideInset = width / 2 + margins.sides + 0.02;
-  const steps = 8;
+  const steps = 24;
   const walls = () => {
     for (let i = 0; i <= steps; i++) {
       const t = i / steps;
-      const x = sideInset + t * Math.max(0, roomWidth - 2 * sideInset);
-      const z = sideInset + t * Math.max(0, roomDepth - 2 * sideInset);
-      push(x, wallInset, 0);
-      push(x, roomDepth - wallInset, Math.PI);
-      push(wallInset, z, Math.PI / 2);
-      push(roomWidth - wallInset, z, -Math.PI / 2);
+      const x = minX + sideInset + t * Math.max(0, roomWidth - 2 * sideInset);
+      const z = minZ + sideInset + t * Math.max(0, roomDepth - 2 * sideInset);
+      push(x, minZ + wallInset, 0);
+      push(x, maxZ - wallInset, Math.PI);
+      push(minX + wallInset, z, Math.PI / 2);
+      push(maxX - wallInset, z, -Math.PI / 2);
     }
   };
   const corners = () => {
-    push(sideInset, wallInset, 0);
-    push(roomWidth - sideInset, wallInset, 0);
-    push(sideInset, roomDepth - wallInset, Math.PI);
-    push(roomWidth - sideInset, roomDepth - wallInset, Math.PI);
+    push(minX + sideInset, minZ + wallInset, 0);
+    push(maxX - sideInset, minZ + wallInset, 0);
+    push(minX + sideInset, maxZ - wallInset, Math.PI);
+    push(maxX - sideInset, maxZ - wallInset, Math.PI);
+  };
+  // A known piece can leave a narrow but valid slot beside it. Align candidate
+  // clearances exactly to obstacle edges so a normal 0.6 m bedside passage is
+  // discoverable even when a uniform grid does not land on it.
+  const obstacles = () => {
+    for (const obstacle of model.obstacles) {
+      const xs = obstacle.footprint.map((point) => point.x);
+      const zs = obstacle.footprint.map((point) => point.z);
+      const left = Math.min(...xs), right = Math.max(...xs);
+      const back = Math.min(...zs), front = Math.max(...zs);
+      const obstacleX = (left + right) / 2;
+      const obstacleZ = (back + front) / 2;
+      const wallZs = [minZ + wallInset, maxZ - wallInset, obstacleZ];
+      for (const z of wallZs) {
+        push(
+          left - margins.sides - width / 2 - POSITION_ROUNDING_PAD,
+          z,
+          0,
+        );
+        push(
+          right + margins.sides + width / 2 + POSITION_ROUNDING_PAD,
+          z,
+          0,
+        );
+      }
+      const wallXs = [minX + sideInset, maxX - sideInset, obstacleX];
+      for (const x of wallXs) {
+        push(
+          x,
+          back - margins.front - depth / 2 - POSITION_ROUNDING_PAD,
+          0,
+        );
+        push(
+          x,
+          front + margins.back + depth / 2 + POSITION_ROUNDING_PAD,
+          0,
+        );
+      }
+    }
   };
   const center = () => {
-    push(roomWidth / 2, roomDepth / 2, 0);
-    for (let i = 1; i < 6; i++)
-      for (let j = 1; j < 6; j++)
-        push((roomWidth * i) / 6, (roomDepth * j) / 6, 0);
+    push((minX + maxX) / 2, (minZ + maxZ) / 2, 0);
+    for (let i = 1; i < 12; i++)
+      for (let j = 1; j < 12; j++)
+        push(minX + (roomWidth * i) / 12, minZ + (roomDepth * j) / 12, 0);
   };
   // Try the requested anchor first, then the others, so a zone is only
   // rejected when no anchor in the room can hold it.
   const order: Record<ZoneRequest["anchor"], (() => void)[]> = {
-    wall: [walls, corners, center],
-    window: [walls, corners, center],
-    corner: [corners, walls, center],
-    center: [center, walls, corners],
-    "near-object": [walls, corners, center],
-    anywhere: [walls, corners, center],
+    wall: [walls, obstacles, corners, center],
+    window: [walls, obstacles, corners, center],
+    corner: [corners, walls, obstacles, center],
+    center: [center, obstacles, walls, corners],
+    "near-object": [obstacles, walls, corners, center],
+    anywhere: [walls, obstacles, corners, center],
   };
   order[request.anchor].forEach((generate) => generate());
   return candidates;
@@ -465,6 +599,7 @@ export function reserveZones(
   requests: ZoneRequest[],
   spacing: Spacing = "balanced",
   maxRoomHeight = room.dimensions.height,
+  placementHints: RoomObject[] = [],
 ): { zones: ReservedZone[]; rejected: ZoneRejection[] } {
   const zones: ReservedZone[] = [];
   const rejected: ZoneRejection[] = [];
@@ -500,12 +635,22 @@ export function reserveZones(
       spacing,
     );
     let placed: ReservedZone | null = null;
+    const placementHint = placementHints.find((object) =>
+      sameCategory(object.category, request.category),
+    ) ?? null;
     const issues = new Map<string, number>();
     let lastIssue = "no free floor space";
-    outer: for (const factor of SHRINK_STEPS) {
-      const width = Math.max(MIN_FOOTPRINT, request.desiredFootprint.width * factor);
-      const depth = Math.max(MIN_FOOTPRINT, request.desiredFootprint.depth * factor);
-      for (const candidate of candidatePositions(model, request, width, depth, margins, zones)) {
+    outer: for (const option of footprintOptions(request)) {
+      const { width, depth } = option;
+      for (const candidate of candidatePositions(
+        model,
+        request,
+        width,
+        depth,
+        margins,
+        zones,
+        placementHint,
+      )) {
         const ring = reservationRing(
           candidate.position,
           width,
@@ -527,7 +672,7 @@ export function reserveZones(
           id: request.id,
           purpose: request.purpose,
           category: request.category,
-          query: request.query,
+          query: queryForSize(request.query, option.sizeName),
           mount,
           anchor: request.anchor,
           relatedObjectId: request.relatedObjectId,
@@ -549,6 +694,11 @@ export function reserveZones(
           ],
           miscellaneous: [
             ...request.miscellaneous,
+            ...(option.sizeName
+              ? [
+                  `${option.sizeName} size, about ${width.toFixed(2)} × ${depth.toFixed(2)} m`,
+                ]
+              : []),
             ...(request.desiredHeight
               ? [`about ${request.desiredHeight} m tall`]
               : []),

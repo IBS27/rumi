@@ -5,6 +5,7 @@ import {
   type DesignBrief,
   type DesignPlan,
   type ProductCandidate,
+  type RoomObject,
   type ReservedZone,
   type RoomSnapshot,
   type SearchTask,
@@ -14,12 +15,25 @@ import {
 import { selectionTotal } from "../budget";
 import { colorFromWords } from "../search/color";
 import { buildSpaceModel, type SpaceModel } from "./space";
-import { isAccessoryMount, planScope, sameCategory } from "./scope";
+import {
+  definingPieceForPurpose,
+  isAccessoryMount,
+  matchesDefiningPiece,
+  planScope,
+  sameCategory,
+} from "./scope";
 import { mountFor, reserveZones } from "./zones";
 
 export { buildSpaceModel } from "./space";
 export { marginsFor, mountFor, reserveZones, scaleMargins } from "./zones";
-export { MAX_ZONES, SPACING_FACTOR, describeScope, planScope } from "./scope";
+export {
+  MAX_ZONES,
+  SPACING_FACTOR,
+  definingPieceForPurpose,
+  describeScope,
+  matchesDefiningPiece,
+  planScope,
+} from "./scope";
 
 const RESTRICTION_TAGS: [RegExp, string[]][] = [
   [/no drill|no drilling|no holes|renter|rental/i, ["wall-mounted", "drilling required"]],
@@ -123,6 +137,7 @@ export interface PlanInput {
   brief: DesignBrief;
   products: ProductCandidate[];
   request: unknown;
+  placementHints?: RoomObject[];
 }
 
 export function buildDesignPlan({
@@ -130,6 +145,7 @@ export function buildDesignPlan({
   brief,
   products,
   request,
+  placementHints = [],
 }: PlanInput): { plan: DesignPlan; model: SpaceModel } {
   const parsed: ZonePlanRequest = zonePlanRequestSchema.parse(request);
   const ids = new Set(parsed.zones.map((zone) => zone.id));
@@ -142,6 +158,30 @@ export function buildDesignPlan({
     .filter((object) => object.owned || object.locked)
     .map((object) => object.category.toLowerCase());
   const scope = planScope(brief);
+  const definingPiece = definingPieceForPurpose(brief.purpose);
+  const definingPiecePresent =
+    definingPiece !== null &&
+    room.objects.some((object) =>
+      matchesDefiningPiece(definingPiece, object.category),
+    );
+  const definingRequest =
+    definingPiece && !definingPiecePresent
+      ? parsed.zones.find((zone) =>
+          matchesDefiningPiece(definingPiece, zone.category),
+        )
+      : null;
+  if (definingPiece && !definingPiecePresent && !definingRequest)
+    throw new Error(
+      `The ${brief.purpose || "room"} is missing its defining ${definingPiece.category}. Add it as the priority-1 zone before secondary furniture.`,
+    );
+  if (
+    definingRequest &&
+    definingRequest.priority !==
+      Math.min(...parsed.zones.map((zone) => zone.priority))
+  )
+    throw new Error(
+      `The defining ${definingPiece?.category} must be reserved before secondary furniture. Make it the priority-1 zone.`,
+    );
   const duplicate = parsed.zones.find((zone) =>
     occupied.includes(zone.category.toLowerCase()) &&
     !scope.required.some((category) => sameCategory(category, zone.category)),
@@ -179,7 +219,21 @@ export function buildDesignPlan({
       `The user does not want accessories; drop ${accessories.map((zone) => zone.category).join(", ")}.`,
     );
   const model = buildSpaceModel(room);
-  const reserved = reserveZones(room, model, parsed.zones, parsed.spacing);
+  const reserved = reserveZones(
+    room,
+    model,
+    parsed.zones,
+    parsed.spacing,
+    room.dimensions.height,
+    placementHints,
+  );
+  if (
+    definingRequest &&
+    reserved.rejected.some((item) => item.zoneId === definingRequest.id)
+  )
+    throw new Error(
+      `The defining ${definingPiece?.category} could not be reserved. Keep it first and retry with a smaller standard footprint or a better anchor instead of returning a plan made only of secondary pieces.`,
+    );
   const zones = reserved.zones.map((zone) => ({
     ...zone,
     suggested: isSuggested(zone.category),

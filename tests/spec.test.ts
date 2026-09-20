@@ -6,6 +6,7 @@ import {
   specStatusLine,
   specSummaryText,
 } from "../shared/chat/spec";
+import { inferPurpose } from "../shared/chat/purpose";
 
 const empty = (): DesignBrief =>
   briefSchema.parse({
@@ -17,6 +18,15 @@ const empty = (): DesignBrief =>
   });
 
 describe("spec status", () => {
+  it("recognizes a room purpose stated in a casual furniture request", () => {
+    expect(inferPurpose("I need some furniture for my bedroom")).toBe(
+      "bedroom",
+    );
+    expect(inferPurpose("Help with this scan", "Upstairs home office")).toBe(
+      "home office",
+    );
+  });
+
   it("starts with nothing decided and lists the topics in asking order", () => {
     const status = specStatus(empty());
     expect(status.decided).toEqual([]);

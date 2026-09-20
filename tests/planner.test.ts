@@ -256,6 +256,113 @@ describe("zone reservation", () => {
     if (table) expect(table.footprint.width).toBeLessThanOrEqual(2.4);
     expect(rejected.map((item) => item.zoneId)).toContain("impossible");
   });
+
+  it("uses the captured floor bounds and keeps a full-size bed instead of shrinking it", () => {
+    const scan = importRoomPlan(syntheticRoomPlan);
+    const transform = [...scan.floors[0].transform];
+    transform[12] = 0.2;
+    transform[14] = 0.2;
+    const room = {
+      ...scan,
+      dimensions: { width: 4.4, height: 2.7, depth: 3.4 },
+      walls: [],
+      openings: [],
+      objects: [],
+      floors: [
+        {
+          ...scan.floors[0],
+          transform,
+          polygonCorners: [
+            { x: 0, y: 0, z: 0 },
+            { x: 4, y: 0, z: 0 },
+            { x: 4, y: 3, z: 0 },
+            { x: 0, y: 3, z: 0 },
+          ],
+        },
+      ],
+    };
+    const desiredFootprint = { width: 1.65, depth: 2.15 };
+    const { zones, rejected } = reserveZones(room, buildSpaceModel(room), [
+      {
+        ...lampZone,
+        id: "bed",
+        category: "bed",
+        query: "queen bed",
+        anchor: "wall",
+        relatedObjectId: null,
+        desiredFootprint,
+        desiredHeight: null,
+      },
+    ]);
+    expect(rejected).toEqual([]);
+    expect(zones[0].footprint).toEqual(desiredFootprint);
+    expect(zones[0].position.z).toBeGreaterThan(1.3);
+  });
+
+  it("finds a full-size bed slot with exactly 60 cm beside storage", () => {
+    const room = {
+      ...sampleRoom,
+      dimensions: { width: 3.35, height: 2.7, depth: 3.2 },
+      openings: [],
+      objects: [
+        {
+          ...sampleRoom.objects[1],
+          id: "storage",
+          name: "Storage",
+          category: "storage" as const,
+          dimensions: { width: 0.5, height: 0.85, depth: 0.5 },
+          position: { x: 3.1, y: 0, z: 0.3 },
+        },
+      ],
+    };
+    const desiredFootprint = { width: 1.65, depth: 2.15 };
+    const { zones, rejected } = reserveZones(room, buildSpaceModel(room), [
+      {
+        ...lampZone,
+        id: "bed",
+        category: "bed",
+        query: "queen bed",
+        anchor: "wall",
+        relatedObjectId: null,
+        desiredFootprint,
+        desiredHeight: null,
+      },
+    ]);
+    expect(rejected).toEqual([]);
+    expect(zones[0].footprint).toEqual(desiredFootprint);
+    const bedRight = zones[0].position.x + zones[0].footprint.width / 2;
+    const storageLeft = room.objects[0].position.x - room.objects[0].dimensions.width / 2;
+    expect(storageLeft - bedRight).toBeGreaterThanOrEqual(0.6);
+    expect(storageLeft - bedRight).toBeLessThanOrEqual(0.61);
+  });
+
+  it("falls back through real bed sizes and keeps the search query consistent", () => {
+    const room = {
+      ...sampleRoom,
+      dimensions: { width: 2.8, height: 2.7, depth: 2.8 },
+      openings: [],
+      objects: [],
+    };
+    const { zones, rejected } = reserveZones(room, buildSpaceModel(room), [
+      {
+        ...lampZone,
+        id: "bed",
+        category: "bed",
+        query: "upholstered queen bed",
+        anchor: "wall",
+        relatedObjectId: null,
+        desiredFootprint: { width: 1.65, depth: 2.15 },
+        desiredHeight: null,
+      },
+    ]);
+    expect(rejected).toEqual([]);
+    expect(zones[0].footprint).toEqual({ width: 1.37, depth: 1.91 });
+    expect(zones[0].query).toContain("full bed");
+    expect(zones[0].query).not.toContain("queen");
+    expect(zones[0].miscellaneous).toContain(
+      "full size, about 1.37 × 1.91 m",
+    );
+  });
 });
 
 describe("accessories", () => {
@@ -714,6 +821,90 @@ describe("design plan", () => {
         request,
       }),
     ).toThrow("does not want accessories; drop rug");
+  });
+
+  it("requires a missing room-defining piece and reuses its removed placement", () => {
+    const removedBed = sampleRoom.objects[0];
+    const room = {
+      ...sampleRoom,
+      objects: sampleRoom.objects.filter((object) => object.id !== removedBed.id),
+    };
+    const brief = { ...sampleBrief, wants: [], purpose: "bedroom" };
+    const bed = {
+      ...lampZone,
+      id: "replacement-bed",
+      purpose: "restore the room's primary sleeping function",
+      category: "bed",
+      query: "queen bed",
+      anchor: "wall" as const,
+      relatedObjectId: null,
+      desiredFootprint: { width: 1.65, depth: 2.15 },
+      desiredHeight: null,
+    };
+    expect(() =>
+      buildDesignPlan({
+        room,
+        brief,
+        products: sampleProducts,
+        request: {
+          ...request,
+          zones: [{ ...lampZone, id: "bench", category: "bedroom bench" }],
+        },
+      }),
+    ).toThrow("missing its defining bed");
+
+    const { plan } = buildDesignPlan({
+      room,
+      brief,
+      products: sampleProducts,
+      request: { ...request, zones: [bed] },
+      placementHints: [removedBed],
+    });
+    expect(plan.zones[0].category).toBe("bed");
+    expect(plan.zones[0].position).toEqual(removedBed.position);
+  });
+
+  it("does not return accent furniture when the defining piece cannot fit", () => {
+    const room = {
+      ...sampleRoom,
+      name: "Tiny bedroom",
+      dimensions: { width: 1, height: 2.4, depth: 1 },
+      objects: [],
+      openings: [],
+    };
+    const brief = { ...sampleBrief, wants: [], purpose: "bedroom" };
+    expect(() =>
+      buildDesignPlan({
+        room,
+        brief,
+        products: sampleProducts,
+        request: {
+          summary: "A bed and an accent chair.",
+          spacing: "balanced",
+          zones: [
+            {
+              ...lampZone,
+              id: "bed",
+              category: "bed",
+              query: "queen bed",
+              anchor: "wall",
+              relatedObjectId: null,
+              desiredFootprint: { width: 1.6, depth: 2.0 },
+              desiredHeight: null,
+              priority: 1,
+            },
+            {
+              ...lampZone,
+              id: "chair",
+              category: "armchair",
+              query: "bedroom armchair",
+              relatedObjectId: null,
+              priority: 2,
+            },
+          ],
+        },
+      }),
+    ).toThrow("defining bed could not be reserved");
   });
 
   it("scales clearance with spacing but never below the safety minimums", () => {

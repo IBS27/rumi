@@ -23,7 +23,7 @@ import {
   type ZoneFill,
 } from "../shared/contracts";
 import { emptyBrief, normalizeBrief } from "./projects";
-import { proposeZones } from "./planner";
+import { proposeZones, removedPlacementHints } from "./planner";
 import { selectionTotal } from "../shared/budget";
 import {
   designPlacementIssue,
@@ -81,6 +81,7 @@ Stage 2, Plan. Reserve space, show the plan, then shop what the user keeps.
 - planSpace shows the user a plan card listing every zone (what, where, footprint, suggested or not) and what did not fit. Your turn ends there; do not describe the zones in text and do not call fillZones in the same turn.
 - The user trims the card and confirms; their next message says which items to search. Then call fillZones with no arguments. It runs one search per kept item, all at once, and the interface shows one product card per zone with its fit (yes, no, unknown). Keep your text to unmet constraints or a necessary next step. Products without dimensions are excluded.
 - planSpace may reject zones that do not fit. Never squeeze furniture into space the plan rejected; if the user asks about a rejected piece, explain the reason from the card.
+- If planning fails for a room-defining piece and the user says it fit before, asks for a smaller size, or approves placing it close to existing furniture, call planSpace again immediately with that placement fact. Do not ask them to choose between a smaller footprint and another anchor; the geometry search tries wall, obstacle-aligned, open-floor, and smaller standard-size placements itself.
 - Use searchProducts directly only when the user asks for one specific item outside the plan.
 - When every kept zone has a product, call setPhase('review'). If the user wants to change the brief, call setPhase('spec').
 - Products without complete dimensions must never be recommended. Search automatically tries alternatives; if it returns no candidates, explain that no suitable product was found and offer to broaden the search.
@@ -287,11 +288,14 @@ function buildAgentTools(
           ids,
         });
         try {
+          const roomDoc = await ctx.runQuery(internal.rooms.getRoom, { roomId });
           const result = await proposeZones(
             room,
             brief.get(),
             products,
             instruction,
+            "",
+            removedPlacementHints(room, roomDoc?.history ?? []),
           );
           plan.set(result.plan);
           if (projectId)

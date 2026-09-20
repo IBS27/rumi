@@ -12,6 +12,8 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { SPEC_SUMMARY_OPTIONS } from "../shared/chat/spec";
+import { briefSchema } from "../shared/contracts";
+import { inferBriefPurpose } from "../shared/chat/purpose";
 
 const isSpecSummary = (options: string[]) =>
   options.length === SPEC_SUMMARY_OPTIONS.length &&
@@ -250,8 +252,26 @@ export async function postUserTurn(
     throw new Error("Message must contain 1–16000 characters.");
   if (project.activeMessageId)
     throw new Error("Please wait for the current reply.");
+  const room = project.roomId ? await ctx.db.get(project.roomId) : null;
+  const storedBrief = briefSchema.parse({
+    prompt: "",
+    styles: [],
+    budgetCents: 0,
+    currency: "USD",
+    restrictions: [],
+    ...(project.brief ?? {}),
+    ...(room?.brief ?? {}),
+  });
+  const inferredBrief = inferBriefPurpose(
+    storedBrief,
+    content,
+    room?.snapshot ?? null,
+  );
+  if (inferredBrief !== storedBrief) {
+    await ctx.db.patch(projectId, { brief: inferredBrief });
+    if (room) await ctx.db.patch(room._id, { brief: inferredBrief });
+  }
   if (selectedObjectId) {
-    const room = project.roomId ? await ctx.db.get(project.roomId) : null;
     if (
       !room?.snapshot.objects.some((object) => object.id === selectedObjectId)
     )
