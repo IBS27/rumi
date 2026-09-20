@@ -11,6 +11,11 @@ import {
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
+import { SPEC_SUMMARY_OPTIONS } from "../shared/chat/spec";
+
+const isSpecSummary = (options: string[]) =>
+  options.length === SPEC_SUMMARY_OPTIONS.length &&
+  options.every((option, index) => option === SPEC_SUMMARY_OPTIONS[index]);
 
 const activityValidator = v.object({
   id: v.string(),
@@ -68,6 +73,7 @@ const zoneCard = v.object({
 const listedMessage = v.object({
   ...messageDoc.fields,
   imageUrl: v.union(v.string(), v.null()),
+  imageAnalysis: v.union(v.string(), v.null()),
   recommendation: v.union(productCard, v.null()),
   plan: v.union(planCard, v.null()),
   zoneCards: v.array(zoneCard),
@@ -195,6 +201,8 @@ export const list = query({
         return {
           ...message,
           imageUrl: image ? await ctx.storage.getUrl(image.storageId) : null,
+          imageAnalysis:
+            image?.status === "analyzed" ? (image.analysis ?? null) : null,
           recommendation: product,
           plan,
           zoneCards,
@@ -295,11 +303,34 @@ export const answer = mutation({
     if (choice.length === 0 || (!question.multiSelect && choice.length !== 1))
       throw new Error("Choose an answer.");
     await ctx.db.patch(messageId, { answer: choice, status: "done" });
+    // The spec summary card moves the stage itself. Leaving this to the model
+    // let it re-show the summary in a loop.
+    const summaryCard = isSpecSummary(question.options ?? []);
+    if (summaryCard && choice[0] === SPEC_SUMMARY_OPTIONS[0]) {
+      if (!project.roomId)
+        return await postUserTurn(
+          ctx,
+          question.projectId,
+          ownerId,
+          "Start planning. (No room is attached yet.)",
+        );
+      await ctx.db.patch(project._id, { phase: "plan" });
+      return await postUserTurn(
+        ctx,
+        question.projectId,
+        ownerId,
+        "Start planning.",
+      );
+    }
+    // Echo the question's first line only; a long card must not become the
+    // user's whole message.
+    const heading = question.content.split("\n").find((line) => line.trim()) ?? "";
+    const prefix = summaryCard ? "" : `${heading.slice(0, 160)} — `;
     return await postUserTurn(
       ctx,
       question.projectId,
       ownerId,
-      `${question.content} — ${choice.join(", ")}`,
+      `${prefix}${choice.join(", ")}`,
     );
   },
 });
@@ -362,17 +393,32 @@ export const complete = internalMutation({
   },
 });
 
+// The agent's view of the conversation. An image message carries its visual
+// analysis inline so the model sees the cues without them cluttering the chat.
 export const history = internalQuery({
   returns: v.array(messageDoc),
   args: { projectId: v.id("projects") },
-  handler: async (ctx, { projectId }): Promise<Doc<"messages">[]> =>
-    (
+  handler: async (ctx, { projectId }): Promise<Doc<"messages">[]> => {
+    const messages = (
       await ctx.db
         .query("messages")
         .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
         .order("desc")
         .take(100)
-    ).reverse(),
+    ).reverse();
+    return await Promise.all(
+      messages.map(async (message) => {
+        if (!message.imageId) return message;
+        const image = await ctx.db.get(message.imageId);
+        return image?.status === "analyzed" && image.analysis
+          ? {
+              ...message,
+              content: `${message.content} Visual analysis: ${image.analysis}`,
+            }
+          : message;
+      }),
+    );
+  },
 });
 
 export const expire = internalMutation({

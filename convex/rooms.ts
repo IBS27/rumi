@@ -7,6 +7,7 @@ import {
   briefSchema,
   roomSchema,
   proposalSchema,
+  specTopicSchema,
   wantSchema,
   type RoomSnapshot,
 } from "../shared/contracts";
@@ -42,6 +43,7 @@ export const patchBrief = internalMutation({
       v.union(v.literal("unspecified"), v.literal("include"), v.literal("skip")),
     ),
     inspiration: v.optional(v.string()),
+    decided: v.optional(zodToConvex(z.array(specTopicSchema))),
   },
   handler: async (ctx, { roomId, ...patch }) => {
     const doc = await ctx.db.get(roomId);

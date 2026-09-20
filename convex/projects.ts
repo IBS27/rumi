@@ -17,6 +17,7 @@ import {
   roomSchema,
   briefSchema,
   projectPhaseSchema,
+  specTopicSchema,
   wantSchema,
   type DesignBrief,
 } from "../shared/contracts";
@@ -252,6 +253,7 @@ export const updateBrief = internalMutation({
       v.union(v.literal("unspecified"), v.literal("include"), v.literal("skip")),
     ),
     inspiration: v.optional(v.string()),
+    decided: v.optional(zodToConvex(z.array(specTopicSchema))),
   },
   returns: zodToConvex(briefSchema),
   handler: async (ctx, { projectId, ...patch }) => {

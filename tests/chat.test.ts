@@ -7,6 +7,7 @@ import { api, internal } from "../convex/_generated/api";
 import { sampleBrief, sampleProducts, sampleRoom } from "../shared/fixtures";
 import { MAX_IMAGE_BYTES } from "../shared/chat/uploads";
 import { buildDesignPlan } from "../shared/planner";
+import { SPEC_SUMMARY_OPTIONS } from "../shared/chat/spec";
 
 // Provider actions are excluded from these deterministic boundary tests.
 const skipAgent = internalAction({
@@ -229,7 +230,7 @@ describe("live chat boundaries", () => {
     const saved = await t.mutation(internal.projects.updateBrief, {
       projectId,
       wants: [{ category: "floor lamp", notes: "warm light" }],
-      palette: ["#a3b18a"],
+      palette: ["sage green"],
       materials: ["oak"],
       inspiration: "Soft, sage-toned Scandinavian bedroom.",
     });
@@ -239,6 +240,45 @@ describe("live chat boundaries", () => {
     const after = await owner.query(api.projects.context, { projectId });
     expect(after?.phase).toBe("plan");
     expect(after?.brief.materials).toEqual(["oak"]);
+  });
+
+  it("moves to Plan when Start planning is clicked on the summary card, and echoes only a card's first line", async () => {
+    const { t, owner, projectId } = await setup();
+    await owner.mutation(api.projects.attachRoom, {
+      projectId,
+      room: sampleRoom,
+      expectedRevision: null,
+    });
+    const summary = await t.mutation(internal.messages.ask, {
+      projectId,
+      question: "Here is the brief so far.\nPurpose: bedroom\nStyle: cozy\n\nReady to start planning?",
+      options: [...SPEC_SUMMARY_OPTIONS],
+      multiSelect: false,
+    });
+    await owner.mutation(api.messages.answer, { messageId: summary, choice: ["Start planning"] });
+    const context = await owner.query(api.projects.context, { projectId });
+    expect(context?.phase).toBe("plan");
+    const history = await t.query(internal.messages.history, { projectId });
+    const turn = history.filter((message) => message.role === "user").at(-1)!;
+    expect(turn.content).toBe("Start planning.");
+    expect(turn.content).not.toContain("Here is the brief");
+    // A normal card keeps a short prefix so the agent knows what was answered.
+    await t.mutation(internal.messages.complete, {
+      messageId: context!.project.activeMessageId!,
+      content: "ok",
+      status: "done",
+    });
+    const style = await t.mutation(internal.messages.ask, {
+      projectId,
+      question: "Which style direction appeals to you?\nPick one.",
+      options: ["Scandinavian", "Industrial"],
+      multiSelect: false,
+    });
+    await owner.mutation(api.messages.answer, { messageId: style, choice: ["Industrial"] });
+    const after = await t.query(internal.messages.history, { projectId });
+    expect(after.filter((message) => message.role === "user").at(-1)!.content).toBe(
+      "Which style direction appeals to you? — Industrial",
+    );
   });
 
   it("shows a plan card, lets the owner keep some zones, then renders one product card per zone", async () => {

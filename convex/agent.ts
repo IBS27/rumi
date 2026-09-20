@@ -8,11 +8,11 @@ import { internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
-  hexColorSchema,
   projectPhaseSchema,
   roomObjectSchema,
   roomSchema,
   searchTaskSchema,
+  specTopicSchema,
   wantSchema,
   type DesignBrief,
   type DesignPlan,
@@ -29,6 +29,12 @@ import { findPlacement, placementIssue } from "../shared/geometry";
 import { evaluateFill } from "../shared/planner";
 import { freeArea } from "../shared/planner/space";
 import { choiceListToCard } from "../shared/chat/choices";
+import {
+  SPEC_SUMMARY_OPTIONS,
+  specStatus,
+  specStatusLine,
+  specSummaryText,
+} from "../shared/chat/spec";
 
 const SYSTEM_PROMPT = `You are the room designer for rumi. You build rooms from real web products.
 - Start with getRoomContext. Respect owned and locked objects.
@@ -42,18 +48,22 @@ const SYSTEM_PROMPT = `You are the room designer for rumi. You build rooms from 
 The project moves through stages. The current stage is given at the top of the conversation.
 
 Stage 1, Spec. Build the brief; do not search or plan.
-- The brief needs, in this order of importance: the room's purpose, a style direction, whether the user wants to name items or leave the choice to the planner, whether they want accessories, and a budget. Restrictions are optional; save them when stated.
+- Five topics must be decided, in this order: purpose, style, items, accessories, budget. Restrictions are optional; save them when stated. A "Spec status" line at the top of the conversation tells you which topics are decided; trust it and never ask about a decided topic again.
+- Save everything the user reveals the moment they say it, before asking anything, even in passing: "something cozy" is a style (styles: ["cozy"]); "it's my bedroom" is the purpose; "I need a desk" is an item. Then the status line will show that topic decided and you skip its question.
+- Answers that leave a field empty still decide the topic: when the user says you choose the items, save decided including "items"; when they say no budget yet, save decided including "budget". Always send the full decided list.
 - Every choice you offer MUST be an askOptions card. Never write numbered, lettered, or bulleted choices in plain text; the user cannot click text. One card per turn, 2-4 options, and end your turn after it. Any text before the card is one or two sentences at most; the question itself goes in the card, not in the text.
-- Set multiSelect true when more than one answer can apply at once (styles to blend, materials, several items they want, restrictions); leave it false when exactly one answer is expected (purpose, budget range, accessories, start planning).
-- Ask only for what is still missing. Never repeat information already in the brief, room, or conversation.
+- Set multiSelect true when more than one answer can apply at once (styles to blend, materials, several items they want, restrictions); leave it false when exactly one answer is expected (purpose, budget range, accessories).
+- Ask only for the first missing topic in the status line.
   - Purpose: "What is this room for?" with choices such as Bedroom, Living room, Home office, Dining room. Save to purpose.
   - Style: ask only if no style, palette, or inspiration image has been given. Offer 3-4 directions that suit the room.
   - Items: "Anything specific you want in here, or should I choose what fits the space?" with choices like "You choose", "I have a list". If they list items, save them to wants (category plus short notes such as "seats two", "under 1.2 m wide"). If they say you choose, leave wants empty.
   - Accessories: "Should I include accessories like art, a rug, and lamps?" with choices Include accessories / Furniture only / You decide. Save include, skip, or unspecified.
   - Budget: "Do you have a budget for this room?" with 3 ranges that suit the purpose and item count (for example Under $1,500 / $1,500–4,000 / $4,000–8,000) plus "No budget yet". When they pick a range, save its upper bound as budgetCents; a custom amount is saved as typed; "No budget yet" keeps 0. This is the only way a budget may be set without the user naming a number.
 - When inspiration images arrive, merge their analysis into palette, materials, styles, and a short inspiration summary via updateBrief. Never treat an image as room geometry.
-- Once purpose and style are known and the items, accessories, and budget questions have been answered, present a spec summary: a short recap in text (purpose, style, items or "I'll choose", accessories, budget or "no budget"), then askOptions with "Ready to start planning?" and exactly the options ["Start planning", "Keep refining"]. End your turn.
-- Only when the user picks Start planning (or says so plainly) call setPhase('plan'). Planning needs an attached room; if none, ask them to import one and stay in Spec.
+- When the status line says everything is decided, call showSpecSummary. It renders the brief read-only with the buttons Start planning and Modify details; never build the summary yourself, and never put brief facts into askOptions options. End your turn.
+- If the user picks Modify details, ask in one short sentence what they want to change (no card). If they type a change (for example "add a desk"), save it with updateBrief, then call showSpecSummary again.
+- Clicking Start planning on the summary card moves the stage to Plan by itself; you will see "Current stage: plan". If the user says "start planning" in words while still in Spec, call setPhase('plan'). Planning needs an attached room; if none, ask them to import one and stay in Spec.
+- Do not call showSpecSummary twice in a row without a change in between.
 - searchProducts, planSpace, and fillZones refuse to run in Spec.
 
 Stage 2, Plan. Reserve space, show the plan, then shop what the user keeps.
@@ -409,6 +419,29 @@ function buildAgentTools(
     }),
     ...(projectId
       ? {
+          showSpecSummary: tool({
+            description:
+              "Show the finished brief as a read-only summary card with two buttons, Start planning and Modify details, plus a free-text field. Call this when every Spec topic is decided. End your turn after it.",
+            inputSchema: z.object({}),
+            execute: async () => {
+              const status = specStatus(brief.get());
+              if (!status.complete)
+                return {
+                  ok: false as const,
+                  error: `Not every topic is decided yet. Still to ask: ${status.missing.join(", ")}.`,
+                };
+              await ctx.runMutation(internal.messages.ask, {
+                projectId,
+                question: specSummaryText(brief.get()),
+                options: SPEC_SUMMARY_OPTIONS,
+                multiSelect: false,
+              });
+              return {
+                ok: true as const,
+                note: "Summary shown. End your turn and wait for Start planning, Modify details, or a typed change.",
+              };
+            },
+          }),
           askOptions: tool({
             description:
               "Pause the conversation and render an interactive clarification card with 2-4 concrete options plus a custom-answer field. Use this before searching when the request is too vague, or when one focused design choice would materially improve the result. End your turn after calling it.",
@@ -460,18 +493,30 @@ function buildAgentTools(
     }),
     updateBrief: tool({
       description:
-        "Save only design preferences the user stated or that inspiration images showed. Set budgetCents only from an explicit user price; use 0 when no budget was specified and never invent a ceiling. purpose is what the room is for. wants lists the items the user asked for (category plus short notes); replace the whole list when it changes, and leave it empty when they want you to choose. accessories is include, skip, or unspecified. palette holds hex colors; materials holds short words like oak, linen, brass. inspiration is your merged summary of the analyzed images.",
+        "Save only design preferences the user stated or that inspiration images showed. Set budgetCents only from an explicit user price; use 0 when no budget was specified and never invent a ceiling. purpose is what the room is for. wants lists the items the user asked for (category plus short notes); replace the whole list when it changes, and leave it empty when they want you to choose. accessories is include, skip, or unspecified. palette holds color families in words (black, navy blue, warm grey), never hex; materials holds short words like oak, linen, brass. inspiration is your merged summary of the analyzed images.",
       inputSchema: z.object({
         prompt: z.string().optional(),
         styles: z.array(z.string()).optional(),
         budgetCents: z.number().int().nonnegative().optional(),
         restrictions: z.array(z.string()).optional(),
-        palette: z.array(hexColorSchema).max(8).optional(),
+        palette: z
+          .array(z.string().max(40))
+          .max(8)
+          .optional()
+          .describe(
+            "Color families in plain words, such as 'black', 'navy blue', 'warm grey', 'natural oak'. Never hex codes.",
+          ),
         materials: z.array(z.string()).max(12).optional(),
         purpose: z.string().max(80).optional(),
         wants: z.array(wantSchema).max(12).optional(),
         accessories: z.enum(["unspecified", "include", "skip"]).optional(),
         inspiration: z.string().max(1200).optional(),
+        decided: z
+          .array(specTopicSchema)
+          .optional()
+          .describe(
+            "Spec topics the user has now answered, including answers that leave the field empty: 'items' when they said you choose, 'budget' when they said no budget yet. Send the full list.",
+          ),
       }),
       execute: async (patch) => {
         const next = projectId
@@ -708,6 +753,7 @@ async function runAgent(
     stopWhen: [
       stepCountIs(10),
       hasToolCall("askOptions"),
+      hasToolCall("showSpecSummary"),
       // A shown plan card ends the turn; the user chooses what to search.
       ({ steps }) =>
         steps
@@ -783,7 +829,9 @@ async function runAgent(
   return {
     text,
     room: currentRoom,
-    askedOptions: activity.some((item) => item.tool === "askOptions"),
+    askedOptions: activity.some(
+      (item) => item.tool === "askOptions" || item.tool === "showSpecSummary",
+    ),
   };
 }
 
@@ -832,10 +880,17 @@ export const runForProject = internalAction({
         .join("\n");
       const reply = messages.find((message) => message._id === messageId);
       const stage: ProjectPhase = project.phase ?? "spec";
+      const roomDoc = project.roomId
+        ? await ctx.runQuery(internal.rooms.getRoom, { roomId: project.roomId })
+        : null;
+      const status =
+        stage === "spec"
+          ? `\n${specStatusLine(normalizeBrief(roomDoc?.brief ?? project.brief ?? emptyBrief()))}`
+          : "";
       const { text, askedOptions } = await runAgent(
         ctx,
         project.roomId ?? null,
-        `Current stage: ${stage}${project.roomId ? "" : " (no room attached yet)"}.\n\nConversation so far:\n${transcript}\n\nRespond to the user's latest message.`,
+        `Current stage: ${stage}${project.roomId ? "" : " (no room attached yet)"}.${status}\n\nConversation so far:\n${transcript}\n\nRespond to the user's latest message.`,
         projectId,
         async (content, activity, recommendationProductId, recommendations) => {
           await ctx.runMutation(internal.messages.updateProgress, {
@@ -850,7 +905,10 @@ export const runForProject = internalAction({
       );
       // A choice written as a text list is not clickable. Turn it into the
       // card the model should have used.
-      const card = askedOptions ? null : choiceListToCard(text);
+      const card =
+        askedOptions || text.includes(SPEC_SUMMARY_OPTIONS[0])
+          ? null
+          : choiceListToCard(text);
       if (card) {
         await complete(card.intro, "done");
         await ctx.runMutation(internal.messages.ask, {

@@ -485,7 +485,7 @@ describe("design plan", () => {
         { category: "floor lamp", notes: "warm dimmable light" },
         { category: "rug", notes: "" },
       ],
-      palette: ["#a3b18a"],
+      palette: ["sage", "black"],
       materials: ["oak"],
     };
     expect(() =>
@@ -514,7 +514,9 @@ describe("design plan", () => {
       ["wall art", true],
     ]);
     const lamp = plan.tasks[0];
-    expect(lamp.palette).toEqual(["#a3b18a"]);
+    // Color words reach search as hex for ranking and as words for the query.
+    expect(lamp.palette).toEqual(["#9caa8c", "#1a1a1a"]);
+    expect(lamp.miscellaneous).toContain("sage");
     expect(lamp.miscellaneous).toContain("warm dimmable light");
     expect(lamp.miscellaneous).toContain("oak");
     expect(plan.tasks[1].miscellaneous).not.toContain("warm dimmable light");

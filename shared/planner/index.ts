@@ -12,6 +12,7 @@ import {
   type ZonePlanRequest,
 } from "../contracts";
 import { selectionTotal } from "../budget";
+import { colorFromWords } from "../search/color";
 import { buildSpaceModel, type SpaceModel } from "./space";
 import { isAccessoryMount, planScope, sameCategory } from "./scope";
 import { mountFor, reserveZones } from "./zones";
@@ -90,11 +91,19 @@ export function zoneToSearchTask(
       : zone.footprint,
     maxHeight: zone.maxHeight,
     styleTerms: brief.styles,
-    palette: brief.palette,
+    // Color words become hex for ranking; the words themselves go to search.
+    palette: [
+      ...new Set(
+        brief.palette
+          .map((word) => colorFromWords(word)?.hex)
+          .filter((hex): hex is string => Boolean(hex)),
+      ),
+    ],
     miscellaneous: [
       ...new Set([
         zone.purpose,
         ...zone.miscellaneous,
+        ...brief.palette,
         ...brief.wants
           .filter((want) => want.notes && sameCategory(want.category, zone.category))
           .map((want) => want.notes),

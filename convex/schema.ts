@@ -23,6 +23,7 @@ export const storedBrief = v.object({
   wants: v.optional(briefFields.wants),
   accessories: v.optional(briefFields.accessories),
   inspiration: v.optional(briefFields.inspiration),
+  decided: v.optional(briefFields.decided),
 });
 
 // A filled zone: which product was chosen and whether it fits the reservation.

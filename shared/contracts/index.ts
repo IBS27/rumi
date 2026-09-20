@@ -171,6 +171,14 @@ export const roomSchema = z
 // The workflow has two stages. Spec gathers the brief; Plan reserves space and
 // searches. Review is reached once every zone has a product.
 export const projectPhaseSchema = z.enum(["spec", "plan", "review"]);
+// The questions Spec must settle before planning.
+export const specTopicSchema = z.enum([
+  "purpose",
+  "style",
+  "items",
+  "accessories",
+  "budget",
+]);
 // An item the user asked for, before any space is reserved for it.
 export const wantSchema = z.object({
   category: z.string().trim().min(1).max(80),
@@ -183,7 +191,9 @@ export const briefSchema = z.object({
   currency: z.literal("USD"),
   restrictions: z.array(z.string()),
   // Filled in during Spec. Older briefs lack these, so they default.
-  palette: z.array(z.string().regex(/^#[0-9a-fA-F]{6}$/)).max(8).default([]),
+  // Color families in words ("navy blue", "warm grey", "black"). Search maps
+  // them to hex internally; nobody shops by hex code.
+  palette: z.array(z.string().trim().min(1).max(40)).max(8).default([]),
   materials: z.array(z.string()).max(12).default([]),
   // What the room is for: bedroom, living room, home office, and so on.
   purpose: z.string().max(80).default(""),
@@ -193,6 +203,10 @@ export const briefSchema = z.object({
   accessories: z.enum(["unspecified", "include", "skip"]).default("unspecified"),
   // A merged summary of inspiration-image analyses, in the agent's words.
   inspiration: z.string().max(1200).default(""),
+  // Spec questions the user has answered, including answers that leave the
+  // field empty ("you choose" for items, "no budget yet"). Code also counts a
+  // question as decided when its field holds a value.
+  decided: z.array(specTopicSchema).default([]),
 });
 export const proposalSchema = z.object({
   id: idSchema,
@@ -395,6 +409,7 @@ export type CapturedRoom = Extract<RoomSnapshot, { shape: "polygon" }>;
 export type ProductCandidate = z.infer<typeof productSchema>;
 export type DesignBrief = z.infer<typeof briefSchema>;
 export type ProjectPhase = z.infer<typeof projectPhaseSchema>;
+export type SpecTopic = z.infer<typeof specTopicSchema>;
 export type Want = z.infer<typeof wantSchema>;
 export type DesignProposal = z.infer<typeof proposalSchema>;
 export type AssetRecord = z.infer<typeof assetSchema>;
