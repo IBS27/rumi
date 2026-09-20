@@ -19,7 +19,6 @@ import {
 import {
   DoubleSide,
   Matrix4,
-  ShapeGeometry,
   Vector3,
   PCFShadowMap,
 } from "three";
@@ -32,7 +31,7 @@ import type { ParametricModel as ParametricModelData } from "../../../shared/ass
 import { localCorners, worldCorners } from "../../../shared/capture/roomplan";
 import type { Walkthrough } from "../../../shared/capture/walkthrough";
 import { FirstPersonCamera, type WalkInput } from "./FirstPersonCamera";
-import { surfaceShape } from "../../../shared/capture/surfaces";
+import { surfaceGeometry } from "./surfaceGeometry";
 import type { TexturedScan } from "../../../shared/capture/texture";
 import { ScanSurface } from "./capture/ScanSurface";
 import { ParametricModel } from "./ParametricModel";
@@ -53,7 +52,7 @@ function Surface({
   openings: CapturedSurface[];
 }) {
   const geometry = useMemo(
-    () => new ShapeGeometry(surfaceShape(value, openings)),
+    () => surfaceGeometry(value, openings),
     [value, openings],
   );
   useEffect(() => () => geometry.dispose(), [geometry]);
