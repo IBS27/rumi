@@ -261,6 +261,48 @@ describe("image-to-3D assets", () => {
     ).toBe(true);
   });
 
+  it("repairs an invalid model once while retaining catalog dimensions", async () => {
+    const invalid = {
+      ...answer,
+      parts: [{ ...answer.parts[0], position: { x: 0.4, y: 0.5, z: 0 } }],
+    };
+    const vision = model(oneImageSelection, invalid, answer);
+    const scene = await generateParametricModel(
+      vision.instance,
+      {
+        name: "Oak cabinet",
+        category: "storage",
+        dimensions: { width: 1.1, height: 0.7, depth: 0.35 },
+        imageUrls: ["https://shop.test/front.png"],
+      },
+      imageFetch,
+    );
+    expect(vision.prompts).toHaveLength(3);
+    expect(scene.parts[0].position.x).toBe(0);
+    expect(scene.dimensions.width).toBe(1.1);
+  });
+
+  it("keeps invalid geometry rejected after the bounded correction attempt", async () => {
+    const invalid = {
+      ...answer,
+      parts: [{ ...answer.parts[0], position: { x: 0.4, y: 0.5, z: 0 } }],
+    };
+    const vision = model(oneImageSelection, invalid, invalid);
+    await expect(
+      generateParametricModel(
+        vision.instance,
+        {
+          name: "Oak cabinet",
+          category: "storage",
+          dimensions: { width: 1.1, height: 0.7, depth: 0.35 },
+          imageUrls: ["https://shop.test/front.png"],
+        },
+        imageFetch,
+      ),
+    ).rejects.toThrow("normalized width");
+    expect(vision.prompts).toHaveLength(3);
+  });
+
   it("defaults an omitted part rotation to the identity transform", () => {
     const partWithoutRotation = { ...answer.parts[0] };
     delete (partWithoutRotation as Partial<typeof partWithoutRotation>)

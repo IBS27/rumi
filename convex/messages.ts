@@ -81,7 +81,12 @@ const listedMessage = v.object({
 
 // Where a reserved zone sits, in words the card can show.
 function describeWhere(
-  zone: { mount: string; anchor: string; relatedObjectId: string | null; position: { x: number; z: number } },
+  zone: {
+    mount: string;
+    anchor: string;
+    relatedObjectId: string | null;
+    position: { x: number; z: number };
+  },
   room: { dimensions: { width: number; depth: number } } | null,
   names: Map<string, string>,
 ): string {
@@ -89,15 +94,28 @@ function describeWhere(
   // "Your bed" → "your bed"; "the your bed" would read badly.
   const host = raw ? raw.replace(/^(the|your|my)\s+/, "") : null;
   if (zone.mount === "surface") return host ? `on the ${host}` : "on a surface";
-  if (zone.mount === "under") return host ? `under the ${host}` : "on the floor";
+  if (zone.mount === "under")
+    return host ? `under the ${host}` : "on the floor";
   if (zone.mount === "wall") return "on the wall";
   if (host) return `beside the ${host}`;
   if (!room) return "on the floor";
   const { width, depth } = room.dimensions;
-  const nearX = zone.position.x < width * 0.3 ? "left" : zone.position.x > width * 0.7 ? "right" : "";
-  const nearZ = zone.position.z < depth * 0.3 ? "back" : zone.position.z > depth * 0.7 ? "front" : "";
+  const nearX =
+    zone.position.x < width * 0.3
+      ? "left"
+      : zone.position.x > width * 0.7
+        ? "right"
+        : "";
+  const nearZ =
+    zone.position.z < depth * 0.3
+      ? "back"
+      : zone.position.z > depth * 0.7
+        ? "front"
+        : "";
   const spot = [nearZ, nearX].filter(Boolean).join(" ");
-  return spot ? `${spot} ${zone.anchor === "corner" ? "corner" : "wall"}` : "center of the room";
+  return spot
+    ? `${spot} ${zone.anchor === "corner" ? "corner" : "wall"}`
+    : "center of the room";
 }
 
 export const list = query({
@@ -130,14 +148,17 @@ export const list = query({
       .paginate(paginationOpts);
     const room = project.roomId ? await ctx.db.get(project.roomId) : null;
     const names = new Map(
-      (room?.snapshot.objects ?? []).map((object) => [object.id, object.name.toLowerCase()]),
+      (room?.snapshot.objects ?? []).map((object) => [
+        object.id,
+        object.name.toLowerCase(),
+      ]),
     );
     const productById = async (id: string) => {
       const product = await ctx.db
         .query("products")
         .withIndex("by_catalog_id", (q) => q.eq("id", id))
         .unique();
-      return product
+      return product?.measurement.dimensions
         ? {
             id: product.id,
             name: product.name,
@@ -188,7 +209,8 @@ export const list = query({
         const categoryOf = new Map<string, string>();
         for (const item of searched)
           for (const zone of item.plan.zones)
-            if (!categoryOf.has(zone.id)) categoryOf.set(zone.id, zone.category);
+            if (!categoryOf.has(zone.id))
+              categoryOf.set(zone.id, zone.category);
         const zoneCards = await Promise.all(
           (message.recommendations ?? []).map(async (item) => ({
             zoneId: item.zoneId,
@@ -218,6 +240,7 @@ export async function postUserTurn(
   projectId: Id<"projects">,
   ownerId: string,
   content: string,
+  selectedObjectId?: string,
 ) {
   const project = await ctx.db.get(projectId);
   if (!project || project.ownerId !== ownerId)
@@ -227,10 +250,18 @@ export async function postUserTurn(
     throw new Error("Message must contain 1–16000 characters.");
   if (project.activeMessageId)
     throw new Error("Please wait for the current reply.");
+  if (selectedObjectId) {
+    const room = project.roomId ? await ctx.db.get(project.roomId) : null;
+    if (
+      !room?.snapshot.objects.some((object) => object.id === selectedObjectId)
+    )
+      throw new Error("The selected item is no longer in this room.");
+  }
   const now = Date.now();
   await ctx.db.insert("messages", {
     projectId,
     role: "user",
+    selectedObjectId,
     content,
     status: "done",
     createdAt: now,
@@ -238,6 +269,7 @@ export async function postUserTurn(
   const messageId: Id<"messages"> = await ctx.db.insert("messages", {
     projectId,
     role: "assistant",
+    selectedObjectId,
     content: "",
     activity: planningActivity(),
     status: "pending",
@@ -257,9 +289,16 @@ export const send = mutation({
   args: {
     projectId: v.id("projects"),
     content: v.string(),
+    selectedObjectId: v.optional(v.string()),
   },
-  handler: async (ctx, { projectId, content }) =>
-    await postUserTurn(ctx, projectId, await requireOwner(ctx), content),
+  handler: async (ctx, { projectId, content, selectedObjectId }) =>
+    await postUserTurn(
+      ctx,
+      projectId,
+      await requireOwner(ctx),
+      content,
+      selectedObjectId,
+    ),
 });
 
 export const ask = internalMutation({
@@ -324,7 +363,8 @@ export const answer = mutation({
     }
     // Echo the question's first line only; a long card must not become the
     // user's whole message.
-    const heading = question.content.split("\n").find((line) => line.trim()) ?? "";
+    const heading =
+      question.content.split("\n").find((line) => line.trim()) ?? "";
     const prefix = summaryCard ? "" : `${heading.slice(0, 160)} — `;
     return await postUserTurn(
       ctx,
@@ -458,6 +498,7 @@ export const retry = mutation({
     const replyId = await ctx.db.insert("messages", {
       projectId: project._id,
       role: "assistant",
+      selectedObjectId: message.selectedObjectId,
       content: "",
       activity: planningActivity(),
       status: "pending",

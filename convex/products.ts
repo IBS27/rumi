@@ -15,7 +15,10 @@ export const upsertProducts = internalMutation({
         .withIndex("by_catalog_id", (q) => q.eq("id", product.id))
         .unique();
       if (existing) {
-        await ctx.db.replace(existing._id, product);
+        await ctx.db.replace(existing._id, {
+          ...product,
+          assetId: product.assetId ?? existing.assetId,
+        });
         continue;
       }
       await ctx.db.insert("products", product);

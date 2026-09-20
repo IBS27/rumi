@@ -199,9 +199,10 @@ export async function runSearch(
     count: number,
     includeDomains: string[],
     label: string,
+    searchQuery = query,
   ): Promise<ExaSearchHit[]> => {
     try {
-      return await deps.search(query, count, includeDomains);
+      return await deps.search(searchQuery, count, includeDomains);
     } catch (error) {
       failures.push({
         stage: "search",
@@ -361,54 +362,82 @@ export async function runSearch(
   }
   failures.push(...filterFailures);
 
-  const ranked = diversifyMerchants(
-    rankCandidates(kept, task),
-    settings.target,
-  );
+  const attempted = new Set<string>();
+  const sizeCandidates = async (pool: ProductCandidate[]) => {
+    const ranked = diversifyMerchants(
+      rankCandidates(pool, task),
+      settings.target,
+    );
 
-  const { kept: sized, failures: sizingFailures } = await resolveToFit({
-    candidates: ranked.map((candidate) => candidate.product),
-    task,
-    target: settings.target,
-    maxResolutions: settings.maxVision,
-    resolve: async (product) => {
-      const context = contexts.get(product.id);
-      if (!context)
-        return {
-          product,
-          failures: [
-            {
-              stage: "dimensions" as const,
-              detail: `No page context for ${product.name}.`,
-            },
-          ],
-        };
-      try {
-        const resolution = await resolveDimensions({
-          category: task.category,
-          structuredText: context.structuredText,
-          pageText: context.pageText,
-          images: context.images,
-          readDiagram: deps.readDiagram,
-        });
-        return {
-          product: { ...product, measurement: resolution.measurement },
-          failures: resolution.failures,
-        };
-      } catch (error) {
-        return {
-          product,
-          failures: [
-            {
-              stage: "dimensions" as const,
-              detail: `Reading the drawing for ${product.name} failed: ${message(error)}.`,
-            },
-          ],
-        };
-      }
-    },
-  });
-  failures.push(...sizingFailures);
+    const { kept: sized, failures: sizingFailures } = await resolveToFit({
+      candidates: ranked.map((candidate) => candidate.product),
+      task,
+      target: settings.target,
+      maxResolutions: settings.maxVision,
+      resolve: async (product) => {
+        attempted.add(product.id);
+        const context = contexts.get(product.id);
+        if (!context)
+          return {
+            product,
+            failures: [
+              {
+                stage: "dimensions" as const,
+                detail: `No page context for ${product.name}.`,
+              },
+            ],
+          };
+        try {
+          const resolution = await resolveDimensions({
+            category: task.category,
+            structuredText: context.structuredText,
+            pageText: context.pageText,
+            images: context.images,
+            readDiagram: deps.readDiagram,
+          });
+          return {
+            product: { ...product, measurement: resolution.measurement },
+            failures: resolution.failures,
+          };
+        } catch (error) {
+          return {
+            product,
+            failures: [
+              {
+                stage: "dimensions" as const,
+                detail: `Reading the drawing for ${product.name} failed: ${message(error)}.`,
+              },
+            ],
+          };
+        }
+      },
+    });
+    failures.push(...sizingFailures);
+    return sized;
+  };
+  let sized = await sizeCandidates(kept);
+  if (sized.length < settings.target) {
+    // One additional retrieval round asks for published sizes. Previously read
+    // pages and failed diagram reads are not repeated.
+    const replacements = await search(
+      settings.results,
+      [],
+      "Replacement products",
+      `${query} product dimensions width depth height`,
+    );
+    hits = diversifyHits(dedupeHits([...hits, ...replacements]));
+    extractions = 0;
+    await collect(diversifyHits(dedupeHits(replacements)));
+    const filtered = filterCandidates(dedupeProducts(candidates), task);
+    failures.push(...filtered.failures);
+    const sizedIds = new Set(sized.map((product) => product.id));
+    sized = await sizeCandidates([
+      ...sized,
+      ...filtered.kept.filter(
+        (product) => !attempted.has(product.id) && !sizedIds.has(product.id),
+      ),
+    ]);
+  }
 
   const finalists = diversifyMerchants(
     rankCandidates(sized, task),

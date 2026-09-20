@@ -47,6 +47,17 @@ art and other furnishings when supported by the photos. Never add speculative de
 An attached headboard or wooden backing panel belongs in its bed's assembly, even if it
 extends beyond the measured bed box. A separate lamp, mirror or wall panel is a separate
 object. Do not duplicate the same item across scan objects, attached parts and discoveries.
+Keep furniture surfaces clear for the user's editable design. Omit incidental loose props:
+telephones, remote controls, tissue boxes and tissues, toiletries, soap dishes, hairdryers,
+books, magazines, cups, bottles and loose bathroom towels. Never bake them into a table,
+nightstand, vanity, shelf or bathtub, and do not discover this incidental clutter as new objects.
+Preserve furniture construction, fixed plumbing and hardware, attached headboards and bedding.
+Keep separately inventoried or explicitly requested objects as their own editable objects.
+Clear of clutter does NOT mean empty of functional equipment. Preserve observed TVs,
+monitors, computers, laptops, keyboards, speakers, appliances and lamps, including equipment
+resting on furniture. Reuse their inventory IDs or discover them as separate editable objects
+when missing; never delete them to make a surface look empty. The telephone exclusion above
+is specifically for incidental hotel-style phones baked into furniture.
 Distinguish real objects from mirror reflections and images on screens or artwork. A room-wide LiDAR mesh may include noise and occlusion holes.
 Use it as geometric evidence, not a surface to copy. Ignore scan fragments and lighting baked
 into photographs. Infer simple solid surfaces, with plausible unseen backs, but record uncertainty.
@@ -186,8 +197,9 @@ neighbors to estimate scale and placement in the room frame. Lamps use lighting;
 Wall-mounted mirrors and lamps need their actual elevated base position, not floor placement.
 If placement cannot be supported, omit the item and explain in notes. Do not infer existence
 from category conventions. Use [] only when no additional objects are visible. Keep attached
-headboards/panels in their parent description, not discoveredObjects; independent items get
-separate entries. Include each discovered item's visible construction in description.
+headboards/panels in their parent description, not discoveredObjects; substantial independent furnishings get
+separate entries. Omit incidental loose surface clutter listed in the system instructions, even when clearly photographed.
+Include each discovered item's visible construction in description.
 For EVERY scanned furniture object, describe the visible construction, silhouette, colors, texture patterns, cushions, legs, doors and supports, and select up to four supplied photos that best show it. Use exact object IDs. If hidden or uncertain, say so. Keep descriptions below 1000 characters and each note below 240 characters. Do not omit observed attached details just because their scan category or box misses them. Room: ${JSON.stringify({ ...room, objects: measuredObjects })}\nSampled LiDAR triangles, ARKit classifications 0=unknown 1=wall 2=floor 3=ceiling 4=table 5=seat 6=window 7=door: ${JSON.stringify(input.mesh)}`,
           },
           ...photos(
@@ -290,6 +302,14 @@ and spheres for rounded cushions and organic forms. Model gaps between legs, cus
 Do not represent an entire chair, sofa or table as one solid box. Match the actual photos.
 Include observed attached headboards, wooden backing panels, frames and supports in the parent assembly,
 even when the scanner omitted them. Do not include independent items assigned another inventory ID.
+Model the furniture itself and its integral construction. Keep tabletops, nightstands,
+counters and open shelves clear of incidental props: no telephone or handset, tissue box, toiletries, hairdryer,
+soap dish, remote, books, cups, bottles or loose towels. This applies even if a previous
+assessment mentions those props. Do not use them to expand renderBounds. Preserve fixed
+faucets, rails, handles and drains, and preserve a bed's mattress, pillows and bedding.
+Functional equipment such as TVs, monitors, computers, laptops, keyboards, speakers and lamps
+must remain present as their own inventory objects, even when supported by a tabletop.
+Do not interpret clear surfaces as permission to omit these items or the requested object.
 Normally renderBounds is null. For attached details beyond the scanned box, provide renderBounds:
 scale {x,y,z} expands the visual box relative to the supplied dimensions; offset {x,y,z} is its
 base-center offset in the object's normalized local axes. The expanded box must contain the

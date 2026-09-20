@@ -6,11 +6,11 @@
 
 - Meters; right-handed, Y-up coordinates. Rectangular fixtures use a northwest floor origin, +X east and +Z south. Captures preserve the scan's axis orientation and translate the minimum X/Z bounds and lowest floor elevation to zero. Object position is its local base center, not its geometric center; for tilted objects this point includes the full object rotation.
 - Width is X, height is Y, depth is Z. Rotation is radians. The rectangular placement validator supports yaw around Y and rejects pitch/roll. Captured furniture retains all three rotation axes for rendering.
-- Polygon captures retain surface polygons and column-major local-to-room matrices. Their room dimensions are overall bounds; floors may be absent. Original scan JSON is retained independently of user corrections. Polygon furniture-fit validation is not available yet.
+- Polygon captures retain surface polygons and column-major local-to-room matrices. Their room dimensions are overall bounds; floors may be absent. Original scan JSON is retained independently of user corrections. Furniture placement is checked against measured floor polygons, including concavities and gaps, walls, object overlap and conservative doorway clearances. Missing floors remain explicitly unverified.
 - Rectangular room dimensions are authoritative; openings reference a wall and an offset along +X for north/south or +Z for east/west.
 - USD prices use integer cents. Product price is per instance; owned furniture costs zero in the new selection.
-- Product IDs identify one purchasable variant in the normalized catalog. Object IDs identify instances, allowing future multiple quantities. Asset IDs are independent.
-- Unknown product dimensions are `null` with source `unknown`. Never infer a physical fit from an unscaled image. Synthetic data is explicitly marked.
+- Product IDs identify one purchasable variant in the normalized catalog. Object IDs identify instances, allowing multiple quantities of the same variant. Asset IDs are independent.
+- Unknown product dimensions are `null` with source `unknown`. Never infer a physical fit from an unscaled image. Search must resolve all three dimensions before recommending a product; failed extraction triggers alternatives, never an unsized recommendation. Synthetic data is explicitly marked.
 - GLB assets use meters after applying their normalization scale/rotation. A `ready` asset requires either a URL or a validated parametric scene. Parametric scenes use normalized part coordinates and carry their physical dimensions in meters; placeholders need no external asset. Geometry accuracy and availability are independent.
 
 ## Boundaries
@@ -53,11 +53,33 @@ footprint. See [image-to-3D assets](asset-generation.md).
 
 `shared/geometry` supplies deterministic validation and a simple placement scan. It is a starter, not an interior-design optimizer. Rug overlaps are allowed; a door uses a conservative square clearance. Electrical, installation, delivery-fit, and ergonomic checks remain future work.
 
+## Interactive design commands
+
+`shared/design` is the common validator for editor and agent changes. Commands are
+applied atomically to a cloned room, then checked against canonical product data,
+the resulting full selection subtotal and the current room revision. The public
+`design.edit` and internal `design.editByAgent` mutations use this same path.
+`design.get` returns the authoritative room, brief, selected/recommended products,
+asset states, reserved zones and undo availability together.
+
+`RoomObject.locked` keeps the placement; `productLocked` keeps the selected product.
+Only the user can unlock either. `mount` records floor, wall, surface or under;
+`supportId` ties an accessory to its host instance and `zoneId` ties a placed product
+to its planned spot. Supported accessories move with their host. Remove accessories
+before deleting, replacing or resizing their host. Catalog item dimensions and
+appearance cannot be changed by a scan correction; replace the variant instead.
+
+`AssetRecord.attempt`, `updatedAt` and `error` describe background model work. Pending
+and failed assets retain dimensioned previews. Approximate scenes stay within the
+product's physical bounds. `shared/fixtures/design.ts` supplies clearly synthetic
+scenes for the sample catalog. Saved-room files may include a `design` cache with
+products, assets and brief; cloud project ownership is never restored from exports.
+
 ## Fixtures
 
 `shared/fixtures/index.ts` exports a 4.8 × 4.2 × 2.7 m bedroom, two owned pieces, a $500 brief, four synthetic products, placeholder asset records, a valid proposal, and oversized/unknown/unaffordable/unavailable product cases. Merchant URLs use `example.com` and are not real listings.
 
-`shared/fixtures/search.ts` provides a deterministic search adapter for independent team development and tests. The room workspace imports captured rooms and stores edits locally. `shared/fixtures/roomplan.ts` supplies an independently authored, explicitly synthetic L-shaped room. When adding cloud room persistence, use authenticated Convex mutations and reject stale revisions on the server; keep transient camera/selection state local.
+`shared/fixtures/search.ts` provides a deterministic search adapter for independent team development and tests. The room workspace imports captures, stores standalone edits locally and uses authenticated cloud mutations once a conversation is attached. `shared/fixtures/roomplan.ts` supplies an independently authored, explicitly synthetic L-shaped room. Stale revisions are rejected on the server; transient camera/selection state remains local.
 
 ## Detailed capture package
 

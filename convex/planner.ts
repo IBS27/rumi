@@ -98,7 +98,7 @@ export async function proposeZones(
       "mount says where a piece lives: floor (stands on the floor), wall (hung: art, mirror, wall shelf), surface (sits on top of a table, desk, dresser, or nightstand; relatedObjectId must name that host, either an existing object id or another zone id in this plan), under (a rug that lies under other furniture). Floor space is counted only for floor pieces.",
       "For wall pieces, desiredFootprint.width is the width along the wall and desiredHeight is the hanging height. For surface pieces, desiredFootprint is the base that rests on the host.",
       "Never output coordinates. Code reserves the exact position, applies clearance margins, and rejects zones that do not fit.",
-      "One zone per category. Do not plan a category the room already has as owned or locked furniture.",
+      "One zone per category. Avoid unsolicited duplicates of owned or locked furniture, but ALWAYS include items the user explicitly requested, even when the room already contains that broad category. A scan's art category may be a vanity mirror; it does not satisfy a request for paintings or posters. Preserve existing objects and let geometry decide whether an additional item fits.",
       "Use relatedObjectId with the exact id of an existing object when a zone belongs beside it, for example a lamp beside a bed.",
       "Priority 1 is the piece that defines the room. Accents come last.",
       "Put the user's material, feature, or usage requirements into miscellaneous as short phrases.",
@@ -121,14 +121,14 @@ export async function proposeZones(
       .filter(Boolean)
       .join("\n\n"),
   });
-  const request = zonePlanRequestSchema.safeParse(object);
-  if (!request.success)
-    throw new Error(
-      `The planner returned an unusable plan: ${request.error.issues
-        .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
-        .join("; ")}`,
-    );
   try {
+    const request = zonePlanRequestSchema.safeParse(object);
+    if (!request.success)
+      throw new Error(
+        `The planner returned an unusable plan: ${request.error.issues
+          .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
+          .join("; ")}`,
+      );
     return buildDesignPlan({ room, brief, products, request: request.data });
   } catch (error) {
     // One correction pass: the rules are stated in the rejection, so the model

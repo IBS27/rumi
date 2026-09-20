@@ -16,10 +16,10 @@ applied. There is no separate planner: the main agent owns that.
 
 ## What it guarantees
 
-Every returned candidate has a real merchant URL, a real price, and either dimensions
-with recorded evidence or an explicit `unknown`. The agent never invents a number and
-never derives dimensions from an unscaled photograph. A candidate whose dimensions are
-unknown is still returned, ranked below every sized candidate, and flagged.
+Every returned candidate has a real merchant URL, a real price, and complete dimensions
+with recorded evidence. The agent never invents a number or derives dimensions from an
+unscaled photograph. Products without extractable dimensions are skipped; they are
+never returned as recommendations.
 
 ## Input
 
@@ -273,10 +273,13 @@ type dictionary that can block a new category.
 ## Fill to K
 
 The ranked list is walked until the configured number of candidates fit, with at most
-three vision reads per task. The default target is **K = 1**. Offline callers can override
+three vision reads per retrieval round. The default target is **K = 1**. Offline callers can override
 the pipeline target; both Convex search actions cap their returned candidates at one.
-If no sized candidate survives, an unresolved candidate may be returned with unknown
-dimensions. Skipping a candidate costs no vision call.
+If too few sized candidates survive, one additional open-web search asks for products
+with published dimensions. It skips previously fetched URLs and failed drawing reads,
+with the same extraction and vision limits for the additional round. If alternatives
+also fail, the result stays empty or partial. Unsized products are never persisted as
+search results. Skipping a candidate costs no vision call.
 
 ## Modules
 

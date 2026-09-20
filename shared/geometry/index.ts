@@ -9,6 +9,11 @@ import {
   type RoomSnapshot,
 } from "../contracts";
 import { selectionTotal } from "../budget";
+import {
+  designPlacementIssue,
+  productObject,
+  suggestPlacement,
+} from "../design/placement";
 
 // Conservative axis-aligned footprint of a yaw-rotated object.
 function bounds(object: RoomObject) {
@@ -27,8 +32,7 @@ export function placementIssue(
   room: RoomSnapshot,
   object: RoomObject,
 ): string | null {
-  if (room.shape !== "rectangle")
-    return "Furniture fit checks for scanned polygon rooms are not available yet.";
+  if (room.shape !== "rectangle") return designPlacementIssue(room, object);
   if (object.rotation.x !== 0 || object.rotation.z !== 0)
     return "Only floor-aligned objects are supported by this placement validator.";
   const a = bounds(object);
@@ -122,7 +126,14 @@ export function findPlacement(
   room: RoomSnapshot,
   product: ProductCandidate,
 ): RoomObject | null {
-  if (room.shape !== "rectangle") return null;
+  if (room.shape !== "rectangle") {
+    if (!product.measurement.dimensions || product.availability !== "available")
+      return null;
+    return suggestPlacement(
+      room,
+      productObject(product, `placed-${product.id}`),
+    );
+  }
   const category = categorySchema.safeParse(product.category);
   if (!product.measurement.dimensions || !category.success) return null;
   const object: RoomObject = {

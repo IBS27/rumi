@@ -145,7 +145,7 @@ describe("agent integration with the capture workspace", () => {
     expect(await t.query(internal.messages.history, { projectId })).toEqual([]);
   });
 
-  it("preserves captured polygon rooms and rejects unsupported placement atomically", async () => {
+  it("preserves captured polygon rooms and rejects placement outside their floor atomically", async () => {
     const { t, owner } = await setup();
     const room = importRoomPlan(syntheticRoomPlan);
     const projectId = await owner.mutation(api.projects.create, {
@@ -167,6 +167,10 @@ describe("agent integration with the capture workspace", () => {
           ...sampleProposal,
           roomId: room.id,
           baseRevision: room.revision,
+          additions: sampleProposal.additions.map((object) => ({
+            ...object,
+            position: { x: 5, y: 0, z: 4 },
+          })),
         },
       }),
     ).rejects.toThrow();

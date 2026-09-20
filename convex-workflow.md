@@ -96,7 +96,7 @@ Merging a PR alone does not update anyone's deployment. Each teammate must pull 
 
 ## Data and schema changes
 
-The repository has synthetic fixtures in `shared/fixtures/`, but no Convex seed command yet. Until one is added, do not assume another teammate's sample records exist in your database. Keep sample data labeled.
+Creating or attaching an explicitly synthetic captured room seeds the trusted sample products and approximate models from `shared/fixtures/`. Real product records still come from each deployment's own searches; Git does not copy them. Keep sample data labeled.
 
 A schema push can fail if existing records do not satisfy new validators. Schema-changing PRs must include any required migration steps and their order. Prefer compatible changes followed by a migration before tightening validators. If dev data is disposable, the deployment owner can deliberately reset the affected data; never clear another person's deployment to fix a push.
 

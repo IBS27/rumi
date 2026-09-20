@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { clearEmbeddedDecor } from "./cleanup";
 import {
   roomSchema,
   categorySchema,
@@ -279,7 +280,7 @@ export function validateSceneForRoom(
     new TextEncoder().encode(JSON.stringify(scene)).byteLength > MAX_SCENE_BYTES
   )
     throw new Error("The reconstructed scene is too large.");
-  return scene;
+  return clearEmbeddedDecor(scene);
 }
 
 /** Reject ID collisions and implausible placement before spending calls on modeling. */

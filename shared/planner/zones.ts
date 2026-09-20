@@ -203,7 +203,7 @@ export function mountFor(request: Pick<ZoneRequest, "mount" | "category">): Zone
   if (request.mount !== "floor") return request.mount;
   const value = request.category.toLowerCase();
   if (isRug(value)) return "under";
-  if (/painting|wall art|artwork|print|poster|mirror|wall shelf|sconce|tapestry|clock/.test(value))
+  if (/\bart\b|painting|wall art|artwork|print|poster|mirror|wall shelf|sconce|tapestry|clock/.test(value))
     return "wall";
   if (/table lamp|desk lamp|bedside lamp|vase|tray|sculpture|bookend|candle|small plant|desk organizer/.test(value))
     return "surface";

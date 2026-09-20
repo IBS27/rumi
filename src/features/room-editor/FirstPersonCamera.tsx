@@ -5,6 +5,7 @@ import type { PerspectiveCamera as ThreeCamera } from "three";
 import {
   EYE_HEIGHT,
   moveWalk,
+  walkPosition,
   type Walkthrough,
 } from "../../../shared/capture/walkthrough";
 
@@ -38,21 +39,28 @@ export function FirstPersonCamera({
   const position = useRef(model.start);
   const look = useRef({ yaw: 0, pitch: 0 });
   const canvas = useThree((state) => state.gl.domElement);
+  const initialModel = useRef(model);
 
   useLayoutEffect(() => {
-    if (!model.start || !camera.current) return;
-    position.current = { ...model.start };
+    const start = initialModel.current.start;
+    if (!start || !camera.current) return;
+    position.current = { ...start };
     look.current = {
-      yaw: Math.atan2(model.start.x - width / 2, model.start.z - depth / 2),
+      yaw: Math.atan2(start.x - width / 2, start.z - depth / 2),
       pitch: 0,
     };
-    camera.current.position.set(
-      model.start.x,
-      model.start.y + EYE_HEIGHT,
-      model.start.z,
-    );
+    camera.current.position.set(start.x, start.y + EYE_HEIGHT, start.z);
     camera.current.rotation.set(0, look.current.yaw, 0, "YXZ");
-  }, [model, width, depth]);
+  }, [width, depth]);
+
+  useEffect(() => {
+    const current = position.current;
+    if (
+      current &&
+      !walkPosition(model, { x: current.x, z: current.z }, current.y)
+    )
+      position.current = model.start;
+  }, [model]);
 
   useEffect(() => {
     const pressed = input.current.pressed;

@@ -20,7 +20,9 @@ import {
   RECONSTRUCTION_APPEARANCE,
   reconstructionInputSchema,
   reconstructedObjectSchema,
+  reconstructedSceneSchema,
 } from "../shared/reconstruction/contracts";
+import { clearEmbeddedDecor } from "../shared/reconstruction/cleanup";
 import {
   analyzeRoomReconstruction,
   modelRoomReconstruction,
@@ -92,6 +94,23 @@ export const find = internalQuery({
         )
         .unique()
     )?._id ?? null,
+});
+
+// Apply the same compatibility cleanup used by the renderer to a saved scene.
+// Internal maintenance only; this never changes the room's editable objects.
+export const clearDecor = internalMutation({
+  args: { id: v.id("roomReconstructions") },
+  returns: v.number(),
+  handler: async (ctx, { id }) => {
+    const job = await ctx.db.get(id);
+    if (!job || job.stage !== "ready" || !job.sceneJson)
+      throw new Error("Only a completed room model can be cleaned.");
+    const before = reconstructedSceneSchema.parse(JSON.parse(job.sceneJson));
+    const after = reconstructedSceneSchema.parse(clearEmbeddedDecor(before));
+    const count = before.objects.reduce((sum, object, index) => sum + object.parts.length - after.objects[index].parts.length, 0);
+    if (count) await ctx.db.patch(id, { sceneJson: JSON.stringify(after) });
+    return count;
+  },
 });
 
 export const start = action({

@@ -22,9 +22,11 @@ import {
   categorySchema,
   type CapturedRoom,
   type RoomObject,
+  type ProductCandidate,
 } from "../../../shared/contracts";
 import { floorArea } from "../../../shared/capture/surfaces";
 import { Button, FloatingPanel, Heading, Muted, cx } from "../../ui";
+import type { EditControlProps } from "./EditControls";
 import { ObjectEditor } from "./ObjectEditor";
 
 type Category = z.infer<typeof categorySchema>;
@@ -127,6 +129,11 @@ export function ScanDock({
   onReset,
   onRemove,
   captureWarnings,
+  busy,
+  products,
+  onReplace,
+  onMove,
+  ...controls
 }: {
   hidden?: boolean;
   room: CapturedRoom;
@@ -137,16 +144,21 @@ export function ScanDock({
   onReset: (id: string) => void;
   onRemove: (id: string) => void;
   captureWarnings?: string[];
-}) {
+  busy?: boolean;
+  products?: ProductCandidate[];
+  onReplace?: (productId: string) => Promise<void>;
+  onMove?: (object: RoomObject) => void;
+} & EditControlProps) {
   const [open, setOpen] = useState(false);
   const confirmed = room.objects.filter(
     (item) => item.measurementSource === "confirmed",
   ).length;
   // The dock slides out for the walkthrough (`hidden`) or when collapsed here.
-  const away = hidden || !open;
+  const expanded = open || selected !== null;
+  const away = hidden || !expanded;
   return (
     <>
-      {!hidden && !open && (
+      {!hidden && !expanded && (
         <FloatingPanel
           aria-label="Scan details"
           className="top-28 lg:top-4 left-4 rounded-full p-0! shadow-none!"
@@ -166,7 +178,13 @@ export function ScanDock({
       >
         <div className="flex items-center justify-between gap-2">
           <Heading>Scan details</Heading>
-          <DockToggle open onToggle={() => setOpen(false)} />
+          <DockToggle
+            open
+            onToggle={() => {
+              setOpen(false);
+              onSelect(null);
+            }}
+          />
         </div>
         {captureWarnings?.map((warning, index) => (
           <Muted key={index} className="mt-2 text-xs">
@@ -208,10 +226,15 @@ export function ScanDock({
                   onSelect(selected === object.id ? null : object.id)
                 }
               />
-              {selected === object.id && (
+              {selected === object.id && !hidden && (
                 <ObjectEditor
                   key={`${object.id}-${room.revision}`}
                   object={object}
+                  busy={busy}
+                  products={products}
+                  onReplace={onReplace}
+                  onMove={onMove}
+                  {...controls}
                   canReset={!!originalObject(object.id)}
                   onSave={onSave}
                   onReset={() => onReset(object.id)}

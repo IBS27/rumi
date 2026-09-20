@@ -347,9 +347,13 @@ describe("the search pipeline", () => {
       "Red plastic chair $17.49",
     ].join("\n");
     const context = deps(pagesFrom([page]));
-    const result = await runSearch(makeTask({ query: "red plastic chair" }), context.deps, {
-      minTierHits: 1,
-    });
+    const result = await runSearch(
+      makeTask({ query: "red plastic chair" }),
+      context.deps,
+      {
+        minTierHits: 1,
+      },
+    );
     expect(result.candidates).toHaveLength(0);
     expect(
       result.failures.some((failure) =>
@@ -440,7 +444,7 @@ describe("explaining a silent page", () => {
       context.deps,
       { minTierHits: 1 },
     );
-    expect(result.candidates[0].product.measurement.dimensions).toBeNull();
+    expect(result.candidates).toEqual([]);
     expect(result.failures.some((f) => f.detail.includes("order"))).toBe(true);
   });
 
@@ -512,5 +516,84 @@ describe("a tier whose every hit fails the ceiling", () => {
     expect(result.failures.some((f) => f.detail.includes("open web"))).toBe(
       true,
     );
+  });
+});
+
+describe("replacing products without dimensions", () => {
+  it("searches again and persists only a measured replacement", async () => {
+    const missing = diagramPage("https://first.test/products/mystery");
+    const replacement = specPage("https://second.test/products/cabinet");
+    const queries: string[] = [];
+    const readUrls: string[] = [];
+    const saved: string[] = [];
+    const context = deps(pagesFrom([missing, replacement]), {
+      search: async (query) => {
+        queries.push(query);
+        return [
+          {
+            url: query.includes("product dimensions width depth height")
+              ? replacement.url
+              : missing.url,
+            title: null,
+          },
+        ];
+      },
+      fetchPage: async (url) => {
+        readUrls.push(url);
+        return url === missing.url ? missing : replacement;
+      },
+      readDiagram: async () => ({ readings: [], imageUrl: null }),
+      persist: async (products) => {
+        saved.push(...products.map((p) => p.sourceUrl));
+      },
+    });
+    const result = await runSearch(makeTask(), context.deps);
+    expect(
+      queries.some((query) =>
+        query.includes("product dimensions width depth height"),
+      ),
+    ).toBe(true);
+    expect(
+      result.candidates.map((candidate) => candidate.product.sourceUrl),
+    ).toEqual([replacement.url]);
+    expect(saved).toEqual([replacement.url]);
+    expect(readUrls.filter((url) => url === missing.url)).toHaveLength(1);
+  });
+
+  it("tries the next drawing when the first product has no measurements", async () => {
+    const first = diagramPage("https://first.test/products/first");
+    const next = {
+      ...diagramPage("https://second.test/products/next"),
+      title: "Alternative cabinet",
+    };
+    let reads = 0;
+    const context = deps(pagesFrom([first, next]), {
+      readDiagram: async () => ({
+        readings: ++reads === 1 ? [] : diagramReadings,
+        imageUrl: null,
+      }),
+    });
+    const result = await runSearch(makeTask(), context.deps);
+    expect(reads).toBe(2);
+    expect(result.candidates).toHaveLength(1);
+    expect(result.candidates[0].product.measurement.dimensions).not.toBeNull();
+  });
+
+  it("ends with no recommendation when alternatives also lack dimensions", async () => {
+    let reads = 0;
+    const context = deps(
+      pagesFrom([diagramPage("https://shop.test/products/mystery")]),
+      {
+        readDiagram: async () => {
+          reads++;
+          return { readings: [], imageUrl: null };
+        },
+      },
+    );
+    const result = await runSearch(makeTask(), context.deps);
+    expect(result.candidates).toEqual([]);
+    expect(context.counters.persisted).toBe(0);
+    expect(reads).toBe(1);
+    expect(context.counters.searches.length).toBeLessThanOrEqual(3);
   });
 });

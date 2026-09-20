@@ -21,7 +21,14 @@ import type {
 } from "../../../shared/reconstruction/contracts";
 import { processScan, downloadScan } from "./capture/processing";
 import { readScan, saveScan } from "./capture/storage";
-import { Download, MessageCircle, Undo2, Upload } from "lucide-react";
+import {
+  Download,
+  MessageCircle,
+  Undo2,
+  Upload,
+  ShoppingBag,
+  X,
+} from "lucide-react";
 import {
   importRoomPlan,
   MAX_CAPTURE_BYTES,
@@ -33,7 +40,19 @@ import type { Workspace } from "../workspace/sessions";
 import { createWalkthrough } from "../../../shared/capture/walkthrough";
 import type { WalkInput } from "./FirstPersonCamera";
 import { WalkControls } from "./WalkControls";
-import type { RoomObject } from "../../../shared/contracts";
+import { briefSchema, type RoomObject } from "../../../shared/contracts";
+import {
+  applyDesignCommands,
+  suggestPlacement,
+  type DesignCommand,
+} from "../../../shared/design";
+import { productPlacementIssue } from "../../../shared/design/productPlacement";
+import type { DesignState } from "../../../shared/design/state";
+import { sampleProducts, sampleBrief } from "../../../shared/fixtures";
+import { sampleDesignAssets } from "../../../shared/fixtures/design";
+import { formatMoney } from "../../../shared/budget";
+import type { DesignConnection } from "./designConnection";
+import { DesignPanel } from "./DesignPanel";
 import { syntheticRoomPlan } from "../../../shared/fixtures/roomplan";
 import {
   Button,
@@ -52,6 +71,12 @@ import { ViewerTools, type ViewMode } from "./ViewerTools";
 const RoomViewer = lazy(() =>
   import("./RoomViewer").then((module) => ({ default: module.RoomViewer })),
 );
+
+// getRandomValues also works on the private HTTP preview, unlike randomUUID.
+const objectId = () =>
+  Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
 
 type ScanResource = {
   id: string;
@@ -103,6 +128,24 @@ export function RoomWorkspace({
   ) => ReactNode;
 }) {
   const [workspace, setWorkspace] = useState<Workspace | null>(initial);
+  const latestWorkspace = useRef(workspace);
+  const persistCallback = useRef(onPersist);
+  useEffect(() => {
+    persistCallback.current = onPersist;
+  }, [onPersist]);
+  const [receivedConnection, setConnection] = useState<DesignConnection | null>(null);
+  const [editing, setEditing] = useState(false);
+  const editPending = useRef(false);
+  const [productsOpen, setProductsOpen] = useState(false);
+  const [walkChatOpen, setWalkChatOpen] = useState(false);
+  const [preview, setPreview] = useState<RoomObject | null>(null);
+  const [previewCorrection, setPreviewCorrection] = useState(false);
+  const [previewIssue, setPreviewIssue] = useState<string | null>(null);
+  const [suggestion, setSuggestion] = useState<RoomObject | null>(null);
+  const [editMode, setEditMode] = useState<"select" | "move" | "rotate">(
+    "select",
+  );
+  const [snap, setSnap] = useState(true);
   const [chatOpen, setChatOpen] = useState(() => workspace !== null);
   const chatId = useId();
   const chatLauncher = useRef<HTMLButtonElement>(null);
@@ -127,6 +170,120 @@ export function RoomWorkspace({
   const fileInput = useRef<HTMLInputElement>(null);
   const importRequest = useRef(0);
   const room = workspace?.room;
+  // A subscription can still describe the previous room after an import.
+  const connection =
+    receivedConnection?.state.room.id === room?.id &&
+    receivedConnection?.projectId === workspace?.cloudProjectId
+      ? receivedConnection
+      : null;
+  const panelOpen = walking ? walkChatOpen : chatOpen;
+  const cache = workspace?.design;
+  const design: DesignState | null = room
+    ? {
+        room,
+        brief:
+          connection?.state.brief ??
+          cache?.brief ??
+          (room.capture.synthetic
+            ? sampleBrief
+            : briefSchema.parse({
+                prompt: "",
+                budgetCents: 0,
+                styles: [],
+                restrictions: [],
+                currency: "USD",
+              })),
+        products:
+          connection?.state.products ??
+          cache?.products ??
+          (room.capture.synthetic ? sampleProducts : []),
+        assets:
+          connection?.state.assets ??
+          cache?.assets ??
+          (room.capture.synthetic ? sampleDesignAssets : []),
+        recommendations:
+          connection?.state.recommendations ??
+          (room.capture.synthetic
+            ? sampleProducts.map((product) => ({ product, zone: null }))
+            : []),
+        canUndo: connection?.state.canUndo ?? history.length > 0,
+      }
+    : null;
+  const disconnected = Boolean(workspace?.cloudProjectId && !connection);
+  const editDisabled = editing || disconnected;
+  const assets = useMemo(
+    () =>
+      Object.fromEntries(
+        (
+          connection?.state.assets ??
+          cache?.assets ??
+          (room?.capture.synthetic ? sampleDesignAssets : [])
+        ).flatMap((asset) =>
+          asset.status === "ready" && asset.scene
+            ? [[asset.id, asset.scene]]
+            : [],
+        ),
+      ),
+    [connection?.state.assets, cache?.assets, room?.capture],
+  );
+  const connectProject = useCallback((projectId: string) => {
+    const current = latestWorkspace.current;
+    if (!current || current.cloudProjectId === projectId) return;
+    const next = { ...current, cloudProjectId: projectId };
+    latestWorkspace.current = next;
+    setWorkspace(next);
+    persistCallback.current?.(next);
+  }, []);
+  const acceptDesign = useCallback((next: DesignConnection | null) => {
+    const current = latestWorkspace.current;
+    if (
+      !next ||
+      !current ||
+      next.state.room.shape !== "polygon" ||
+      next.state.room.id !== current.room.id
+    ) {
+      setConnection(null);
+      return;
+    }
+    setConnection(next);
+    if (
+      next.state.room.objects.some((object) => object.productId) ||
+      current.room.revision !== next.state.room.revision
+    )
+      setShowScan(false);
+    // A mutation response can arrive before the reactive query catches up.
+    if (
+      current.cloudProjectId === next.projectId &&
+      next.state.room.revision < current.room.revision
+    )
+      return;
+    const updated: Workspace = {
+      ...current,
+      cloudProjectId: next.projectId,
+      room: next.state.room,
+      design: {
+        products: next.state.products,
+        assets: next.state.assets,
+        brief: next.state.brief,
+      },
+    };
+    latestWorkspace.current = updated;
+    setWorkspace(updated);
+    try {
+      persistCallback.current?.(updated);
+      setStatus("Saved to your account");
+    } catch {
+      setStatus("Saved to your account. Browser cache is unavailable.");
+    }
+    if (current.room.revision !== updated.room.revision) {
+      setPreview(null);
+      setPreviewIssue(null);
+      setSuggestion(null);
+      setSelected((id) =>
+        updated.room.objects.some((object) => object.id === id) ? id : null,
+      );
+    }
+  }, []);
   const scanId = workspace?.scanId;
   const resource = capture?.id === scanId ? capture : null;
   const simulationVisible =
@@ -195,10 +352,14 @@ export function RoomWorkspace({
       return;
     }
     setError("");
+    setPreview(null);
+    setEditMode("select");
+    setWalkChatOpen(false);
     setWalking(true);
   }
 
   function persist(next: Workspace | null) {
+    latestWorkspace.current = next;
     setWorkspace(next);
     try {
       onPersist?.(next);
@@ -319,17 +480,233 @@ export function RoomWorkspace({
     });
     setSelected(null);
   }
-  function editObjects(objects: RoomObject[]) {
-    setShowScan(false);
-    if (workspace)
-      commit({
-        ...workspace,
-        room: {
-          ...workspace.room,
-          revision: workspace.room.revision + 1,
-          objects,
+  async function execute(commands: DesignCommand[]) {
+    const current = latestWorkspace.current;
+    if (!current || !design) throw new Error("Import a room first.");
+    if (editPending.current)
+      throw new Error("Wait for the current edit to finish.");
+    if (disconnected)
+      throw new Error(
+        "Reconnect this room's conversation before editing its saved design.",
+      );
+    editPending.current = true;
+    setEditing(true);
+    setError("");
+    try {
+      const next = connection
+        ? await connection.execute(commands, current.room.revision)
+        : applyDesignCommands(
+            current.room,
+            commands,
+            design.products,
+            design.brief,
+          );
+      if (
+        latestWorkspace.current?.room.id !== current.room.id ||
+        latestWorkspace.current.original !== current.original ||
+        latestWorkspace.current.cloudProjectId !== current.cloudProjectId
+      )
+        throw new Error("The room changed while this edit was saving.");
+      if (next.id !== current.room.id)
+        throw new Error("This edit belongs to a different room. Reconnect its chat.");
+      if (next.shape !== "polygon")
+        throw new Error("This editor requires a captured room.");
+      const updated = {
+        ...current,
+        room: next,
+        design: {
+          products: design.products,
+          assets: design.assets,
+          brief: design.brief,
         },
-      });
+      };
+      if (connection) {
+        persist(updated);
+        setStatus("Saved to your account");
+      } else commit(updated);
+      setShowScan(false);
+      setPreview(null);
+      setPreviewIssue(null);
+      setSuggestion(null);
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "This edit could not be applied.",
+      );
+      throw cause;
+    } finally {
+      editPending.current = false;
+      setEditing(false);
+    }
+  }
+  async function placeProduct(productId: string, zoneId?: string) {
+    if (!design) throw new Error("Wait for the room design to load.");
+    const product = design.products.find((item) => item.id === productId);
+    if (!product)
+      throw new Error("This product is no longer in the catalog. Search again.");
+    const issue = productPlacementIssue(product);
+    if (issue) throw new Error(issue);
+    const recommendation = design.recommendations.find(
+      (item) =>
+        item.product.id === productId && (!zoneId || item.zone?.id === zoneId),
+    );
+    const zone = recommendation?.zone;
+    const occupied =
+      zone && design.room.objects.some((item) => item.zoneId === zone.id);
+    const id = objectId();
+    await execute([
+      {
+        type: "add",
+        productId,
+        instanceId: id,
+        ...(zone && !occupied ? { zone } : {}),
+      },
+    ]);
+    setSelected(id);
+  }
+  async function placeAll() {
+    if (!design) return;
+    const pending = design.recommendations.filter(
+      ({ product, zone }) =>
+        product.measurement.dimensions !== null &&
+        !design.room.objects.some((item) =>
+          zone ? item.zoneId === zone.id : item.productId === product.id,
+        ),
+    );
+    for (const { product } of pending) {
+      const issue = productPlacementIssue(product);
+      if (issue) throw new Error(`${product.name}: ${issue}`);
+    }
+    // Hosts must exist before their tabletop accessories are constructed.
+    pending.sort(
+      (a, b) =>
+        Number(a.zone?.mount === "surface") -
+        Number(b.zone?.mount === "surface"),
+    );
+    await execute(
+      pending.map(({ product, zone }) => ({
+        type: "add",
+        productId: product.id,
+        instanceId: objectId(),
+        ...(zone ? { zone } : {}),
+      })),
+    );
+  }
+  function placementError(object: RoomObject, correction = false) {
+    if (!room || !design) return "Import a room first.";
+    try {
+      applyDesignCommands(
+        room,
+        [
+          correction
+            ? { type: "correct", object }
+            : {
+                type: "move",
+                objectId: object.id,
+                position: object.position,
+                rotationY: object.rotation.y,
+              },
+        ],
+        design.products,
+        design.brief,
+      );
+      return null;
+    } catch (cause) {
+      return cause instanceof Error
+        ? cause.message
+        : "This placement is not available.";
+    }
+  }
+  function saveObject(object: RoomObject) {
+    commitPreview(object, true);
+  }
+  function previewObject(object: RoomObject) {
+    if (!room) return;
+    setPreview(object);
+    setPreviewCorrection(false);
+    setPreviewIssue(placementError(object));
+    setSuggestion(null);
+  }
+  function commitPreview(object: RoomObject, correction = false) {
+    if (!room) return;
+    const issue = placementError(object, correction);
+    setPreviewCorrection(correction);
+    if (issue) {
+      setPreview(object);
+      setPreviewIssue(issue);
+      setSuggestion(suggestPlacement(room, object));
+      return;
+    }
+    void execute([
+      correction
+        ? { type: "correct", object }
+        : {
+            type: "move",
+            objectId: object.id,
+            position: object.position,
+            rotationY: object.rotation.y,
+          },
+    ]).catch(() => undefined);
+  }
+  function selectObject(id: string | null) {
+    setSelected(id);
+    setPreview(null);
+    setPreviewIssue(null);
+    setSuggestion(null);
+    if (id) {
+      setShowScan(false);
+      setProductsOpen(false);
+      if (window.matchMedia("(max-width: 1023px)").matches) setChatOpen(false);
+    }
+  }
+  function toggleProducts() {
+    if (!productsOpen && window.matchMedia("(max-width: 1023px)").matches)
+      setChatOpen(false);
+    setProductsOpen(!productsOpen);
+  }
+  function askAboutSelected() {
+    setProductsOpen(false);
+    if (walking) setWalkChatOpen(true);
+    else setChatOpen(true);
+    walkInput.current.pressed.clear();
+    requestAnimationFrame(() =>
+      root.current?.querySelector<HTMLTextAreaElement>("textarea")?.focus(),
+    );
+  }
+  function acceptReconstruction(scene: ReconstructedScene) {
+    if (!resource) return;
+    if (!workspace || workspace.scanId !== resource.id) return;
+    const merged = mergeDiscoveredObjects(
+      workspace.room,
+      scene,
+      workspace.reconstructionObjectIds,
+    );
+    if (!connection) persist({ ...workspace, ...merged });
+    else {
+      const discoveries = merged.room.objects.filter(
+        (object) =>
+          !workspace.room.objects.some((existing) => existing.id === object.id),
+      );
+      if (discoveries.length)
+        void execute(
+          discoveries.map((object) => ({ type: "discover", object })),
+        )
+          .then(() => {
+            const current = latestWorkspace.current;
+            if (current)
+              persist({
+                ...current,
+                reconstructionObjectIds: merged.reconstructionObjectIds,
+              });
+          })
+          .catch(() => undefined);
+    }
+    setCapture((current) =>
+      current?.id === resource.id ? { ...current, scene } : current,
+    );
+    setShowSimulation(true);
+    setShowScan(false);
   }
   async function download() {
     if (!workspace) return;
@@ -359,9 +736,44 @@ export function RoomWorkspace({
       setBusy(false);
     }
   }
-  function undo() {
-    if (!history.length) return;
-    persist(history[history.length - 1]);
+  async function undo() {
+    const target = latestWorkspace.current;
+    if (connection && room) {
+      if (editPending.current) return;
+      editPending.current = true;
+      setEditing(true);
+      try {
+        const next = await connection.undo(room.revision);
+        const current = latestWorkspace.current;
+        if (
+          current?.room.id !== room.id ||
+          current.original !== target?.original ||
+          current.cloudProjectId !== target?.cloudProjectId ||
+          next.id !== room.id
+        ) return;
+        if (next.shape === "polygon") persist({ ...current, room: next });
+        setPreview(null);
+        setSelected(null);
+      } catch (cause) {
+        setError(
+          cause instanceof Error ? cause.message : "Could not undo this edit.",
+        );
+      } finally {
+        editPending.current = false;
+        setEditing(false);
+      }
+      return;
+    }
+    if (!history.length || disconnected) return;
+    const previous = history[history.length - 1];
+    persist(
+      previous && room
+        ? {
+            ...previous,
+            room: { ...previous.room, revision: room.revision + 1 },
+          }
+        : previous,
+    );
     setHistory((previous) => previous.slice(0, -1));
     setSelected(null);
   }
@@ -375,7 +787,7 @@ export function RoomWorkspace({
       ?.filter((item) => item.objectId === id)
       .map(discoveredRoomObject)[0];
   /** Keeps floating controls clear of the chat panel while it is open. */
-  const clearChat = chatOpen ? "right-4 lg:right-[392px]" : "right-4";
+  const clearChat = panelOpen ? "right-4 lg:right-[392px]" : "right-4";
   const chatDock = (
     <>
       <Button
@@ -383,12 +795,13 @@ export function RoomWorkspace({
         variant="primary"
         aria-label="Open chat"
         title="Open chat"
-        aria-expanded={chatOpen}
+        aria-expanded={panelOpen}
         aria-controls={chatId}
-        inert={chatOpen || walking}
-        aria-hidden={chatOpen || walking}
+        inert={panelOpen}
+        aria-hidden={panelOpen}
         onClick={() => {
-          setChatOpen(true);
+          if (walking) setWalkChatOpen(true);
+          else setChatOpen(true);
           requestAnimationFrame(() => {
             root.current
               ?.querySelector<HTMLButtonElement>('[aria-label="Collapse chat"]')
@@ -397,7 +810,7 @@ export function RoomWorkspace({
         }}
         className={cx(
           "absolute top-4 right-4 z-20 size-11 !rounded-panel !p-0 shadow-lift !transition-[scale,opacity,background-color] duration-250 ease-out motion-reduce:transition-none [&>svg]:!size-5",
-          chatOpen || walking
+          panelOpen
             ? "pointer-events-none scale-75 opacity-0"
             : "scale-100 opacity-100",
         )}
@@ -407,15 +820,16 @@ export function RoomWorkspace({
       <FloatingPanel
         id={chatId}
         aria-label="Design chat"
-        inert={!chatOpen || walking}
-        aria-hidden={!chatOpen || walking}
+        inert={!panelOpen}
+        aria-hidden={!panelOpen}
         className={cx(
           "right-4 bottom-4 flex w-[360px] max-w-[calc(100%-32px)] origin-top-right flex-col overflow-hidden !bg-chalk !p-0 transition-[scale,translate,opacity,visibility] duration-250 ease-out motion-reduce:transition-none",
           room ? "top-28 lg:top-4" : "top-4",
-          chatOpen
+          panelOpen
             ? "visible scale-100 opacity-100"
             : "invisible pointer-events-none scale-90 opacity-0",
           walking &&
+            !walkChatOpen &&
             "translate-x-[calc(100%+32px)] opacity-0 pointer-events-none",
         )}
       >
@@ -423,8 +837,27 @@ export function RoomWorkspace({
           // eslint-disable-next-line react-hooks/refs -- chat renders the panel; onCollapse reads the launcher ref only after interaction.
           chat({
             room,
+            selectedObjectId: selected,
+            onDesign: acceptDesign,
+            onProject: connectProject,
+            onPlaceProduct: placeProduct,
+            productPlacementIssues: Object.fromEntries(
+              (design?.products ?? []).map((product) => [
+                product.id,
+                productPlacementIssue(product),
+              ]),
+            ),
+            placedZoneIds: room?.objects.flatMap((object) =>
+              object.zoneId ? [object.zoneId] : [],
+            ),
+            placedProductIds: room?.objects.flatMap((object) =>
+              object.productId ? [object.productId] : [],
+            ),
+            editing,
+            placementDisabled: editDisabled,
             onCollapse: () => {
-              setChatOpen(false);
+              if (walking) setWalkChatOpen(false);
+              else setChatOpen(false);
               requestAnimationFrame(() => {
                 chatLauncher.current?.focus({ preventScroll: true });
               });
@@ -512,7 +945,7 @@ export function RoomWorkspace({
           >
             <div className="min-h-0 overflow-x-auto">
               <TopBar
-                className="min-w-max"
+                className="max-lg:grid max-lg:grid-cols-[auto_minmax(0,1fr)] [&>div:nth-child(2)]:min-w-0 [&>div:nth-child(3)]:max-lg:hidden [&>div:last-child]:max-lg:col-span-2 [&>div:last-child]:max-lg:overflow-x-auto"
                 brand={brand}
                 title={
                   <>
@@ -521,21 +954,42 @@ export function RoomWorkspace({
                   </>
                 }
               >
-                {status && <Muted className="text-xs">{status}</Muted>}
-                <Button disabled={!history.length} onClick={undo}>
+                {status && (
+                  <Muted className="hidden text-xs 2xl:block">{status}</Muted>
+                )}
+                <Button
+                  disabled={!design?.canUndo || editDisabled}
+                  onClick={() => void undo()}
+                >
                   <Undo2 /> Undo
                 </Button>
-                <Button disabled={busy} onClick={() => void download()}>
-                  <Download /> Download room
+                <Button aria-pressed={productsOpen} onClick={toggleProducts}>
+                  <ShoppingBag /> Products
+                  {design
+                    ? ` · ${room.objects.some((item) => !item.owned && item.productId && !design.products.some((product) => product.id === item.productId)) ? "Unpriced items" : formatMoney(room.objects.filter((item) => !item.owned).reduce((sum, item) => sum + (design.products.find((product) => product.id === item.productId)?.priceCents ?? 0), 0))}`
+                    : ""}
+                </Button>
+                <Button
+                  aria-label="Download room"
+                  title="Download room"
+                  disabled={busy}
+                  onClick={() => void download()}
+                >
+                  <Download />{" "}
+                  <span className="hidden xl:inline">Download room</span>
                 </Button>
                 {// eslint-disable-next-line react-hooks/refs -- scan renders a control; receive runs only when a scan arrives.
                 scan?.("bar", receive)}
                 <Button
                   disabled={busy}
+                  aria-label="Import a scan"
+                  title="Import a scan"
                   onClick={() => fileInput.current?.click()}
                 >
                   <Upload />
-                  {busy ? "Importing…" : "Import a scan"}
+                  <span className="hidden xl:inline">
+                    {busy ? "Importing…" : "Import a scan"}
+                  </span>
                 </Button>
                 {account}
               </TopBar>
@@ -550,7 +1004,7 @@ export function RoomWorkspace({
             <div
               className={cx(
                 "absolute inset-0",
-                chatOpen && !walking && "lg:right-[376px]",
+                panelOpen && "lg:right-[376px]",
               )}
             >
               <Suspense
@@ -562,8 +1016,16 @@ export function RoomWorkspace({
               >
                 <RoomViewer
                   room={room}
-                  selected={walking ? null : selected}
-                  onSelect={setSelected}
+                  selected={selected}
+                  onSelect={selectObject}
+                  assetScenes={assets}
+                  assetStates={Object.fromEntries((design?.assets ?? []).map((asset) => [asset.id, asset.status]))}
+                  preview={preview}
+                  previewInvalid={Boolean(previewIssue)}
+                  editMode={editDisabled || walking ? "select" : editMode}
+                  snap={snap}
+                  onPreview={previewObject}
+                  onCommit={commitPreview}
                   top={view === "plan"}
                   wallsVisible={wallsVisible}
                   cutaway={cutaway}
@@ -585,57 +1047,161 @@ export function RoomWorkspace({
               !resource.scene &&
               reconstruct && (
                 <div key={resource.id} hidden={walking}>
-                  {reconstruct(resource.evidence, (scene) => {
-                    if (!workspace || workspace.scanId !== resource.id) return;
-                    const merged = mergeDiscoveredObjects(
-                      workspace.room,
-                      scene,
-                      workspace.reconstructionObjectIds,
-                    );
-                    persist({ ...workspace, ...merged });
-                    setCapture((current) =>
-                      current?.id === resource.id
-                        ? { ...current, scene }
-                        : current,
-                    );
-                    setShowSimulation(true);
-                    setShowScan(false);
-                  })}
+                  {/* The renderer registers this completion callback; it runs after reconstruction. */}
+                  {/* eslint-disable-next-line react-hooks/refs */}
+                  {reconstruct(resource.evidence, acceptReconstruction)}
                 </div>
               )}
 
             <ScanDock
-              hidden={walking}
+              hidden={walking || productsOpen}
               room={room}
               selected={selected}
-              onSelect={(id) => {
-                setSelected(id);
-                if (id) setShowScan(false);
+              onSelect={selectObject}
+              busy={editDisabled}
+              products={design?.products}
+              onAsk={askAboutSelected}
+              onArrange={() => {
+                if (selected) void execute([{ type: "arrange", objectId: selected }]).catch(() => undefined);
               }}
-              originalObject={originalObject}
-              onSave={(next) =>
-                editObjects(
-                  room.objects.map((item) =>
-                    item.id === next.id ? next : item,
-                  ),
-                )
+              onReplace={(productId) =>
+                selected
+                  ? execute([
+                      { type: "replace", objectId: selected, productId },
+                    ])
+                  : Promise.resolve()
               }
+              onEditMode={setEditMode}
+              editMode={editMode}
+              snap={snap}
+              onSnap={setSnap}
+              onPreview={previewObject}
+              onMove={commitPreview}
+              originalObject={originalObject}
+              onSave={saveObject}
               onReset={(id) => {
                 const source = originalObject(id);
                 if (source)
-                  editObjects(
-                    room.objects.map((item) =>
-                      item.id === id ? source : item,
-                    ),
+                  void execute([{ type: "correct", object: source }]).catch(
+                    () => undefined,
                   );
               }}
               onRemove={(id) => {
-                editObjects(room.objects.filter((item) => item.id !== id));
-                setSelected(null);
+                void execute([{ type: "remove", objectId: id }])
+                  .then(() => setSelected(null))
+                  .catch(() => undefined);
               }}
               captureWarnings={resource?.scan?.warnings}
             />
 
+            {productsOpen && !walking && design && (
+              <DesignPanel
+                state={design}
+                busy={editDisabled}
+                onClose={() => setProductsOpen(false)}
+                onPlace={placeProduct}
+                onPlaceAll={placeAll}
+                onSelect={selectObject}
+                onRetry={(id) =>
+                  connection?.retryAsset(id) ?? Promise.resolve()
+                }
+              />
+            )}
+            {preview && previewIssue && (
+              <FloatingPanel
+                role="alert"
+                className={`bottom-12 left-4 max-w-[380px] ${panelOpen ? "lg:left-[280px]" : "lg:left-1/3"}`}
+              >
+                <p className="text-sm text-rust">{previewIssue}</p>
+                <div className="mt-2 flex gap-2">
+                  {suggestion && (
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      onClick={() =>
+                        commitPreview(suggestion, previewCorrection)
+                      }
+                    >
+                      Use suggested placement
+                    </Button>
+                  )}
+                  {!suggestion && (
+                    <Button
+                      size="sm"
+                      onClick={() =>
+                        setSuggestion(suggestPlacement(room, preview))
+                      }
+                    >
+                      Find a clear spot
+                    </Button>
+                  )}
+                  <Button
+                    size="sm"
+                    variant="quiet"
+                    onClick={() => {
+                      setPreview(null);
+                      setPreviewIssue(null);
+                      setSuggestion(null);
+                    }}
+                  >
+                    Cancel move
+                  </Button>
+                </div>
+              </FloatingPanel>
+            )}
+            {walking && selected && (
+              <FloatingPanel
+                className={`bottom-4 w-64 ${walkChatOpen ? "hidden lg:block lg:right-[392px]" : "right-4"}`}
+                aria-label="Selected item"
+              >
+                <div className="flex justify-between gap-2">
+                  <p className="font-display text-base">
+                    {room.objects.find((item) => item.id === selected)?.name}
+                  </p>
+                  <Button
+                    size="sm"
+                    variant="quiet"
+                    aria-label="Deselect item"
+                    onClick={() => setSelected(null)}
+                  >
+                    <X />
+                  </Button>
+                </div>
+                {design && (
+                  <Muted className="mt-1 block text-xs">
+                    {(() => {
+                      const object = room.objects.find(
+                        (item) => item.id === selected,
+                      );
+                      const product = design.products.find(
+                        (item) => item.id === object?.productId,
+                      );
+                      return product
+                        ? `${formatMoney(product.priceCents)} · ${product.merchant}${object?.productLocked ? " · Product kept" : ""}`
+                        : "Existing possession";
+                    })()}
+                  </Muted>
+                )}
+                <Button
+                  size="sm"
+                  className="mt-2"
+                  variant="primary"
+                  onClick={askAboutSelected}
+                >
+                  Ask Rumi about this
+                </Button>
+                <Button
+                  size="sm"
+                  className="mt-2"
+                  onClick={() => {
+                    exitWalk();
+                    selectObject(selected);
+                  }}
+                >
+                  Edit item
+                </Button>
+              </FloatingPanel>
+            )}
             <ViewerTools
               view={view}
               hidden={walking}
@@ -671,6 +1237,12 @@ export function RoomWorkspace({
                   : undefined
               }
             >
+              {disconnected && (
+                <Notice>
+                  Reconnect this room’s chat to edit its saved design. Your
+                  cached room is still available.
+                </Notice>
+              )}
               {error && (
                 <Notice tone="error" onDismiss={() => setError("")}>
                   {error}
