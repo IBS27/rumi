@@ -19,6 +19,7 @@ import { IMAGE_TYPES, MAX_IMAGE_BYTES } from "../../../shared/chat/uploads";
 import { ChatMessage } from "./ChatMessage";
 import { Composer } from "./Composer";
 import { OptionsCard } from "./OptionsCard";
+import { PlanCard } from "./PlanCard";
 import { ChatHistory } from "./ChatHistory";
 import { chatKey } from "../workspace/sessions";
 
@@ -35,28 +36,39 @@ const PHASES: { id: ProjectPhase; label: string }[] = [
   { id: "review", label: "Review" },
 ];
 
+// Always visible under the panel header. A new chat starts in Spec.
 function PhaseStepper({ phase }: { phase: ProjectPhase }) {
   const current = PHASES.findIndex((step) => step.id === phase);
   return (
     <ol
-      className="mb-2 flex items-center gap-1.5 text-[11px]"
+      className="flex shrink-0 items-center gap-2 text-xs"
       aria-label="Project stage"
     >
       {PHASES.map((step, index) => (
-        <li key={step.id} className="flex items-center gap-1.5">
-          {index > 0 && (
-            <span aria-hidden className="h-px w-3 bg-line" />
-          )}
+        <li key={step.id} className="flex items-center gap-2">
+          {index > 0 && <span aria-hidden className="h-px w-4 bg-line-strong" />}
           <span
             aria-current={index === current ? "step" : undefined}
-            className={
+            className={`flex items-center gap-1.5 ${
               index === current
-                ? "rounded-full bg-wash px-2 py-0.5 font-medium text-ink"
+                ? "rounded-full bg-teal px-2.5 py-0.5 font-medium text-white"
                 : index < current
-                  ? "text-ink"
+                  ? "text-teal-deep"
                   : "text-mute"
-            }
+            }`}
           >
+            <span
+              aria-hidden
+              className={`grid size-4 place-items-center rounded-full text-[10px] ${
+                index === current
+                  ? "bg-white/25"
+                  : index < current
+                    ? "bg-teal-tint text-teal-deep"
+                    : "bg-wash"
+              }`}
+            >
+              {index + 1}
+            </span>
             {step.label}
           </span>
         </li>
@@ -155,6 +167,11 @@ export function ChatPanel({
   });
   const [history, setHistory] = useState(false);
   const [attachmentError, setAttachmentError] = useState("");
+  const active = useQuery(
+    api.projects.context,
+    activeId ? { projectId: activeId } : "skip",
+  );
+  const phase: ProjectPhase = active?.phase ?? "spec";
   const create = useMutation(api.projects.create);
   const beginUpload = useMutation(api.images.beginUpload);
   function select(id: Id<"projects"> | null) {
@@ -231,6 +248,7 @@ export function ChatPanel({
           <Plus size={18} />
         </Button>
       </ChatHeader>
+      <PhaseStepper phase={phase} />
       {attachmentError && (
         <p
           className="shrink-0 text-xs text-rust [overflow-wrap:anywhere]"
@@ -365,7 +383,6 @@ function Conversation({
   return (
     <>
       <div className="max-h-[35%] shrink-0 overflow-y-auto border-b border-line pb-2.5">
-        <PhaseStepper phase={context.phase} />
         <h3 className="mb-2 font-display text-sm font-medium leading-snug [overflow-wrap:anywhere]">
           {context.brief.prompt || context.project.title}
         </h3>
@@ -472,10 +489,21 @@ function Conversation({
                 prepare={prepare}
               />
             );
+          if (message.kind === "plan" && message.plan)
+            return (
+              <PlanCard
+                key={message._id}
+                message={message}
+                plan={message.plan}
+                disabled={pending || updating}
+                prepare={prepare}
+              />
+            );
           if (
             !message.content &&
             !message.imageUrl &&
             !message.recommendation &&
+            message.zoneCards.length === 0 &&
             message.status !== "pending"
           )
             return null;
