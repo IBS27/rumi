@@ -4,7 +4,6 @@ import {
   DoubleSide,
   FrontSide,
   BackSide,
-  ExtrudeGeometry,
   Matrix4,
   ShapeGeometry,
   Group,
@@ -19,6 +18,7 @@ import type {
   SurfaceFinish,
 } from "../../../../shared/reconstruction/contracts";
 import { surfaceShape } from "../../../../shared/capture/surfaces";
+import { surfaceGeometry } from "../surfaceGeometry";
 import { finishRegionShapes } from "../../../../shared/reconstruction/surfaces";
 import { SurfaceMaterial } from "./SurfaceMaterial";
 import { applyMeterUVs } from "./materials";
@@ -42,27 +42,10 @@ function SolidSurface({
   showOpenings?: boolean;
 }) {
   const wall = surface.kind === "wall";
-  const geometry = useMemo(() => {
-    const shape = surfaceShape(surface, openings);
-    if (!wall) {
-      const thickness = 0.08;
-      const floor = new ExtrudeGeometry(shape, {
-        depth: thickness,
-        bevelEnabled: false,
-        steps: 1,
-      });
-      // Local +Z can point either up or down in RoomPlan floor frames.
-      return surface.transform[9] > 0
-        ? floor.translate(0, 0, -thickness)
-        : floor;
-    }
-    const thickness = Math.max(0.08, Math.min(0.2, surface.dimensions.depth));
-    return new ExtrudeGeometry(shape, {
-      depth: thickness,
-      bevelEnabled: false,
-      steps: 1,
-    }).translate(0, 0, -thickness / 2);
-  }, [surface, openings, wall]);
+  const geometry = useMemo(
+    () => surfaceGeometry(surface, openings),
+    [surface, openings],
+  );
   useEffect(() => () => geometry.dispose(), [geometry]);
   return (
     <group>
