@@ -28,6 +28,7 @@ import { selectionTotal } from "../shared/budget";
 import { findPlacement, placementIssue } from "../shared/geometry";
 import { evaluateFill } from "../shared/planner";
 import { freeArea } from "../shared/planner/space";
+import { choiceListToCard } from "../shared/chat/choices";
 
 const SYSTEM_PROMPT = `You are the room designer for rumi. You build rooms from real web products.
 - Start with getRoomContext. Respect owned and locked objects.
@@ -41,20 +42,27 @@ const SYSTEM_PROMPT = `You are the room designer for rumi. You build rooms from 
 The project moves through stages. The current stage is given at the top of the conversation.
 
 Stage 1, Spec. Build the brief; do not search or plan.
-- Gather style, palette, materials, budget, restrictions, and the items the user wants. Save each as soon as it is stated with updateBrief. Put requested items into wants (category plus notes such as "seats two", "under 1.2 m wide").
+- The brief needs, in this order of importance: the room's purpose, a style direction, whether the user wants to name items or leave the choice to the planner, whether they want accessories, and a budget. Restrictions are optional; save them when stated.
+- Every choice you offer MUST be an askOptions card. Never write numbered, lettered, or bulleted choices in plain text; the user cannot click text. One card per turn, 2-4 options, and end your turn after it. Any text before the card is one or two sentences at most; the question itself goes in the card, not in the text.
+- Set multiSelect true when more than one answer can apply at once (styles to blend, materials, several items they want, restrictions); leave it false when exactly one answer is expected (purpose, budget range, accessories, start planning).
+- Ask only for what is still missing. Never repeat information already in the brief, room, or conversation.
+  - Purpose: "What is this room for?" with choices such as Bedroom, Living room, Home office, Dining room. Save to purpose.
+  - Style: ask only if no style, palette, or inspiration image has been given. Offer 3-4 directions that suit the room.
+  - Items: "Anything specific you want in here, or should I choose what fits the space?" with choices like "You choose", "I have a list". If they list items, save them to wants (category plus short notes such as "seats two", "under 1.2 m wide"). If they say you choose, leave wants empty.
+  - Accessories: "Should I include accessories like art, a rug, and lamps?" with choices Include accessories / Furniture only / You decide. Save include, skip, or unspecified.
+  - Budget: "Do you have a budget for this room?" with 3 ranges that suit the purpose and item count (for example Under $1,500 / $1,500–4,000 / $4,000–8,000) plus "No budget yet". When they pick a range, save its upper bound as budgetCents; a custom amount is saved as typed; "No budget yet" keeps 0. This is the only way a budget may be set without the user naming a number.
 - When inspiration images arrive, merge their analysis into palette, materials, styles, and a short inspiration summary via updateBrief. Never treat an image as room geometry.
-- Use askOptions for one focused question per turn: the highest-impact gap first (what items, then style or budget). Offer 2-4 concrete choices that fit the room and conversation; never a fixed questionnaire. Do not repeat information already in the brief, room, or conversation.
-- When the brief has at least a style direction and one wanted item, present a spec summary: a short recap in text, then askOptions with the question "Ready to start planning?" and exactly the options ["Start planning", "Keep refining"]. End your turn.
+- Once purpose and style are known and the items, accessories, and budget questions have been answered, present a spec summary: a short recap in text (purpose, style, items or "I'll choose", accessories, budget or "no budget"), then askOptions with "Ready to start planning?" and exactly the options ["Start planning", "Keep refining"]. End your turn.
 - Only when the user picks Start planning (or says so plainly) call setPhase('plan'). Planning needs an attached room; if none, ask them to import one and stay in Spec.
 - searchProducts, planSpace, and fillZones refuse to run in Spec.
 
-Stage 2, Plan. Reserve space, then shop.
-- Call planSpace once with a one-sentence instruction. It reserves a zone for every want (plus at most two suggested accessories, marked suggested: true), with clearance margins, and returns one search task per zone. Then call fillZones with every zone id. Do not search zone by zone with searchProducts.
-- Zones carry a mount: floor, wall (hung), surface (sits on a host object), or under (rug). Suggested zones are optional; say so.
-- planSpace may reject zones that do not fit. Tell the user plainly what did not fit and why; never squeeze furniture into space the plan rejected.
-- fillZones returns, per zone, the best product and whether it fits the reserved footprint (yes, no, unknown). Present unknown fits as needing dimension confirmation, never as verified.
+Stage 2, Plan. Reserve space, show the plan, then shop what the user keeps.
+- Call planSpace once with a one-sentence instruction. When the user named items, each gets a zone and the planner may add one floor piece plus accessories per their answer; when they left it to you, the planner chooses the pieces from the room's purpose, style, and free space, and sets spacing (airy, balanced, cozy) from the style.
+- planSpace shows the user a plan card listing every zone (what, where, footprint, suggested or not) and what did not fit. Your turn ends there; do not describe the zones in text and do not call fillZones in the same turn.
+- The user trims the card and confirms; their next message says which items to search. Then call fillZones with no arguments. It runs one search per kept item, all at once, and the interface shows one product card per zone with its fit (yes, no, unknown). Keep your text to caveats: unmet constraints, unknown dimensions, a next step.
+- planSpace may reject zones that do not fit. Never squeeze furniture into space the plan rejected; if the user asks about a rejected piece, explain the reason from the card.
 - Use searchProducts directly only when the user asks for one specific item outside the plan.
-- When every zone has a product, call setPhase('review'). If the user wants to change the brief, call setPhase('spec').
+- When every kept zone has a product, call setPhase('review'). If the user wants to change the brief, call setPhase('spec').
 - Only propose products that searchProducts or fillZones returned. Never invent ids, prices, or dimensions.
 - Search returns one best candidate. The interface renders its name, image, price, merchant, and link as a product card. Let the card carry the recommendation: do not repeat its name, price, merchant, URL, description, or features in text. Do not write product lists, Markdown images, generic introductions, or offers of further assistance. Any accompanying text appears in expandable notes; keep it to one or two short sentences only for meaningful caveats, unmet constraints (such as faux leather instead of real leather), fit limitations, or a necessary next step. Never claim a constraint is met when it is not.
 - If searchProducts reports that web search is not configured, say so and keep refining the brief instead of proposing products.
@@ -79,7 +87,14 @@ type ProgressSink = (
   content: string,
   activity: AgentActivity[],
   recommendationProductId: string | null,
+  recommendations: ZoneFill[] | null,
 ) => Promise<void>;
+
+// Lets a tool report sub-steps (one row per searched item) while it runs.
+interface Reporter {
+  push: (item: AgentActivity) => Promise<void>;
+  finish: (id: string, status?: "done" | "error") => Promise<void>;
+}
 
 function inputRecord(input: unknown): Record<string, unknown> {
   return input && typeof input === "object"
@@ -170,6 +185,7 @@ function toolActivity(
         id,
         tool: toolName,
         label: "Measuring free space and reserving zones",
+        detail: "planning the layout, about 20 seconds",
         status: "running",
       };
     case "fillZones": {
@@ -178,8 +194,9 @@ function toolActivity(
         id,
         tool: toolName,
         label: count
-          ? `Searching ${count} reserved zone${count === 1 ? "" : "s"}`
+          ? `Searching ${count} reserved zone${count === 1 ? "" : "s"} at once`
           : "Searching reserved zones",
+        detail: "reading retailer pages and checking sizes, about a minute",
         status: "running",
       };
     }
@@ -202,6 +219,8 @@ function buildAgentTools(
   recommendation: State<string | null>,
   plan: State<DesignPlan | null>,
   phase: State<ProjectPhase>,
+  fills: State<ZoneFill[] | null>,
+  report: Reporter,
 ): ToolSet {
   const specGate = () =>
     phase.get() === "spec"
@@ -214,7 +233,7 @@ function buildAgentTools(
   return {
     planSpace: tool({
       description:
-        "Measure the attached room's free floor space and reserve zones for the furniture it still needs, with clearance margins around doors and existing pieces. Returns reserved zones (position, footprint, height ceiling) and one search task per zone, plus any zones that did not fit. Requires an attached room.",
+        "Measure the attached room's free floor space and reserve zones for the furniture it still needs, with clearance margins around doors and existing pieces. Shows the user a plan card listing the zones so they can drop items before anything is searched; your turn ends when it succeeds. Requires an attached room.",
       inputSchema: z.object({
         instruction: z
           .string()
@@ -236,9 +255,20 @@ function buildAgentTools(
         try {
           const result = await proposeZones(room, brief.get(), products, instruction);
           plan.set(result.plan);
+          if (projectId)
+            await ctx.runMutation(internal.plans.propose, {
+              projectId,
+              roomId,
+              plan: result.plan,
+            });
           return {
             ok: true as const,
+            cardShown: Boolean(projectId),
+            note: projectId
+              ? "The plan card is shown to the user. End your turn now; they will choose which items to search."
+              : undefined,
             summary: result.plan.summary,
+            spacing: result.plan.spacing,
             freeAreaSquareMeters:
               Math.round(freeArea(result.model) * 100) / 100,
             zones: result.plan.zones.map((zone) => ({
@@ -269,47 +299,103 @@ function buildAgentTools(
     }),
     fillZones: tool({
       description:
-        "Search the web for the best product for each reserved zone from the latest planSpace call, all at once. Returns per zone: the product (if any), whether it fits the reserved footprint, and any issues. Call planSpace first.",
+        "Search the web for the items the user kept on the plan card: one search per item, all at once. Returns per zone: the product (if any), whether it fits the reserved footprint, and any issues. The interface renders one product card per zone. Call this after the user confirms the plan card.",
       inputSchema: z.object({
         zoneIds: z
           .array(z.string())
-          .min(1)
           .max(6)
-          .describe("Zone ids from planSpace to search. Usually all of them."),
+          .optional()
+          .describe(
+            "Zone ids to search. Leave empty to search exactly the items the user kept on the plan card.",
+          ),
       }),
       execute: async ({ zoneIds }) => {
         const gated = specGate();
         if (gated) return gated;
-        const current = plan.get();
+        let current = plan.get();
+        let selectedIds = zoneIds ?? [];
+        let planId: Id<"plans"> | null = null;
+        if (projectId) {
+          const stored = await ctx.runQuery(internal.plans.active, { projectId });
+          if (stored) {
+            current = stored.plan;
+            planId = stored._id;
+            if (!selectedIds.length && stored.selectedZoneIds)
+              selectedIds = stored.selectedZoneIds;
+            if (stored.status === "proposed")
+              return {
+                ok: false as const,
+                error:
+                  "The user has not confirmed the plan card yet. End your turn and wait for their choice.",
+              };
+          }
+        }
         if (!current)
           return { ok: false as const, error: "Call planSpace before fillZones." };
+        if (!selectedIds.length) selectedIds = current.zones.map((zone) => zone.id);
         const selected = current.zones
-          .map((zone, index) => ({ zone, task: current.tasks[index] }))
-          .filter(({ zone }) => zoneIds.includes(zone.id));
+          .map((zone, index) => ({ zone, task: current!.tasks[index] }))
+          .filter(({ zone }) => selectedIds.includes(zone.id));
         if (selected.length === 0)
           return { ok: false as const, error: "No reserved zones match those ids." };
         try {
-          // One action per zone. A single action running several pipelines
-          // exceeds the Convex action memory limit.
-          const fills: (ZoneFill & {
+          // One search action per item, all at once. Each runAction has its
+          // own memory, so the searches do not share one action's limit, and
+          // the wait is one search long instead of one per item.
+          const results: (ZoneFill & {
             product: SearchTaskResult["candidates"][number]["product"] | null;
             explanation: string;
-          })[] = [];
-          for (const { zone, task } of selected) {
-            const result: SearchTaskResult = await ctx.runAction(
-              internal.search.searchProducts,
-              { task },
-            );
-            const product = result.candidates[0]?.product ?? null;
-            fills.push({
-              ...evaluateFill(zone, product),
-              product,
-              explanation: result.explanation,
+          })[] = await Promise.all(
+            selected.map(async ({ zone, task }) => {
+              const rowId = `search-${zone.id}`;
+              await report.push({
+                id: rowId,
+                tool: "searchProducts",
+                label: `Searching: ${zone.category}`,
+                detail: zone.query,
+                status: "running",
+              });
+              try {
+                const result: SearchTaskResult = await ctx.runAction(
+                  internal.search.searchProducts,
+                  { task },
+                );
+                const product = result.candidates[0]?.product ?? null;
+                await report.finish(rowId, product ? "done" : "error");
+                return {
+                  ...evaluateFill(zone, product),
+                  product,
+                  explanation: result.explanation,
+                };
+              } catch (error) {
+                await report.finish(rowId, "error");
+                return {
+                  ...evaluateFill(zone, null),
+                  product: null,
+                  explanation:
+                    error instanceof Error ? error.message : "search failed",
+                };
+              }
+            }),
+          );
+          fills.set(
+            results.map(({ zoneId, productId, fits, issues }) => ({
+              zoneId,
+              productId,
+              fits,
+              issues,
+            })),
+          );
+          if (planId)
+            await ctx.runMutation(internal.plans.setStatus, {
+              planId,
+              status: "searched",
             });
-          }
-          const first = fills.find((fill) => fill.product)?.product ?? null;
-          if (first) recommendation.set(first.id);
-          return { ok: true as const, fills };
+          return {
+            ok: true as const,
+            note: "One product card per zone is shown to the user. Keep your text to caveats only.",
+            fills: results,
+          };
         } catch (error) {
           return {
             ok: false as const,
@@ -374,7 +460,7 @@ function buildAgentTools(
     }),
     updateBrief: tool({
       description:
-        "Save only design preferences the user stated or that inspiration images showed. Set budgetCents only from an explicit user price; use 0 when no budget was specified and never invent a ceiling. wants lists the items the user asked for (category plus short notes); replace the whole list when it changes. palette holds hex colors; materials holds short words like oak, linen, brass. inspiration is your merged summary of the analyzed images.",
+        "Save only design preferences the user stated or that inspiration images showed. Set budgetCents only from an explicit user price; use 0 when no budget was specified and never invent a ceiling. purpose is what the room is for. wants lists the items the user asked for (category plus short notes); replace the whole list when it changes, and leave it empty when they want you to choose. accessories is include, skip, or unspecified. palette holds hex colors; materials holds short words like oak, linen, brass. inspiration is your merged summary of the analyzed images.",
       inputSchema: z.object({
         prompt: z.string().optional(),
         styles: z.array(z.string()).optional(),
@@ -382,7 +468,9 @@ function buildAgentTools(
         restrictions: z.array(z.string()).optional(),
         palette: z.array(hexColorSchema).max(8).optional(),
         materials: z.array(z.string()).max(12).optional(),
+        purpose: z.string().max(80).optional(),
         wants: z.array(wantSchema).max(12).optional(),
+        accessories: z.enum(["unspecified", "include", "skip"]).optional(),
         inspiration: z.string().max(1200).optional(),
       }),
       execute: async (patch) => {
@@ -548,7 +636,11 @@ async function runAgent(
       status: "running",
     },
   ],
-): Promise<{ text: string; room: RoomSnapshot | null }> {
+): Promise<{
+  text: string;
+  room: RoomSnapshot | null;
+  askedOptions: boolean;
+}> {
   const doc = roomId
     ? await ctx.runQuery(internal.rooms.getRoom, { roomId })
     : null;
@@ -559,30 +651,10 @@ async function runAgent(
   let brief = normalizeBrief(doc?.brief ?? project?.brief ?? emptyBrief());
   let currentRoom: RoomSnapshot | null = doc?.snapshot ?? null;
   let recommendationProductId: string | null = null;
+  let zoneFills: ZoneFill[] | null = null;
   let currentPlan: DesignPlan | null = null;
   // A room-only chat (no project) has no stage gate.
   let currentPhase: ProjectPhase = project ? (project.phase ?? "spec") : "plan";
-  const tools = buildAgentTools(
-    ctx,
-    { get: () => currentRoom, set: (room) => (currentRoom = room) },
-    roomId,
-    { get: () => brief, set: (next) => (brief = next) },
-    projectId,
-    {
-      get: () => recommendationProductId,
-      set: (next) => (recommendationProductId = next),
-    },
-    { get: () => currentPlan, set: (next) => (currentPlan = next) },
-    { get: () => currentPhase, set: (next) => (currentPhase = next) },
-  );
-  const result = streamText({
-    model: openai(process.env.RUMI_AGENT_MODEL ?? "gpt-4o"),
-    system: SYSTEM_PROMPT,
-    prompt,
-    tools,
-    stopWhen: [stepCountIs(10), hasToolCall("askOptions")],
-    abortSignal: AbortSignal.timeout(110000),
-  });
   let streamedText = "";
   let activity = initialActivity.map((item) => ({ ...item }));
   let lastPublished = 0;
@@ -599,8 +671,57 @@ async function runAgent(
     const now = Date.now();
     if (!force && now - lastPublished < 150) return;
     lastPublished = now;
-    await progress(streamedText, activity, recommendationProductId);
+    await progress(streamedText, activity, recommendationProductId, zoneFills);
   };
+  const report: Reporter = {
+    push: async (item) => {
+      activity.push(item);
+      await publish(true);
+    },
+    finish: async (id, status = "done") => {
+      activity = activity.map((item) =>
+        item.id === id ? { ...item, status } : item,
+      );
+      await publish(true);
+    },
+  };
+  const tools = buildAgentTools(
+    ctx,
+    { get: () => currentRoom, set: (room) => (currentRoom = room) },
+    roomId,
+    { get: () => brief, set: (next) => (brief = next) },
+    projectId,
+    {
+      get: () => recommendationProductId,
+      set: (next) => (recommendationProductId = next),
+    },
+    { get: () => currentPlan, set: (next) => (currentPlan = next) },
+    { get: () => currentPhase, set: (next) => (currentPhase = next) },
+    { get: () => zoneFills, set: (next) => (zoneFills = next) },
+    report,
+  );
+  const result = streamText({
+    model: openai(process.env.RUMI_AGENT_MODEL ?? "gpt-4o"),
+    system: SYSTEM_PROMPT,
+    prompt,
+    tools,
+    stopWhen: [
+      stepCountIs(10),
+      hasToolCall("askOptions"),
+      // A shown plan card ends the turn; the user chooses what to search.
+      ({ steps }) =>
+        steps
+          .at(-1)
+          ?.toolResults.some(
+            (item) =>
+              item.toolName === "planSpace" &&
+              typeof item.output === "object" &&
+              item.output !== null &&
+              (item.output as { cardShown?: boolean }).cardShown === true,
+          ) ?? false,
+    ],
+    abortSignal: AbortSignal.timeout(110000),
+  });
   for await (const part of result.fullStream) {
     switch (part.type) {
       case "start-step":
@@ -659,7 +780,11 @@ async function runAgent(
   const text = await result.text;
   streamedText = text;
   await publish(true);
-  return { text, room: currentRoom };
+  return {
+    text,
+    room: currentRoom,
+    askedOptions: activity.some((item) => item.tool === "askOptions"),
+  };
 }
 
 export const designRoom = internalAction({
@@ -668,8 +793,10 @@ export const designRoom = internalAction({
     room: v.union(zodToConvex(roomSchema), v.null()),
   }),
   args: { roomId: v.id("rooms"), instruction: v.string() },
-  handler: async (ctx, { roomId, instruction }) =>
-    await runAgent(ctx, roomId, instruction),
+  handler: async (ctx, { roomId, instruction }) => {
+    const { text, room } = await runAgent(ctx, roomId, instruction);
+    return { text, room };
+  },
 });
 
 export const runForProject = internalAction({
@@ -705,21 +832,35 @@ export const runForProject = internalAction({
         .join("\n");
       const reply = messages.find((message) => message._id === messageId);
       const stage: ProjectPhase = project.phase ?? "spec";
-      const { text } = await runAgent(
+      const { text, askedOptions } = await runAgent(
         ctx,
         project.roomId ?? null,
         `Current stage: ${stage}${project.roomId ? "" : " (no room attached yet)"}.\n\nConversation so far:\n${transcript}\n\nRespond to the user's latest message.`,
         projectId,
-        async (content, activity, recommendationProductId) => {
+        async (content, activity, recommendationProductId, recommendations) => {
           await ctx.runMutation(internal.messages.updateProgress, {
             messageId,
             content,
             activity,
             recommendationProductId,
+            recommendations: recommendations ?? undefined,
           });
         },
         reply?.activity ?? undefined,
       );
+      // A choice written as a text list is not clickable. Turn it into the
+      // card the model should have used.
+      const card = askedOptions ? null : choiceListToCard(text);
+      if (card) {
+        await complete(card.intro, "done");
+        await ctx.runMutation(internal.messages.ask, {
+          projectId,
+          question: card.question,
+          options: card.options,
+          multiSelect: card.multiSelect,
+        });
+        return;
+      }
       await complete(text, "done");
     } catch (error) {
       console.error(

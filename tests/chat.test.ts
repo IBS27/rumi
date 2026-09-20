@@ -4,8 +4,9 @@ import { internalAction } from "../convex/_generated/server";
 import { convexTest } from "convex-test";
 import schema from "../convex/schema";
 import { api, internal } from "../convex/_generated/api";
-import { sampleProducts, sampleRoom } from "../shared/fixtures";
+import { sampleBrief, sampleProducts, sampleRoom } from "../shared/fixtures";
 import { MAX_IMAGE_BYTES } from "../shared/chat/uploads";
+import { buildDesignPlan } from "../shared/planner";
 
 // Provider actions are excluded from these deterministic boundary tests.
 const skipAgent = internalAction({
@@ -28,6 +29,7 @@ const modules = {
     import("../convex/_generated/server.js"),
   "../convex/projects.ts": () => import("../convex/projects"),
   "../convex/messages.ts": () => import("../convex/messages"),
+  "../convex/plans.ts": () => import("../convex/plans"),
   "../convex/products.ts": () => import("../convex/products"),
   "../convex/images.ts": async () => ({
     ...(await import("../convex/images")),
@@ -237,6 +239,95 @@ describe("live chat boundaries", () => {
     const after = await owner.query(api.projects.context, { projectId });
     expect(after?.phase).toBe("plan");
     expect(after?.brief.materials).toEqual(["oak"]);
+  });
+
+  it("shows a plan card, lets the owner keep some zones, then renders one product card per zone", async () => {
+    const { t, owner, other, projectId } = await setup();
+    await owner.mutation(api.projects.attachRoom, {
+      projectId,
+      room: sampleRoom,
+      expectedRevision: null,
+    });
+    const roomId = (await t.run(async (ctx) => (await ctx.db.get(projectId))!.roomId))!;
+    const { plan } = buildDesignPlan({
+      room: sampleRoom,
+      brief: { ...sampleBrief, wants: [{ category: "floor lamp", notes: "" }] },
+      products: sampleProducts,
+      request: {
+        summary: "A reading corner with a soft rug.",
+        spacing: "balanced",
+        zones: [
+          {
+            id: "lamp", purpose: "reading light", category: "floor lamp", query: "arc floor lamp",
+            mount: "floor", anchor: "near-object", relatedObjectId: "owned-bed",
+            desiredFootprint: { width: 0.5, depth: 0.5 }, desiredHeight: 1.8, miscellaneous: [], priority: 1,
+          },
+          {
+            id: "rug", purpose: "soft landing", category: "rug", query: "wool rug",
+            mount: "under", anchor: "center", relatedObjectId: null,
+            desiredFootprint: { width: 1.6, depth: 2.2 }, desiredHeight: null, miscellaneous: [], priority: 2,
+          },
+        ],
+      },
+    });
+    const planId = await t.mutation(internal.plans.propose, { projectId, roomId, plan });
+    const page = async () =>
+      (
+        await owner.query(api.messages.list, {
+          projectId,
+          paginationOpts: { numItems: 20, cursor: null },
+        })
+      ).page;
+    const card = (await page())[0];
+    expect(card.kind).toBe("plan");
+    expect(card.plan?.planId).toBe(planId);
+    expect(card.plan?.zones.map((zone) => [zone.category, zone.suggested, zone.where])).toEqual([
+      ["floor lamp", false, "beside the bed"],
+      ["rug", true, "on the floor"],
+    ]);
+    // Only the owner may confirm, and at least one zone must stay.
+    await expect(
+      other.mutation(api.plans.confirm, { messageId: card._id, zoneIds: ["lamp"] }),
+    ).rejects.toThrow();
+    await expect(
+      owner.mutation(api.plans.confirm, { messageId: card._id, zoneIds: ["nope"] }),
+    ).rejects.toThrow("Keep at least one");
+    await owner.mutation(api.plans.confirm, { messageId: card._id, zoneIds: ["lamp"] });
+    const active = await t.query(internal.plans.active, { projectId });
+    expect(active?.status).toBe("searching");
+    expect(active?.selectedZoneIds).toEqual(["lamp"]);
+    const after = await page();
+    expect(after.find((message) => message._id === card._id)?.answer).toEqual(["lamp"]);
+    expect(after[1].role).toBe("user");
+    expect(after[1].content).toContain("floor lamp");
+    // A second confirm is refused; a new proposal supersedes the old plan.
+    await expect(
+      owner.mutation(api.plans.confirm, { messageId: card._id, zoneIds: ["lamp"] }),
+    ).rejects.toThrow();
+    // The agent's reply carries one recommendation per searched zone.
+    const replyId = after[0]._id;
+    await t.mutation(internal.products.upsertProducts, { products: [sampleProducts[0]] });
+    await t.mutation(internal.messages.updateProgress, {
+      messageId: replyId,
+      content: "",
+      activity: [],
+      recommendations: [
+        { zoneId: "lamp", productId: sampleProducts[0].id, fits: "yes", issues: [] },
+      ],
+    });
+    const reply = (await page())[0];
+    expect(reply.zoneCards).toEqual([
+      {
+        zoneId: "lamp",
+        category: "floor lamp",
+        fits: "yes",
+        issues: [],
+        product: expect.objectContaining({ id: sampleProducts[0].id }),
+      },
+    ]);
+    const second = await t.mutation(internal.plans.propose, { projectId, roomId, plan });
+    expect((await t.query(internal.plans.get, { planId }))?.status).toBe("searching");
+    expect((await t.query(internal.plans.get, { planId: second }))?.status).toBe("proposed");
   });
 
   it("rejects cross-user room updates and stale room revisions", async () => {

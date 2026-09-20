@@ -5,6 +5,7 @@ import { v } from "convex/values";
 import {
   assetSchema,
   briefSchema,
+  designPlanSchema,
   productSchema,
   projectPhaseSchema,
   proposalSchema,
@@ -18,8 +19,18 @@ export const storedBrief = v.object({
   ...briefFields,
   palette: v.optional(briefFields.palette),
   materials: v.optional(briefFields.materials),
+  purpose: v.optional(briefFields.purpose),
   wants: v.optional(briefFields.wants),
+  accessories: v.optional(briefFields.accessories),
   inspiration: v.optional(briefFields.inspiration),
+});
+
+// A filled zone: which product was chosen and whether it fits the reservation.
+export const zoneRecommendation = v.object({
+  zoneId: v.string(),
+  productId: v.union(v.string(), v.null()),
+  fits: v.union(v.literal("yes"), v.literal("no"), v.literal("unknown")),
+  issues: v.array(v.string()),
 });
 
 // Zod refinements must also run at function boundaries; Convex validates storage shapes.
@@ -53,9 +64,14 @@ export default defineSchema({
       v.literal("assistant"),
       v.literal("system"),
     ),
-    kind: v.optional(v.literal("question")),
+    kind: v.optional(v.union(v.literal("question"), v.literal("plan"))),
     imageId: v.optional(v.id("images")),
+    // A plan card points at the persisted plan it shows.
+    planId: v.optional(v.id("plans")),
     recommendationProductId: v.optional(v.string()),
+    // One entry per searched zone. recommendationProductId stays for older
+    // single-product replies.
+    recommendations: v.optional(v.array(zoneRecommendation)),
     content: v.string(),
     activity: v.optional(
       v.array(
@@ -79,6 +95,21 @@ export default defineSchema({
       v.literal("pending"),
       v.literal("done"),
       v.literal("error"),
+    ),
+    createdAt: v.number(),
+  }).index("by_projectId", ["projectId"]),
+  // Reserved zones for a room, waiting for the user to confirm which to shop.
+  plans: defineTable({
+    projectId: v.id("projects"),
+    roomId: v.id("rooms"),
+    plan: zodToConvex(designPlanSchema),
+    // Zone ids the user kept on the plan card; unset until they choose.
+    selectedZoneIds: v.optional(v.array(v.string())),
+    status: v.union(
+      v.literal("proposed"),
+      v.literal("searching"),
+      v.literal("searched"),
+      v.literal("superseded"),
     ),
     createdAt: v.number(),
   }).index("by_projectId", ["projectId"]),

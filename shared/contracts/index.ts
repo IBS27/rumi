@@ -185,7 +185,12 @@ export const briefSchema = z.object({
   // Filled in during Spec. Older briefs lack these, so they default.
   palette: z.array(z.string().regex(/^#[0-9a-fA-F]{6}$/)).max(8).default([]),
   materials: z.array(z.string()).max(12).default([]),
+  // What the room is for: bedroom, living room, home office, and so on.
+  purpose: z.string().max(80).default(""),
+  // Empty means the user left item choice to the planner.
   wants: z.array(wantSchema).max(12).default([]),
+  // Whether the user asked for accessories (art, rugs, lamps) or ruled them out.
+  accessories: z.enum(["unspecified", "include", "skip"]).default("unspecified"),
   // A merged summary of inspiration-image analyses, in the agent's words.
   inspiration: z.string().max(1200).default(""),
 });
@@ -299,14 +304,19 @@ export const zoneRequestSchema = z.object({
     ),
   priority: z.number().int().positive(),
 });
+// How densely the style wants the room furnished. Code turns this into a
+// clearance multiplier above the safety minimums.
+export const spacingSchema = z.enum(["airy", "balanced", "cozy"]);
 export const zonePlanRequestSchema = z.object({
   summary: clipped(600),
+  spacing: spacingSchema,
   zones: z.array(zoneRequestSchema).min(1).max(6),
 });
 // The same shape with no transforms or bounds, for structured model output.
 // The model fills this; zonePlanRequestSchema then clips and validates it.
 export const zonePlanWireSchema = z.object({
   summary: z.string(),
+  spacing: spacingSchema,
   zones: z.array(
     z.object({
       id: z.string(),
@@ -357,6 +367,7 @@ export const designPlanSchema = z.object({
   roomId: idSchema,
   baseRevision: z.number().int().nonnegative(),
   summary: z.string(),
+  spacing: spacingSchema,
   zones: z.array(reservedZoneSchema).max(6),
   rejected: z.array(zoneRejectionSchema),
   tasks: z.array(searchTaskSchema).max(6),
@@ -369,6 +380,7 @@ export const zoneFillSchema = z.object({
 });
 export type Category = z.infer<typeof searchCategorySchema>;
 export type ZoneAnchor = z.infer<typeof zoneAnchorSchema>;
+export type Spacing = z.infer<typeof spacingSchema>;
 export type ZoneMount = z.infer<typeof zoneMountSchema>;
 export type ZoneRequest = z.infer<typeof zoneRequestSchema>;
 export type ZonePlanRequest = z.infer<typeof zonePlanRequestSchema>;

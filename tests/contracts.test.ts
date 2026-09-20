@@ -46,6 +46,7 @@ describe("team handoff", () => {
       "proposals",
       "projects",
       "messages",
+      "plans",
       "images",
       "imageUploads",
       "captures",

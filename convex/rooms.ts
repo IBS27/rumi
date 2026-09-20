@@ -36,7 +36,11 @@ export const patchBrief = internalMutation({
     restrictions: v.optional(v.array(v.string())),
     palette: v.optional(v.array(v.string())),
     materials: v.optional(v.array(v.string())),
+    purpose: v.optional(v.string()),
     wants: v.optional(zodToConvex(z.array(wantSchema))),
+    accessories: v.optional(
+      v.union(v.literal("unspecified"), v.literal("include"), v.literal("skip")),
+    ),
     inspiration: v.optional(v.string()),
   },
   handler: async (ctx, { roomId, ...patch }) => {
