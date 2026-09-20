@@ -49,6 +49,9 @@ struct CaptureScreen: View {
                 if let message = model.exportMessage {
                     Text(message).font(.footnote).foregroundStyle(.secondary)
                 }
+                if let message = model.surfaceMessage {
+                    Text(message).font(.footnote).foregroundStyle(.secondary)
+                }
                 actions
             }
             .multilineTextAlignment(.center)
@@ -92,14 +95,26 @@ struct CaptureScreen: View {
             ProgressView("Starting camera…")
             Button("Start over") { confirmsDiscard = true }
         case .scanning:
+            Text("Move slowly around furniture and show its sides. Photos capture its appearance; hidden surfaces remain unknown.")
+                .font(.footnote).foregroundStyle(.secondary)
             primary("Finish Scan", action: model.finish)
             Button("Start over") { confirmsDiscard = true }
         case .processing:
             ProgressView("Finishing the scan. Keep Rumi open.")
             Button("Start over") { confirmsDiscard = true }
         case .completed:
-            primary("Export JSON", action: model.export).disabled(model.isSharing)
-            Button("Start another scan", action: requestStartOver).disabled(model.isSharing)
+            if model.isPreparingSurface {
+                ProgressView("Saving surfaces and photos. Keep Rumi open.")
+            } else if model.hasSurfacePackage {
+                primary("Export scan", action: model.exportScan).disabled(model.isSharing)
+                Button("Export layout JSON", action: model.export).disabled(model.isSharing)
+            } else {
+                primary("Export JSON", action: model.export).disabled(model.isSharing)
+                if model.controller != nil {
+                    Button("Retry saving detailed scan", action: model.retrySurfacePackage).disabled(model.isSharing)
+                }
+            }
+            Button("Start another scan", action: requestStartOver).disabled(model.isSharing || model.isPreparingSurface)
         case .failed:
             primary("Start another scan", action: requestStartOver)
         }
@@ -143,10 +158,10 @@ struct CaptureScreen: View {
         case .cameraDenied:
             "Rumi needs the camera to scan your room. Enable Camera for Rumi Capture in Settings, then return here and check permission again. If access is restricted, check Screen Time or device-management settings."
         case .completed:
-            "Review your saved room details, then share the JSON with your Mac to import into Rumi."
+            "Share your saved scan with your Mac and import it into Rumi. Detailed scans include photos of your room."
         case .failed(let message): message
         default:
-            "Scan one room with your iPhone's LiDAR camera. Move slowly and follow Apple's guidance, then review the room and export its JSON to Rumi on your Mac.\n\nScanning and saving work on this iPhone without an account or internet connection."
+            "Scan one room with your iPhone's LiDAR camera. Move slowly around the room and show furniture from several angles, then export the scan to Rumi on your Mac.\n\nThe scan includes room photos and visible surface shapes. Scanning and saving stay on this iPhone until you share the file."
         }
     }
 

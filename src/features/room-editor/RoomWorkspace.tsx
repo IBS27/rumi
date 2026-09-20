@@ -1,11 +1,18 @@
 import {
   lazy,
   Suspense,
+  useCallback,
+  useEffect,
   useMemo,
   useRef,
   useState,
   type ReactNode,
 } from "react";
+import { z } from "zod";
+import { MAX_PACKAGE_BYTES } from "../../../shared/capture/package";
+import type { TexturedScan } from "../../../shared/capture/texture";
+import { processScan, downloadScan } from "./capture/processing";
+import { readScan, saveScan } from "./capture/storage";
 import { Download, MessageCircle, Undo2, Upload } from "lucide-react";
 import {
   importRoomPlan,
@@ -35,13 +42,26 @@ const RoomViewer = lazy(() =>
   import("./RoomViewer").then((module) => ({ default: module.RoomViewer })),
 );
 
-type Workspace = SavedRoom & { room: CapturedRoom };
+type Workspace = SavedRoom & { room: CapturedRoom; scanId?: string };
+const localWorkspaceSchema = savedRoomSchema.safeExtend({
+  scanId: z
+    .string()
+    .regex(/^[a-f0-9]{32}$/)
+    .optional(),
+});
+type ScanResource = {
+  id: string;
+  blob?: Blob;
+  scan?: TexturedScan;
+  error?: string;
+  persisted?: boolean;
+};
 
 function readSaved(key: string): Workspace | null {
   try {
     const text = localStorage.getItem(key);
     if (!text) return null;
-    const result = savedRoomSchema.safeParse(JSON.parse(text));
+    const result = localWorkspaceSchema.safeParse(JSON.parse(text));
     return result.success && result.data.room.shape === "polygon"
       ? { ...result.data, room: result.data.room }
       : null;
@@ -84,16 +104,52 @@ export function RoomWorkspace({
   const [view, setView] = useState<ViewMode>("3d");
   const [wallsVisible, setWallsVisible] = useState(true);
   const [dimensionsVisible, setDimensionsVisible] = useState(false);
+  const [showScan, setShowScan] = useState(true);
+  const [capture, setCapture] = useState<ScanResource | null>(null);
+  const activeImport = useRef<AbortController | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const importRequest = useRef(0);
   const room = workspace?.room;
+  const scanId = workspace?.scanId;
+  const resource = capture?.id === scanId ? capture : null;
+  const scanVisible = showScan && view === "3d" && !!resource?.scan;
+  useEffect(() => {
+    if (!scanId || capture?.id === scanId) return;
+    const controller = new AbortController();
+    void readScan(identity, scanId)
+      .then(async (blob) => {
+        const result = await processScan(blob, controller.signal);
+        if (!controller.signal.aborted)
+          setCapture({ id: scanId, blob, scan: result.scan });
+      })
+      .catch((cause: unknown) => {
+        if (!controller.signal.aborted)
+          setCapture({
+            id: scanId,
+            error:
+              cause instanceof Error
+                ? cause.message
+                : "Could not restore the detailed scan. Import its ZIP again.",
+          });
+      });
+    return () => controller.abort();
+  }, [identity, scanId, capture?.id]);
+  useEffect(() => () => activeImport.current?.abort(), []);
+  const scanError = useCallback((message: string) => {
+    setError(message);
+    setShowScan(false);
+  }, []);
 
   function persist(next: Workspace | null) {
     setWorkspace(next);
     try {
       if (next) localStorage.setItem(key, JSON.stringify(next));
       else localStorage.removeItem(key);
-      setStatus("Saved on this browser");
+      setStatus(
+        next?.scanId === capture?.id && capture?.persisted === false
+          ? "Edits saved. The detailed scan is only in memory; download your room before closing this tab."
+          : "Saved on this browser",
+      );
     } catch {
       setStatus(
         "Browser storage is full or unavailable. Download your room to keep these changes.",
@@ -118,9 +174,41 @@ export function RoomWorkspace({
   async function importFile(file?: File) {
     if (!file) return;
     const request = ++importRequest.current;
+    activeImport.current?.abort();
+    const controller = new AbortController();
+    activeImport.current = controller;
     setBusy(true);
     setError("");
     try {
+      if (/\.zip$/i.test(file.name)) {
+        if (file.size > MAX_PACKAGE_BYTES)
+          throw new Error("Choose a scan ZIP smaller than 128 MB.");
+        const result = await processScan(file, controller.signal);
+        if (request !== importRequest.current) return;
+        if (result.saved.room.shape !== "polygon")
+          throw new Error("This scan has no room layout.");
+        const id = Array.from(
+          crypto.getRandomValues(new Uint8Array(16)),
+          (byte) => byte.toString(16).padStart(2, "0"),
+        ).join("");
+        let stored = true;
+        try {
+          await saveScan(identity, id, file);
+        } catch {
+          stored = false;
+        }
+        if (request !== importRequest.current) return;
+        setCapture({ id, blob: file, scan: result.scan, persisted: stored });
+        setShowScan(true);
+        setView("3d");
+        commit({ ...result.saved, room: result.saved.room, scanId: id });
+        setSelected(null);
+        if (!stored)
+          setStatus(
+            "The detailed scan is only in memory. Download your room before closing this tab.",
+          );
+        return;
+      }
       if (file.size > MAX_CAPTURE_BYTES)
         throw new Error("Choose a JSON file smaller than 10 MB.");
       const text = await file.text();
@@ -137,6 +225,7 @@ export function RoomWorkspace({
     }
   }
   function sample() {
+    activeImport.current?.abort();
     ++importRequest.current;
     setBusy(false);
     commit({
@@ -148,6 +237,7 @@ export function RoomWorkspace({
     setSelected(null);
   }
   function editObjects(objects: RoomObject[]) {
+    setShowScan(false);
     if (workspace)
       commit({
         ...workspace,
@@ -158,18 +248,33 @@ export function RoomWorkspace({
         },
       });
   }
-  function download() {
+  async function download() {
     if (!workspace) return;
-    const url = URL.createObjectURL(
-      new Blob([JSON.stringify(workspace, null, 2)], {
-        type: "application/json",
-      }),
-    );
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "rumi-room.json";
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    setBusy(true);
+    try {
+      // Local asset IDs stay in this browser. A ZIP embeds both the original scan and edits.
+      const saved = savedRoomSchema.parse(workspace);
+      const blob = workspace.scanId
+        ? await downloadScan(
+            resource?.blob ?? (await readScan(identity, workspace.scanId)),
+            saved,
+          )
+        : new Blob([JSON.stringify(saved, null, 2)], {
+            type: "application/json",
+          });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = workspace.scanId ? "rumi-room.zip" : "rumi-room.json";
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "Could not export this room.",
+      );
+    } finally {
+      setBusy(false);
+    }
   }
   function undo() {
     if (!history.length) return;
@@ -178,6 +283,7 @@ export function RoomWorkspace({
     setSelected(null);
   }
   function receive(text: string) {
+    activeImport.current?.abort();
     ++importRequest.current;
     setBusy(false);
     try {
@@ -230,9 +336,9 @@ export function RoomWorkspace({
       <input
         ref={fileInput}
         type="file"
-        accept=".json,application/json"
+        accept=".json,.zip,application/json,application/zip"
         className="sr-only"
-        aria-label="Import room JSON"
+        aria-label="Import room JSON or scan ZIP"
         onChange={(event) => {
           void importFile(event.target.files?.[0]);
           event.target.value = "";
@@ -291,13 +397,11 @@ export function RoomWorkspace({
             <Button disabled={!history.length} onClick={undo}>
               <Undo2 /> Undo
             </Button>
-            <Button onClick={download}>
+            <Button disabled={busy} onClick={() => void download()}>
               <Download /> Download room
             </Button>
-            {
-              // eslint-disable-next-line react-hooks/refs -- scan renders a control; receive runs only when a scan arrives.
-              scan?.("bar", receive)
-            }
+            {// eslint-disable-next-line react-hooks/refs -- scan renders a control; receive runs only when a scan arrives.
+            scan?.("bar", receive)}
             <Button
               variant="primary"
               disabled={busy}
@@ -328,6 +432,8 @@ export function RoomWorkspace({
                   top={view === "plan"}
                   wallsVisible={wallsVisible}
                   dimensionsVisible={dimensionsVisible}
+                  scan={scanVisible ? resource?.scan : undefined}
+                  onScanError={scanError}
                 />
               </Suspense>
             </div>
@@ -337,11 +443,25 @@ export function RoomWorkspace({
                 {error}
               </Notice>
             )}
+            {resource?.error && (
+              <Notice tone="warn" floating>
+                {resource.error}
+              </Notice>
+            )}
+            {scanId && !resource && (
+              <Notice tone="info" floating>
+                Preparing captured surfaces… You can use the room layout while
+                it loads.
+              </Notice>
+            )}
 
             <ScanDock
               room={room}
               selected={selected}
-              onSelect={setSelected}
+              onSelect={(id) => {
+                setSelected(id);
+                if (id) setShowScan(false);
+              }}
               originalObject={originalObject}
               onSave={(next) =>
                 editObjects(
@@ -363,6 +483,7 @@ export function RoomWorkspace({
                 editObjects(room.objects.filter((item) => item.id !== id));
                 setSelected(null);
               }}
+              captureWarnings={resource?.scan?.warnings}
             />
 
             <ViewerTools
@@ -373,6 +494,17 @@ export function RoomWorkspace({
               dimensions={dimensionsVisible}
               onDimensions={setDimensionsVisible}
               className={clearChat}
+              scan={
+                resource?.scan && view === "3d"
+                  ? {
+                      visible: showScan,
+                      onChange: (value) => {
+                        setShowScan(value);
+                        if (value) setSelected(null);
+                      },
+                    }
+                  : undefined
+              }
             />
 
             <div
@@ -382,8 +514,9 @@ export function RoomWorkspace({
               )}
             >
               <span>
-                Walls are from the scan. Ceiling height{" "}
-                {room.dimensions.height.toFixed(2)} m.
+                {scanVisible && resource?.scan
+                  ? `Original captured surfaces. ${Math.round((resource.scan.texturedFaceCount / resource.scan.faceCount) * 100)}% of triangles textured. Edits appear in the layout view.`
+                  : `Walls are from the scan. Ceiling height ${room.dimensions.height.toFixed(2)} m.`}
               </span>
               <span>
                 {view === "plan"

@@ -96,6 +96,7 @@ export function ScanDock({
   onSave,
   onReset,
   onRemove,
+  captureWarnings,
 }: {
   room: CapturedRoom;
   selected: string | null;
@@ -104,6 +105,7 @@ export function ScanDock({
   onSave: (next: RoomObject) => void;
   onReset: (id: string) => void;
   onRemove: (id: string) => void;
+  captureWarnings?: string[];
 }) {
   const confirmed = room.objects.filter(
     (item) => item.measurementSource === "confirmed",
@@ -114,6 +116,11 @@ export function ScanDock({
       className="top-4 left-4 flex max-h-[calc(100%-32px)] w-[252px] flex-col overflow-auto"
     >
       <Heading>What the scan found</Heading>
+      {captureWarnings?.map((warning, index) => (
+        <Muted key={index} className="mt-2 text-xs">
+          {warning}
+        </Muted>
+      ))}
       <div className="mt-1.5 grid gap-px text-xs text-[#5a5044]">
         <div>
           <b className="font-semibold text-ink">{room.walls.length}</b> wall

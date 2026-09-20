@@ -16,6 +16,8 @@ import type {
 } from "../../../shared/contracts";
 import { localCorners, worldCorners } from "../../../shared/capture/roomplan";
 import { surfaceShape } from "../../../shared/capture/surfaces";
+import type { TexturedScan } from "../../../shared/capture/texture";
+import { ScanSurface } from "./capture/ScanSurface";
 
 function Surface({
   value,
@@ -188,6 +190,8 @@ export function RoomViewer({
   top,
   wallsVisible,
   dimensionsVisible,
+  scan,
+  onScanError,
 }: {
   room: CapturedRoom;
   selected: string | null;
@@ -195,6 +199,8 @@ export function RoomViewer({
   top: boolean;
   wallsVisible: boolean;
   dimensionsVisible: boolean;
+  scan?: TexturedScan;
+  onScanError: (message: string) => void;
 }) {
   return (
     <ViewerBoundary key={room.id}>
@@ -224,33 +230,48 @@ export function RoomViewer({
         />
         <Suspense fallback={null}>
           <Cameras room={room} top={top} />
-          {room.floors.map((floor) => (
-            <Surface key={floor.id} value={floor} openings={[]} />
-          ))}
-          {wallsVisible &&
-            room.walls.map((wall) => (
-              <Surface key={wall.id} value={wall} openings={room.openings} />
-            ))}
-          {room.openings.map((opening) => {
-            const points = worldCorners(opening);
-            points.push(points[0]);
-            return (
-              <Line
-                key={opening.id}
-                points={points}
-                color={opening.kind === "window" ? "#5b7c99" : "#124f49"}
-                lineWidth={2}
-              />
-            );
-          })}
-          {room.objects.map((object) => (
-            <Furniture
-              key={object.id}
-              object={object}
-              selected={selected === object.id}
-              onSelect={onSelect}
+          {scan && (
+            <ScanSurface
+              scan={scan}
+              wallsVisible={wallsVisible}
+              onError={onScanError}
             />
-          ))}
+          )}
+          {!scan && (
+            <>
+              {room.floors.map((floor) => (
+                <Surface key={floor.id} value={floor} openings={[]} />
+              ))}
+              {wallsVisible &&
+                room.walls.map((wall) => (
+                  <Surface
+                    key={wall.id}
+                    value={wall}
+                    openings={room.openings}
+                  />
+                ))}
+              {room.openings.map((opening) => {
+                const points = worldCorners(opening);
+                points.push(points[0]);
+                return (
+                  <Line
+                    key={opening.id}
+                    points={points}
+                    color={opening.kind === "window" ? "#5b7c99" : "#124f49"}
+                    lineWidth={2}
+                  />
+                );
+              })}
+              {room.objects.map((object) => (
+                <Furniture
+                  key={object.id}
+                  object={object}
+                  selected={selected === object.id}
+                  onSelect={onSelect}
+                />
+              ))}
+            </>
+          )}
           {dimensionsVisible &&
             room.walls.map((wall) => {
               const point = new Vector3(

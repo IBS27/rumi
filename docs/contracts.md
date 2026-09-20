@@ -15,15 +15,15 @@
 
 ## Boundaries
 
-| Input/output                     | Owner          | Consumer                      |
-| -------------------------------- | -------------- | ----------------------------- |
-| `RoomSnapshot`                   | Capture/editor | Search, renderer, validation  |
-| `DesignBrief`                    | Conversation   | Search and budget checks      |
-| `SearchRequest` → `SearchResult` | Search adapter | Assistant/product panel       |
+| Input/output                      | Owner           | Consumer                         |
+| --------------------------------- | --------------- | -------------------------------- |
+| `RoomSnapshot`                    | Capture/editor  | Search, renderer, validation     |
+| `DesignBrief`                     | Conversation    | Search and budget checks         |
+| `SearchRequest` → `SearchResult`  | Search adapter  | Assistant/product panel          |
 | `SearchTask` → `SearchTaskResult` | Search subagent | Main agent `searchProducts` tool |
-| `ProductCandidate`               | Search/catalog | Product cards, assets, budget |
-| `DesignProposal`                 | Agent/planner  | Validated editor commands     |
-| `AssetRecord`                    | Asset pipeline | Renderer                      |
+| `ProductCandidate`                | Search/catalog  | Product cards, assets, budget    |
+| `DesignProposal`                  | Agent/planner   | Validated editor commands        |
+| `AssetRecord`                     | Asset pipeline  | Renderer                         |
 
 The first proposal operation is additions only. Define explicit move/remove operations when the agent supports them; never silently replace a complete room snapshot. `baseRevision` must match the current room revision, and accepted edits increment it.
 
@@ -46,3 +46,7 @@ The live path is two levels. `convex/agent.ts` runs the main agent, which plans 
 `shared/fixtures/index.ts` exports a 4.8 × 4.2 × 2.7 m bedroom, two owned pieces, a $500 brief, four synthetic products, placeholder asset records, a valid proposal, and oversized/unknown/unaffordable/unavailable product cases. Merchant URLs use `example.com` and are not real listings.
 
 `shared/fixtures/search.ts` provides a deterministic search adapter for independent team development and tests. The room workspace imports captured rooms and stores edits locally. `shared/fixtures/roomplan.ts` supplies an independently authored, explicitly synthetic L-shaped room. When adding cloud room persistence, use authenticated Convex mutations and reject stale revisions on the server; keep transient camera/selection state local.
+
+## Detailed capture package
+
+The native-to-web `rumi.capture` v1 ZIP carries the unchanged final RoomPlan JSON, ARKit mesh buffers, JPEGs, camera calibration, depth, and confidence. `shared/capture/package.ts` validates it. [Surface capture](surface-capture.md) defines units, binary layouts, coordinate transforms, limits, local persistence, and the boundary between measured surfaces and editable furniture. This does not change the `RoomSnapshot` or the JSON-only QR upload contract.

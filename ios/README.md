@@ -1,6 +1,6 @@
 # Rumi room capture
 
-A small SwiftUI iPhone app that scans one room with Apple's RoomPlan, reviews the processed result, and shares the original Apple JSON. It has no third-party dependencies, backend, login, analytics, or networking code. All app files live under `ios/`.
+A SwiftUI iPhone app that scans one room with RoomPlan and ARKit in one session. It retains the original Apple JSON and captures surface geometry, selected camera photos, and depth for a textured room view in Rumi. **Export scan** shares a ZIP; **Export layout JSON** retains the original JSON handoff. See [single-session surface capture](../docs/surface-capture.md) for the package format, implementation limits, and physical-device verification still required. It has no third-party dependencies, backend, login, analytics, or networking code. All app files live under `ios/`.
 
 ## Requirements
 
@@ -29,13 +29,13 @@ Free-account provisioning profiles expire after **7 days**. Reconnect the phone,
 1. Tap **Start Scan**. Scan one well-lit room, moving slowly and following RoomPlan's built-in guidance. Aim at the walls, openings, and furniture from useful angles.
 2. Tap **Finish Scan** once. Keep Rumi in the foreground while it processes. Export is unavailable until RoomPlan delivers the final processed `CapturedRoom`.
 3. Review Apple's 3D preview with drag/pinch gestures and check the detected counts. A result with no walls is treated as a failed scan.
-4. Tap **Export JSON**. In the native share sheet, choose **AirDrop**, then your Mac. Keep Wi-Fi and Bluetooth enabled on both devices and make the Mac discoverable in Finder's AirDrop view. Accept the transfer on the Mac; files normally arrive in Downloads. Saving to Files is another option.
-5. Import that `.json` file in Rumi's browser workflow. This app does not implement or validate the browser importer.
+4. Wait for surface packaging, then tap **Export scan** for the detailed ZIP or **Export layout JSON** for just the layout. If detailed capture is unavailable, **Export JSON** remains available. In the native share sheet, choose **AirDrop**, then your Mac. Keep Wi-Fi and Bluetooth enabled on both devices and make the Mac discoverable in Finder's AirDrop view. Accept the transfer on the Mac; files normally arrive in Downloads. Saving to Files is another option.
+5. Import the `.zip` or `.json` in Rumi's browser workspace. ZIP imports display measured surfaces with photo textures; JSON imports display the editable layout.
 6. **Start another scan** asks before discarding the current scan. Canceling the share sheet leaves the scan available for another export. Even a successful share leaves the local result available until you explicitly discard it.
 
 The app saves the encoded result atomically under its private Application Support directory, excluded from cloud backup. The share sheet receives a file URL that stays valid through sharing and dismissal. The file is deleted only when you confirm starting over; starting over is disabled while sharing. Relaunching the app restores the saved room and export. The live RoomPlan preview is only available in the session that captured it; a restored room shows detected counts. If local saving fails, the UI retains the result in memory and lets you retry export. Do that before terminating the app.
 
-## Export contract and web-agent handoff
+## Layout JSON contract and web-agent handoff
 
 The only producer of an exportable result is `RoomCaptureViewDelegate.captureView(didPresent:error:)`, with a nil error. The app encodes that final, nonoptional value directly:
 
@@ -57,19 +57,21 @@ python3 ios/scripts/inspect_room_json.py ~/Downloads/rumi-room-*.json
 
 Use one filename if you have multiple exports. The checker reports root fields and version, checks surface/object arrays and each element's identifier, category, confidence, three dimensions, and 4x4 transform. Missing detections may be real; the checker cannot prove that dimensions match the physical room. No mock or downloaded room is presented as a successful capture or supplied as a verified handoff.
 
-## Verification
+## Verification of the original JSON-only app
+
+The surface-capture additions have not been compiled or tested on iPhone in this Fedora session. The results below predate those additions. See [surface capture verification](../docs/surface-capture.md#verification).
 
 Verified on 2026-09-19 on the Mac checkout at `/Users/srinivasib/Developer/rumi`, branch `feat/room-capture-ios`, with Xcode 26.6:
 
-| Check | Result |
-| --- | --- |
-| iOS Simulator Debug build | Passed, iPhone 17 Pro / iOS 26.5 |
-| Generic iPhone arm64 Debug build | Passed with signing disabled; no installation implied |
-| Native unit tests | 7 passed: final-processing gate, duplicate taps, stale callbacks, interruption/retry, completed-result protection, file retention, unique names, and write failure |
-| Native UI test | 1 passed: onboarding, Start Scan, unsupported simulator, repeated retry, terminate/relaunch |
-| Desktop UI interaction | Opened the installed app in Simulator, tapped Start Scan and Check again, inspected both screens; no scan/export controls or mock result appeared on the unsupported destination |
-| Project validation | `plutil -lint` passed; no development team or paid entitlements configured |
-| Physical device / actual JSON | Not tested. The paired iPhone 15 Pro Max was unavailable/offline in `devicectl` and `xctrace`. No live capture or real exported JSON was available to inspect. |
+| Check                            | Result                                                                                                                                                                           |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| iOS Simulator Debug build        | Passed, iPhone 17 Pro / iOS 26.5                                                                                                                                                 |
+| Generic iPhone arm64 Debug build | Passed with signing disabled; no installation implied                                                                                                                            |
+| Native unit tests                | 7 passed: final-processing gate, duplicate taps, stale callbacks, interruption/retry, completed-result protection, file retention, unique names, and write failure               |
+| Native UI test                   | 1 passed: onboarding, Start Scan, unsupported simulator, repeated retry, terminate/relaunch                                                                                      |
+| Desktop UI interaction           | Opened the installed app in Simulator, tapped Start Scan and Check again, inspected both screens; no scan/export controls or mock result appeared on the unsupported destination |
+| Project validation               | `plutil -lint` passed; no development team or paid entitlements configured                                                                                                       |
+| Physical device / actual JSON    | Not tested. The paired iPhone 15 Pro Max was unavailable/offline in `devicectl` and `xctrace`. No live capture or real exported JSON was available to inspect.                   |
 
 There were no Swift compiler warnings on the final builds. Xcode emitted its standard skipped App Intents metadata warning because the app has no App Intents dependency. The file tests use arbitrary test bytes and do not constitute LiDAR or `CapturedRoom` integration testing. Camera permission UI, RoomPlan guidance/preview, real share-sheet cancellation, AirDrop, and interruption during an actual capture still require the phone checklist below.
 
@@ -104,12 +106,12 @@ Choose an installed simulator name from `xcrun simctl list devices available`. T
 
 ## Limitations
 
-One room at a time. No multi-room merging, editing, measurements UI, USDZ export, photorealistic assets, or empty-space calculations. RoomPlan detects supported categories and approximate geometry; it can miss or misclassify objects. An interrupted active scan is discarded with an explanation; partial geometry is never labeled a completed room. Processing has a two-minute failure timeout with retry. Saved JSON remains private until you choose a share destination. Uninstalling the app deletes its local result.
+One room at a time. No multi-room merging, individual furniture mesh editing, measurements UI, USDZ export, or empty-space calculations. Surface quality and texture coverage depend on the captured views; hidden geometry is not invented. RoomPlan detects supported categories and approximate geometry; it can miss or misclassify objects. An interrupted active scan is discarded with an explanation; partial geometry is never labeled a completed room. Processing has a two-minute failure timeout with retry. Saved JSON remains private until you choose a share destination. Uninstalling the app deletes its local result.
 
 ## Apple references
 
 - [Official RoomPlan sample and overview](https://developer.apple.com/documentation/roomplan/create-a-3d-model-of-an-interior-room-by-guiding-the-user-through-an-ar-experience). Reviewed the downloadable sample's `RoomCaptureViewController.swift` and the installed SDK declarations.
 - [Final-result delegate](https://developer.apple.com/documentation/roomplan/roomcaptureviewdelegate).
-- [Processed preview behavior](https://developer.apple.com/documentation/roomplan/roomcaptureviewdelegate/captureview(shouldpresent:error:)).
+- [Processed preview behavior](<https://developer.apple.com/documentation/roomplan/roomcaptureviewdelegate/captureview(shouldpresent:error:)>).
 - [CapturedRoom](https://developer.apple.com/documentation/roomplan/capturedroom).
 - [Surface dimensions](https://developer.apple.com/documentation/roomplan/capturedroom/surface/dimensions) and [surface transform](https://developer.apple.com/documentation/roomplan/capturedroom/surface/transform).

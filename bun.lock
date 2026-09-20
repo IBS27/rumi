@@ -12,6 +12,7 @@
         "ai": "5.0.256",
         "convex": "^1.46.0",
         "convex-helpers": "^0.1.124",
+        "fflate": "^0.8.3",
         "lucide-react": "^1.47.0",
         "qrcode.react": "^4.2.0",
         "react": "^19.3.0",

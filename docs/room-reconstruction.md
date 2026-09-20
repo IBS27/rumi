@@ -2,9 +2,11 @@
 
 ## Working locally
 
-Run `bun install` and `bun run dev`. Choose **Explore a sample room**, or import the raw JSON produced by `JSONEncoder().encode(finalCapturedRoom)` in the native RoomPlan app. The bundled L-shaped room is synthetic. Files are limited to 10 MiB.
+Run `bun install` and `bun run dev`. Choose **Explore a sample room**, or import the raw JSON produced by `JSONEncoder().encode(finalCapturedRoom)` in the native RoomPlan app. The bundled L-shaped room is synthetic. Layout JSON files are limited to 10 MiB. Detailed scan ZIPs are supported up to 128 MiB. See [surface capture](surface-capture.md) for capture, texturing, storage, and verification limits.
 
-The workspace renders walls with opening cutouts, captured floor polygons, door/window outlines, and dimensioned furniture boxes. Select furniture to edit its name, category, dimensions, position, rotation, and measurement status. Reset restores that object's original scan values; undo retains the last ten changes in the current session. Changes are saved in this browser, separately for each signed-in identity. Download preserves the edited room and the original scan for reimport. Browser storage is not a cloud backup; clearing it removes local rooms.
+Detailed ZIP imports also provide a captured-surfaces view of the original measured scene. Selecting furniture switches to the editable layout; edits do not move the unseparated surface mesh.
+
+The layout workspace renders walls with opening cutouts, captured floor polygons, door/window outlines, and dimensioned furniture boxes. Select furniture to edit its name, category, dimensions, position, rotation, and measurement status. Reset restores that object's original scan values; undo retains the last ten changes in the current session. Changes are saved in this browser, separately for each signed-in identity. Download preserves the edited room and the original scan for reimport. Browser storage is not a cloud backup; clearing it removes local rooms.
 
 Scanned dimensions remain estimates until reviewed. Detection confidence is not a measurement error bound. Overall room extents are bounding-box dimensions, not an assertion that the room is rectangular. Captured floor area is distinct from usable empty space. Free-space regions, clearance analysis, multiroom stitching, curved walls, photorealistic assets, and editing wall geometry are not implemented. Existing rectangular placement checks refuse polygon rooms until polygon-aware fit validation is available. Exports without floor polygons retain walls without inventing a floor boundary.
 
