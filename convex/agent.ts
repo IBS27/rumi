@@ -27,10 +27,11 @@ const SYSTEM_PROMPT = `You are the room designer for rumi. You build rooms from 
 - Work in meters and USD cents. Never infer dimensions that were not given.
 - Inspiration-image messages include a visual analysis from a specialist model. Use its style, palette, material, lighting, and furniture cues, but never treat it as verified room geometry or exact dimensions.
 - Save style, budget, and restrictions with updateBrief as soon as the user states them.
-- Decide what information is most useful to ask for next. You may ask about any design detail, room constraint, preference, priority, tradeoff, or missing measurement.
-- When a useful question has 2-4 reasonable choices, call askOptions instead of writing the question as plain text. Create choices that fit the current room and conversation; do not use a fixed questionnaire. The user can also type a custom answer in the card.
-- Ask only one focused question per turn. After calling askOptions, do not call another tool and do not write a text reply. Wait for the user's option click or custom answer.
-- Use a normal text question only when useful answers cannot be represented by 2-4 choices.
+- Before searching, judge the full conversation, saved brief, and room context for ambiguity. A shopping request is very vague when it does not identify a concrete item, or when it lacks enough of these to search usefully: budget, size/clearance, style/color/material, intended use, or room placement.
+- For a very vague request, you MUST call askOptions before searchProducts. Ask the single highest-impact missing question and offer 2-4 context-specific choices. Do not search, call another tool, or write a text reply in that turn. Wait for the user's option click or custom answer.
+- Do not repeat information already present in the conversation, brief, or room. Do not force a clarification when the request and existing context already provide useful search constraints.
+- You may also use askOptions for a useful design detail, room constraint, preference, priority, or tradeoff. Create choices that fit the current room and conversation; never use a fixed questionnaire. The user can type a custom answer in the card.
+- Ask only one focused question per turn. Use a normal text question only when useful answers cannot be represented by 2-4 choices.
 - Only propose products that searchProducts returned. Never invent ids, prices, or dimensions.
 - If searchProducts reports that web search is not configured, say so and keep refining the brief instead of proposing products.
 - Check the budget with checkBudget before proposeDesign.
@@ -54,7 +55,7 @@ function buildAgentTools(
       ? {
           askOptions: tool({
             description:
-              "Present the user 2-4 concrete options to pick from, for example a style direction, budget range, or palette. The conversation pauses until they answer; end your turn after calling this.",
+              "Pause the conversation and render an interactive clarification card with 2-4 concrete options plus a custom-answer field. Use this before searching when the request is too vague, or when one focused design choice would materially improve the result. End your turn after calling it.",
             inputSchema: z.object({
               question: z.string(),
               options: z.array(z.string()).min(2).max(4),
@@ -108,14 +109,16 @@ function buildAgentTools(
     }),
     searchProducts: tool({
       description:
-        "Search the web for one furniture category. Returns validated products with prices, dimensions, and source URLs, plus failures for dropped candidates. Derive maxPriceCents and maxFootprint from the room and budget, not guesses.",
+        "Search the web for one concrete furniture item. Returns ranked candidates with prices, dimensions, source URLs, score breakdowns, and extraction failures. Derive price, footprint, height, style, and palette constraints from the room and brief. Put any other user-requested features or specifications into miscellaneous as short phrases.",
       inputSchema: searchTaskSchema,
       execute: async (task): Promise<SearchTaskResult> => {
         try {
           return await ctx.runAction(internal.search.searchProducts, { task });
         } catch (error) {
           return {
-            products: [],
+            category: task.category,
+            query: task.query,
+            candidates: [],
             explanation: process.env.EXA_API_KEY
               ? "Product search is unavailable right now. Please try again later."
               : "Web search is not configured in this deployment yet.",

@@ -1,0 +1,50 @@
+{
+  "note": "Captured from a live Shopify storefront: merchant price, variants and stock, but no dimensions.",
+  "url": "https://www.floydhome.com/products/the-block",
+  "product": {
+    "title": "The Block",
+    "handle": "the-block",
+    "vendor": "RIZE",
+    "product_type": "Shelving & Storage",
+    "tags": "accessories, category-bed-ao-eu, category-storage, category-tables, Coffee & Side Tables, Discount %|0",
+    "body_html": "<p dir=\"ltr\"><strong>Use it. Stack it. Add more when you need it.</strong></p>\n<p dir=\"ltr\"><span>The Block is simple. A solid storage unit that works on its own or integrates with your other Floyd systems.</span></p>\n<p dir=\"ltr\"><span>Built to fit any room — and work with the rest of your Floyd furniture.</span></p>",
+    "images": [
+      {
+        "src": "https://cdn.shopify.com/s/files/1/0462/1706/8706/files/The_Block_Glacial_horizontal.png?v=1774538986",
+        "alt": null
+      },
+      {
+        "src": "https://cdn.shopify.com/s/files/1/0462/1706/8706/files/The_Block_Brick_horizontal.png?v=1774538986",
+        "alt": null
+      },
+      {
+        "src": "https://cdn.shopify.com/s/files/1/0462/1706/8706/files/The_Block_Marine_horizontal.png?v=1774538986",
+        "alt": null
+      },
+      {
+        "src": "https://cdn.shopify.com/s/files/1/0462/1706/8706/files/The_Block_Putty_horizontal.png?v=1774467868",
+        "alt": null
+      }
+    ],
+    "variants": [
+      {
+        "id": 46664495169698,
+        "title": "Glacial",
+        "price": "365.00",
+        "sku": "FBK-GL"
+      },
+      {
+        "id": 46664495104162,
+        "title": "Brick",
+        "price": "365.00",
+        "sku": "FBK-BC"
+      },
+      {
+        "id": 46664495136930,
+        "title": "Marine",
+        "price": "365.00",
+        "sku": "FBK-MR"
+      }
+    ]
+  }
+}
