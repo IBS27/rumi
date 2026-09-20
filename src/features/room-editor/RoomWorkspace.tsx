@@ -467,7 +467,7 @@ export function RoomWorkspace({
           <TopBar brand={brand} title={title}>
             {account}
           </TopBar>
-          <div className="relative flex min-h-0 flex-1 flex-col">
+          <div className="relative isolate flex min-h-0 flex-1 flex-col">
             <StartScreen
               busy={busy}
               onImport={() => fileInput.current?.click()}
@@ -543,7 +543,7 @@ export function RoomWorkspace({
           </div>
 
           <main
-            className="relative min-h-0 flex-1 bg-sage"
+            className="relative isolate min-h-0 flex-1 bg-sage"
             aria-label="Room view"
             data-view={walking ? "first-person" : view}
           >
