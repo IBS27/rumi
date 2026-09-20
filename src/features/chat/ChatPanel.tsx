@@ -2,145 +2,22 @@ import { Button } from "../../ui";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import {
-  Check,
-  ExternalLink,
   History,
-  LoaderCircle,
   PanelRightClose,
   Plus,
   RotateCcw,
   ScanLine,
-  X,
 } from "lucide-react";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import type { CapturedRoom, RoomSnapshot } from "../../../shared/contracts";
 import { IMAGE_TYPES, MAX_IMAGE_BYTES } from "../../../shared/chat/uploads";
+import { ChatMessage } from "./ChatMessage";
 import { Composer } from "./Composer";
 import { OptionsCard } from "./OptionsCard";
 import { ChatHistory } from "./ChatHistory";
 
 export type ChatContext = { room?: CapturedRoom; onCollapse: () => void };
-
-type Recommendation = {
-  id: string;
-  name: string;
-  merchant: string;
-  sourceUrl: string;
-  imageUrl: string | null;
-  priceCents: number;
-};
-
-type ActivityItem = {
-  id: string;
-  tool: string;
-  label: string;
-  detail?: string;
-  status: "running" | "done" | "error";
-};
-
-function RippleDots() {
-  return (
-    <span className="ml-1 inline-flex items-end gap-0.5" aria-label="Streaming">
-      {[0, 1, 2].map((index) => (
-        <span
-          key={index}
-          className="size-1 rounded-full bg-teal motion-safe:animate-bounce"
-          style={{ animationDelay: `${index * 140}ms` }}
-        />
-      ))}
-    </span>
-  );
-}
-
-function ActivityRows({ activity }: { activity: ActivityItem[] }) {
-  return (
-    <div className="space-y-1">
-      {activity.map((item) => (
-        <div key={item.id} className="flex items-start gap-1.5 text-[11px] text-mute">
-          {item.status === "running" ? (
-            <LoaderCircle className="mt-0.5 size-3 shrink-0 motion-safe:animate-spin" />
-          ) : item.status === "done" ? (
-            <Check className="mt-0.5 size-3 shrink-0 text-teal-deep" />
-          ) : (
-            <X className="mt-0.5 size-3 shrink-0 text-rust" />
-          )}
-          <span className="[overflow-wrap:anywhere]">
-            {item.label}
-            {item.detail ? ` — ${item.detail}` : ""}
-          </span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function ActivityFeed({
-  activity,
-  pending,
-}: {
-  activity?: ActivityItem[];
-  pending: boolean;
-}) {
-  if (!activity?.length) return null;
-  if (pending)
-    return (
-      <div className="mb-2 rounded-ctrl border border-line bg-panel-soft px-2.5 py-2">
-        <ActivityRows activity={activity} />
-      </div>
-    );
-  return (
-    <details className="mb-1.5 text-[11px] text-mute">
-      <summary className="cursor-pointer select-none hover:text-ink">
-        {activity.length} agent step{activity.length === 1 ? "" : "s"}
-      </summary>
-      <div className="mt-1.5 border-l border-line pl-2">
-        <ActivityRows activity={activity} />
-      </div>
-    </details>
-  );
-}
-
-function ProductCard({ product }: { product: Recommendation }) {
-  const price = new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 2,
-  }).format(product.priceCents / 100);
-  return (
-    <article className="mt-2 overflow-hidden rounded-tile border border-line bg-white">
-      <h4 className="px-3 pt-2.5 pb-2 text-[12px] font-medium leading-snug text-ink">
-        {product.name}
-      </h4>
-      {product.imageUrl ? (
-        <img
-          src={product.imageUrl}
-          alt={product.name}
-          className="max-h-56 w-full border-y border-line bg-panel-soft object-contain"
-        />
-      ) : (
-        <div className="grid h-24 place-items-center border-y border-line bg-panel-soft text-[11px] text-mute">
-          No product image available
-        </div>
-      )}
-      <div className="px-3 py-2">
-        <div className="mb-2 flex items-center justify-between gap-2 text-[11px]">
-          <span className="font-medium text-ink">{price}</span>
-          <span className="truncate text-mute">{product.merchant}</span>
-        </div>
-        <a
-          href={product.sourceUrl}
-          target="_blank"
-          rel="noreferrer"
-          className="flex items-center justify-between gap-2 border-t border-line pt-2 text-[11px] font-medium text-teal-deep no-underline hover:text-ink"
-        >
-          View product
-          <ExternalLink className="size-3 shrink-0" />
-        </a>
-      </div>
-    </article>
-  );
-}
 
 function ChatHeader({
   onCollapse,
@@ -151,7 +28,7 @@ function ChatHeader({
 }) {
   return (
     <div className="flex shrink-0 items-center justify-between gap-2">
-      <h2 className="text-[11px] font-medium text-mute">Your brief</h2>
+      <h2 className="font-display text-base font-medium text-ink">Rumi</h2>
       <div className="flex items-center gap-0.5">
         {children}
         <Button
@@ -179,7 +56,7 @@ export function ChatUnavailable({
 }) {
   return (
     <section
-      className="flex h-full min-h-0 flex-col gap-2.5 px-4 pt-3.5 pb-3"
+      className="flex h-full min-h-0 flex-col gap-3 px-4 pt-4 pb-3"
       aria-label="Design chat"
     >
       <ChatHeader onCollapse={onCollapse} />
@@ -279,7 +156,7 @@ export function ChatPanel({
   }
   return (
     <section
-      className="flex h-full min-h-0 flex-col gap-2.5 px-4 pt-3.5 pb-3"
+      className="flex h-full min-h-0 flex-col gap-3 px-4 pt-4 pb-3"
       aria-label="Design chat"
     >
       <ChatHeader onCollapse={onCollapse}>
@@ -444,7 +321,9 @@ function Conversation({
         </h3>
         <div className="flex items-center gap-1.5 text-xs text-mute [&>svg]:shrink-0 [overflow-wrap:anywhere]">
           <ScanLine size={14} />
-          <span>{context.room?.name ?? "No room attached yet"}</span>
+          <span className="truncate" title={context.room?.name}>
+            {context.room?.name ?? "No room attached yet"}
+          </span>
         </div>
         {needsUpdate && (
           <Button
@@ -501,7 +380,7 @@ function Conversation({
         )}
       </div>
       <div
-        className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto overscroll-contain py-0.5 text-[12.5px]"
+        className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto overscroll-contain py-2 pr-1 text-[13px]"
         ref={scroll}
         role="log"
         aria-label="Conversation"
@@ -530,65 +409,15 @@ function Conversation({
                 prepare={prepare}
               />
             );
-          if (message.status === "pending")
-            return (
-              <div
-                key={message._id}
-                className="shrink-0 leading-relaxed text-ink [overflow-wrap:anywhere]"
-                role="status"
-              >
-                <span className="mb-1.5 block text-[11px] font-medium text-teal-deep">
-                  Rumi
-                </span>
-                <ActivityFeed activity={message.activity} pending />
-                {message.content ? (
-                  <p className="whitespace-pre-wrap">
-                    {message.content}
-                    <RippleDots />
-                  </p>
-                ) : !message.activity?.length ? (
-                  <p className="text-xs text-mute">
-                    Thinking
-                    <RippleDots />
-                  </p>
-                ) : null}
-                {message.recommendation && (
-                  <ProductCard product={message.recommendation} />
-                )}
-              </div>
-            );
-          if (!message.content && !message.imageUrl && !message.recommendation)
+          if (
+            !message.content &&
+            !message.imageUrl &&
+            !message.recommendation &&
+            message.status !== "pending"
+          )
             return null;
           return (
-            <div
-              key={message._id}
-              className={`shrink-0 leading-relaxed [overflow-wrap:anywhere] ${message.role === "user" ? "border-l-2 border-blue pl-3 text-mute" : "text-ink"}`}
-            >
-              {message.role === "assistant" && (
-                <span className="mb-0.5 block text-[11px] font-medium text-teal-deep">
-                  Rumi
-                </span>
-              )}
-              {message.role === "assistant" && (
-                <ActivityFeed activity={message.activity} pending={false} />
-              )}
-              {message.imageUrl && (
-                <a href={message.imageUrl} target="_blank" rel="noreferrer">
-                  <img
-                    className="mb-1.5 max-h-56 w-full rounded-ctrl object-contain"
-                    src={message.imageUrl}
-                    alt="Your inspiration image"
-                  />
-                </a>
-              )}
-              <p
-                className={`whitespace-pre-wrap ${message.status === "error" ? "text-rust" : ""}`}
-              >
-                {message.imageUrl ? "Inspiration image" : message.content}
-              </p>
-              {message.recommendation && (
-                <ProductCard product={message.recommendation} />
-              )}
+            <ChatMessage key={message._id} message={message}>
               {message.status === "error" && message._id === newestId && (
                 <Button
                   size="sm"
@@ -611,7 +440,7 @@ function Conversation({
                   <RotateCcw size={13} /> Retry reply
                 </Button>
               )}
-            </div>
+            </ChatMessage>
           );
         })}
         {!results.length && (
