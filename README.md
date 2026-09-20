@@ -1,15 +1,73 @@
-# rumi
+# Rumi
 
-React, Vite, TypeScript, Tailwind, React Three Fiber/Drei, Zustand, Zod, and a Convex schema. The frontend opens a RoomPlan scan (import, sample, or iPhone pairing) and shows it in a 3D room review with a floating scan list and inline measurement editor. The UI kit and its rules live in `src/ui/`.
+![Rumi: Design the room. Keep the budget.](docs/images/rumi-thumbnail.png)
+
+An AI interior shopping agent that brings your room, taste, and budget into one editable 3D workspace. Find real furniture across stores, explore it in context, and refine your plan through chat.
+
+Built at **HackMIT 2026** · [Project submission](https://plume.hackmit.org/project/aajnp-oqnis-ttafi-kbgks)
+
+**Powered by**
+
+| [![OpenAI](docs/images/logos/openai-badge.svg)](https://openai.com/) |        [![Exa](docs/images/logos/exa-badge.svg)](https://exa.ai/)        |                    [![Convex](docs/images/logos/convex-badge.svg)](https://www.convex.dev/)                     | [![Clerk](docs/images/logos/clerk-badge.svg)](https://clerk.com/) |
+| :------------------------------------------------------------------: | :----------------------------------------------------------------------: | :-------------------------------------------------------------------------------------------------------------: | :---------------------------------------------------------------: |
+|  [![React](docs/images/logos/react-badge.svg)](https://react.dev/)   | [![Three.js](docs/images/logos/threejs-badge.svg)](https://threejs.org/) | [![Apple RoomPlan](docs/images/logos/apple-badge.svg)](https://developer.apple.com/augmented-reality/roomplan/) |                                                                   |
+
+**Built with help from**
+
+| [![Codex](docs/images/logos/codex-badge.svg)](https://openai.com/codex/) | [![Devin](docs/images/logos/devin-badge.svg)](https://devin.ai/) |
+| :----------------------------------------------------------------------: | :--------------------------------------------------------------: |
+
+## From room to plan
+
+1. **Capture your space.** Scan with the iOS RoomPlan app, import a capture, or explore a labeled sample room.
+2. **Describe your vision.** Share inspiration photos, a budget, and furniture you want to keep.
+3. **Find real products.** The agents search merchant listings and evaluate price, dimensions, and style.
+4. **Explore and refine.** Edit the room, switch between overhead and first-person views, and continue the conversation with your room as context.
+
+> “Help me furnish my dorm for $800 with a desk, chair, rug, lamp, and storage, while keeping my existing bed.”
+
+## How it works
+
+```mermaid
+flowchart TD
+    capture["iOS RoomPlan · imported scan"] --> workspace
+    brief["Inspiration · preferences · budget"] --> workspace
+    workspace["React workspace · Three.js room editor"] <-->|"Room context and conversation"| agent
+    agent["Design agent · OpenAI on Convex"] <-->|"Product requests and results"| search
+    search["Search agent · Exa + OpenAI"] <-->|"Listings and product evidence"| stores["Retailer pages"]
+    agent --> checks["Zod contracts · budget and placement checks"]
+    checks -->|"Validated proposals"| plan["Persisted room plan · Convex"]
+    plan --> workspace
+```
+
+**The model proposes; code checks.** OpenAI interprets taste, images, and product information. TypeScript validates proposals against the budget, dimensions, doorway clearance, and room revision. Geometry uses meters; prices use integer cents.
+
+| Layer                    | Implementation                                                                        |
+| ------------------------ | ------------------------------------------------------------------------------------- |
+| Room capture             | Swift + Apple RoomPlan; scan import and browser pairing                               |
+| Workspace                | React, Vite, TypeScript, Tailwind, Zustand                                            |
+| 3D editor                | Three.js, React Three Fiber, Drei                                                     |
+| Agents and persistence   | Convex, OpenAI, Exa; Clerk authentication                                             |
+| Contracts and validation | Zod, shared geometry and budget functions, Bun tests                                  |
+| Furniture visualization  | Product photos → OpenAI → validated parametric geometry, scaled to catalog dimensions |
+
+Original scans and editor history stay browser-local; authenticated conversations and their room snapshots persist in Convex. The asset pipeline produces approximate previews and is separate from live search; missing assets render as dimensioned boxes.
+
+**Current scope:** automatic placement supports rectangular rooms. Polygon scans can inform chat and search. Listed, estimated, and unknown dimensions remain distinct. Budgets use listed product prices before shipping and tax; checkout is not implemented.
 
 ## Run locally
+
+Requires [Bun](https://bun.sh). For the local room editor and sample data:
 
 ```sh
 bun install
 bun run dev
 ```
 
-No credentials are required. Start the frontend in `src/App.tsx`; Tailwind is available through `src/styles.css`.
+For authenticated chat, live search, and phone pairing, follow the [Convex setup](convex-workflow.md), [chat configuration](docs/agent-integration.md), and [iOS setup](ios/README.md).
+
+- **Frontend:** `VITE_CONVEX_URL`, `VITE_CLERK_PUBLISHABLE_KEY`; set `VITE_CAPTURE_PAIRING_ENABLED=true` to show phone pairing.
+- **Backend:** `CLERK_JWT_ISSUER_DOMAIN`, `CHAT_ALLOWED_ORIGINS`, `OPENAI_API_KEY`, `EXA_API_KEY`. Keep provider keys in the Convex deployment, never in `VITE_` variables.
 
 ```sh
 bun run typecheck
@@ -17,52 +75,17 @@ bun run lint
 bun test
 ```
 
-Tests use Bun's built-in runner, with no separate test configuration. `tests/contracts.test.ts` covers shared contracts, product search fixtures, budget enforcement, and placement validation. Run `bun test --watch` while editing. Check frontend changes in the browser; there is no browser test framework installed. No production build is needed.
+Full checks require `convex/_generated` bindings from a configured deployment. `bun run typecheck:shared` checks shared code and offline test dependencies without them.
 
-## Team ownership
+## Explore the code
 
-Feature directories reserve space for future frontend work. `src/features/room-setup/` holds the start screen, `src/features/room-editor/` the room review (viewer, scan dock, object editor), and `src/features/room-import/` phone pairing. Build new screens from `src/ui` (see `src/ui/README.md`).
+| Area                                                      | Guide                                              |
+| --------------------------------------------------------- | -------------------------------------------------- |
+| `src/features/` · room workspace and chat                 | [Agent integration](docs/agent-integration.md)     |
+| `ios/` · native capture app                               | [iOS setup](ios/README.md)                         |
+| `convex/` · authenticated backend and agents              | [Backend workflow](convex-workflow.md)             |
+| `shared/search/` · discovery and ranking                  | [Search pipeline](docs/search-agent.md)            |
+| `shared/assets/` · parametric furniture models            | [Image-to-3D pipeline](docs/asset-generation.md)   |
+| `shared/contracts/`, `shared/geometry/`, `shared/budget/` | [Data and coordinate contracts](docs/contracts.md) |
 
-The image-to-3D pipeline stores bounded parametric scenes that the room viewer can
-render at their catalog dimensions. See [the asset-generation specification](docs/asset-generation.md).
-
-| Owner           | Files                                                                                  | Responsibility                                     |
-| --------------- | -------------------------------------------------------------------------------------- | -------------------------------------------------- |
-| Search 1        | `src/features/search/`, future `convex/search/`                                        | Discovery, product normalization, catalog adapters |
-| Search 2        | `src/features/assistant/`, future `convex/agent/`                                      | Conversation, preferences, recommendations         |
-| 3D 1            | `src/features/room-setup/`, `shared/geometry/`                                         | Capture, measurements, geometry, fit checks        |
-| 3D 2            | `src/features/room-editor/`, future `convex/assets/`                                   | Rendering, controls, assets, product placement     |
-| Joint ownership | `shared/contracts/`, `shared/fixtures/`, `src/features/workspace/`, `convex/schema.ts` | Team handoff and integration                       |
-
-Agree on contract changes before merging them. Both pairs can use the shared fixtures without a frontend or live services.
-
-## Convex setup
-
-The schema and dependency are ready. `src/main.tsx` optionally provides a Convex client when `VITE_CONVEX_URL` is set. The [shared Convex project](https://dashboard.convex.dev/t/rumi-4592b/rumi) belongs to the dedicated `rumi` team, CLI slug `rumi-4592b`. A personal dev deployment exists; no live queries, mutations, or authentication are implemented.
-
-Assign deployment ownership before running a watcher. Each developer should use their own development deployment within the shared project; deploy merged code to the shared production backend.
-
-Follow [convex-workflow.md](convex-workflow.md) for team invitations, personal deployment setup, and syncing changes after a pull. The CLI writes your connection settings to Git-ignored `.env.local`. Generated files are ignored; no hand-written generated stubs are included.
-
-Before adding public functions, configure authentication and enforce ownership. Parse inputs with the shared Zod schemas: converted Convex storage validators do not enforce Zod refinements. Use the Convex Agent component for live conversation persistence and Workflow for durable asset jobs.
-
-## Shared foundation
-
-- Validated room, product, asset, brief, and proposal contracts.
-- A synthetic bedroom/catalog and edge-case fixtures.
-- Deterministic fixture search, budget calculations, and basic spatial checks.
-- Rectangular rooms and yaw-based placements; extend jointly for other geometry.
-
-No payment, checkout, or order code is present. See [the handoff contract](docs/contracts.md) and [the product spec](docs/spec.md) for planned behavior.
-
-## Before the team starts
-
-Both pairs can begin locally with the shared contracts and fixtures. For live integration:
-
-- Share the scaffold through Git and give all teammates repository access.
-- Invite teammates to the dedicated `rumi` team and configure each developer's development deployment in the existing project.
-- Assign ownership of backend functions and schema changes; deploy merged code to the shared production backend.
-- Configure search and asset-model credentials on the backend. The parametric asset job defaults to GPT-6 Astra. Never put provider secrets in `VITE_` variables.
-- Add authentication and authenticated room persistence before storing real user data.
-
-The live providers, authentication, backend functions, and hosting pipeline are not configured by this scaffold. Payments remain paused.
+Built by Srinivas Indavara Badrinath, Bryan Lin, Firdavs Boliev, and Kristen Ho.
