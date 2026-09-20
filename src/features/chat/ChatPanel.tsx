@@ -35,6 +35,7 @@ export type ChatContext = {
   placedProductIds?: string[];
   placedZoneIds?: string[];
   editing?: boolean;
+  placementDisabled?: boolean;
 };
 
 const PHASES: { id: ProjectPhase; label: string }[] = [
@@ -162,6 +163,7 @@ export function ChatPanel({
   placedProductIds,
   placedZoneIds,
   editing,
+  placementDisabled,
 }: ChatContext & { identity: string }) {
   const storageKey = sessionId
     ? chatKey(identity, sessionId)
@@ -289,6 +291,7 @@ export function ChatPanel({
           placedProductIds={placedProductIds}
           placedZoneIds={placedZoneIds}
           editing={editing}
+          placementDisabled={placementDisabled}
           upload={upload}
           onNew={() => select(null)}
         />
@@ -366,6 +369,7 @@ function Conversation({
   placedProductIds,
   placedZoneIds,
   editing,
+  placementDisabled,
 }: {
   projectId: Id<"projects">;
   room?: CapturedRoom;
@@ -377,6 +381,7 @@ function Conversation({
   placedProductIds?: string[];
   placedZoneIds?: string[];
   editing?: boolean;
+  placementDisabled?: boolean;
 }) {
   const context = useQuery(api.projects.context, { projectId });
   const { results, status, loadMore } = usePaginatedQuery(
@@ -566,7 +571,7 @@ function Conversation({
               productPlacementIssues={productPlacementIssues}
               placedProductIds={placedProductIds}
               placedZoneIds={placedZoneIds}
-              editing={editing}
+              editing={placementDisabled ?? editing}
             >
               {message.status === "error" && message._id === newestId && (
                 <Button

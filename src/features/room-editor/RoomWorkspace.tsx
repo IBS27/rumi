@@ -133,7 +133,7 @@ export function RoomWorkspace({
   useEffect(() => {
     persistCallback.current = onPersist;
   }, [onPersist]);
-  const [connection, setConnection] = useState<DesignConnection | null>(null);
+  const [receivedConnection, setConnection] = useState<DesignConnection | null>(null);
   const [editing, setEditing] = useState(false);
   const editPending = useRef(false);
   const [productsOpen, setProductsOpen] = useState(false);
@@ -170,6 +170,12 @@ export function RoomWorkspace({
   const fileInput = useRef<HTMLInputElement>(null);
   const importRequest = useRef(0);
   const room = workspace?.room;
+  // A subscription can still describe the previous room after an import.
+  const connection =
+    receivedConnection?.state.room.id === room?.id &&
+    receivedConnection?.projectId === workspace?.cloudProjectId
+      ? receivedConnection
+      : null;
   const panelOpen = walking ? walkChatOpen : chatOpen;
   const cache = workspace?.design;
   const design: DesignState | null = room
@@ -495,6 +501,14 @@ export function RoomWorkspace({
             design.products,
             design.brief,
           );
+      if (
+        latestWorkspace.current?.room.id !== current.room.id ||
+        latestWorkspace.current.original !== current.original ||
+        latestWorkspace.current.cloudProjectId !== current.cloudProjectId
+      )
+        throw new Error("The room changed while this edit was saving.");
+      if (next.id !== current.room.id)
+        throw new Error("This edit belongs to a different room. Reconnect its chat.");
       if (next.shape !== "polygon")
         throw new Error("This editor requires a captured room.");
       const updated = {
@@ -723,6 +737,7 @@ export function RoomWorkspace({
     }
   }
   async function undo() {
+    const target = latestWorkspace.current;
     if (connection && room) {
       if (editPending.current) return;
       editPending.current = true;
@@ -730,8 +745,13 @@ export function RoomWorkspace({
       try {
         const next = await connection.undo(room.revision);
         const current = latestWorkspace.current;
-        if (current && next.shape === "polygon")
-          persist({ ...current, room: next });
+        if (
+          current?.room.id !== room.id ||
+          current.original !== target?.original ||
+          current.cloudProjectId !== target?.cloudProjectId ||
+          next.id !== room.id
+        ) return;
+        if (next.shape === "polygon") persist({ ...current, room: next });
         setPreview(null);
         setSelected(null);
       } catch (cause) {
@@ -833,7 +853,8 @@ export function RoomWorkspace({
             placedProductIds: room?.objects.flatMap((object) =>
               object.productId ? [object.productId] : [],
             ),
-            editing: editDisabled,
+            editing,
+            placementDisabled: editDisabled,
             onCollapse: () => {
               if (walking) setWalkChatOpen(false);
               else setChatOpen(false);

@@ -1,3 +1,4 @@
+import { furnitureModel } from "./furnitureModel";
 import { clearFurnitureSurfaces } from "../../../shared/reconstruction/cleanup";
 import {
   Component,
@@ -502,16 +503,11 @@ export function RoomViewer({
                       selected === object.id ? selectedGroup : undefined
                     }
                     invalid={selected === object.id && previewInvalid}
-                    model={
-                      reconstructed.has(object.id)
-                        ? {
-                            ...reconstructed.get(object.id)!,
-                            dimensions: object.dimensions,
-                          }
-                        : object.assetId
-                          ? assetScenes[object.assetId]
-                          : undefined
-                    }
+                    model={furnitureModel(
+                      object,
+                      reconstructed.get(object.id),
+                      object.assetId ? assetScenes[object.assetId] : undefined,
+                    )}
                     selected={selected === object.id}
                     onSelect={onSelect}
                   />
