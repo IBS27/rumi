@@ -22,6 +22,7 @@ import {
   wantSchema,
   type DesignBrief,
 } from "../shared/contracts";
+import { inferBriefPurpose } from "../shared/chat/purpose";
 
 const projectDoc = v.object({
   ...schema.tables.projects.validator.fields,
@@ -129,7 +130,11 @@ export const create = mutation({
     const ownerId = await requireOwner(ctx);
     title = title.trim().slice(0, 80);
     if (!title) throw new Error("A project title is required.");
-    const brief = emptyBrief();
+    const brief = inferBriefPurpose(
+      emptyBrief(),
+      firstMessage ?? "",
+      room ?? null,
+    );
     if (room?.shape === "polygon" && room.capture.synthetic)
       await ensureSampleDesign(ctx);
     const roomId = room
@@ -270,6 +275,7 @@ export const updateBrief = internalMutation({
     materials: v.optional(v.array(v.string())),
     purpose: v.optional(v.string()),
     wants: v.optional(zodToConvex(z.array(wantSchema))),
+    excludedCategories: v.optional(v.array(v.string())),
     accessories: v.optional(
       v.union(
         v.literal("unspecified"),

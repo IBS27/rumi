@@ -6,18 +6,24 @@ import { internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { normalizeBrief } from "./projects";
 import {
+  MAX_PLAN_ZONES,
   designPlanSchema,
   zonePlanRequestSchema,
   zonePlanWireSchema,
   type DesignBrief,
   type DesignPlan,
   type ProductCandidate,
+  type RoomObject,
   type RoomSnapshot,
 } from "../shared/contracts";
 import {
   buildDesignPlan,
   buildSpaceModel,
+  requiredDefiningPiece,
   describeScope,
+  describeFreeFloorAreas,
+  findFreeFloorAreas,
+  matchesDefiningPiece,
   planScope,
 } from "../shared/planner";
 import { freeArea, type SpaceModel } from "../shared/planner/space";
@@ -62,16 +68,25 @@ export async function proposeZones(
   products: ProductCandidate[],
   instruction: string,
   correction = "",
+  placementHints: RoomObject[] = [],
 ): Promise<{ plan: DesignPlan; model: SpaceModel }> {
   const model = buildSpaceModel(room);
   const occupied = room.objects
     .filter((object) => object.owned || object.locked)
     .map((object) => object.category);
+  const definingPiece = requiredDefiningPiece(brief);
+  const missingDefiningPiece =
+    definingPiece &&
+    !room.objects.some((object) =>
+      matchesDefiningPiece(definingPiece, object.category),
+    )
+      ? definingPiece
+      : null;
   const { object } = await generateObject({
     model: openai(
       process.env.RUMI_PLANNER_MODEL ??
         process.env.RUMI_AGENT_MODEL ??
-        "gpt-5.6-sol",
+        "gpt-6-astra",
     ),
     schema: zonePlanWireSchema,
     // Strict mode makes the provider enforce the schema so a stray string or
@@ -93,22 +108,27 @@ export async function proposeZones(
     },
     system: [
       "You are the space planner for rumi, an interior design agent.",
-      "Return spacing (airy, balanced, or cozy) judged from the style, then up to 8 zones. Each zone is one piece of furniture the room still needs. category is a product type such as \"floor lamp\", \"wardrobe\", or \"area rug\", never a room or area name. query is a short shopping phrase for that product. Give the purpose, an anchor (wall, corner, center, window, near-object, anywhere), a realistic desired footprint in meters, and an optional height.",
+      `Return spacing (airy, balanced, or cozy) judged from the style, then zones within the scope below, never more than ${MAX_PLAN_ZONES}. Each zone is one piece of furniture the room still needs. category is a product type such as "floor lamp", "wardrobe", or "area rug", never a room or area name. query is a short shopping phrase for that product. Give the purpose, an anchor (wall, corner, center, window, near-object, anywhere), a realistic desired footprint in meters, and an optional height.`,
       "Include accessories when they suit the brief: wall art, mirrors, rugs, table or desk lamps, plants, and similar pieces that take little floor space.",
       "mount says where a piece lives: floor (stands on the floor), wall (hung: art, mirror, wall shelf), surface (sits on top of a table, desk, dresser, or nightstand; relatedObjectId must name that host, either an existing object id or another zone id in this plan), under (a rug that lies under other furniture). Floor space is counted only for floor pieces.",
       "For wall pieces, desiredFootprint.width is the width along the wall and desiredHeight is the hanging height. For surface pieces, desiredFootprint is the base that rests on the host.",
       "Never output coordinates. Code reserves the exact position, applies clearance margins, and rejects zones that do not fit.",
+      "Use the measured free-floor areas below to choose plausible furniture sizes and locations. These are approximate areas, not exclusive slots: several pieces can share one area. Their count never limits the number of pieces. Leave space for access; code checks each actual reservation against the room and earlier pieces. If no large rectangle is listed, narrow pieces or accessories may still fit.",
       "One zone per category. Avoid unsolicited duplicates of owned or locked furniture, but ALWAYS include items the user explicitly requested, even when the room already contains that broad category. A scan's art category may be a vanity mirror; it does not satisfy a request for paintings or posters. Preserve existing objects and let geometry decide whether an additional item fits.",
       "Use relatedObjectId with the exact id of an existing object when a zone belongs beside it, for example a lamp beside a bed.",
+      "Reserve the OUTER BED FRAME, not just its mattress: approximate compact frame envelopes are king 2.05 × 2.20 m, queen 1.65 × 2.15 m, full 1.50 × 2.05 m, twin 1.10 × 2.05 m. Upholstered or bulky frames can need more. The reserved footprint becomes a hard search ceiling; mattress-only dimensions can exclude real beds. Unless the user named a size, propose the largest reasonable maximum; code will try smaller standard frame envelopes if needed. Never invent a proportionally shortened bed.",
       "Priority 1 is the piece that defines the room. Accents come last.",
       "Put the user's material, feature, or usage requirements into miscellaneous as short phrases.",
     ].join("\n"),
     prompt: [
       describeSpace(room, model),
+      room.shape === "polygon" && !room.floors.length
+        ? "Free-floor measurements unavailable: this scan has no measured floor."
+        : `Measured free-floor areas, before new furniture and its clearances:\n${describeFreeFloorAreas(findFreeFloorAreas(model))}`,
       `Categories already covered: ${occupied.length ? occupied.join(", ") : "none"}.`,
       `Brief: ${brief.prompt || "(none)"}. Styles: ${brief.styles.join(", ") || "(none)"}. Palette: ${brief.palette.join(", ") || "(none)"}. Materials: ${brief.materials.join(", ") || "(none)"}. Restrictions: ${brief.restrictions.join(", ") || "(none)"}. Budget: ${brief.budgetCents > 0 ? `$${(brief.budgetCents / 100).toFixed(0)}` : "not specified"}.`,
       brief.inspiration ? `Inspiration: ${brief.inspiration}` : "",
-      describeScope(planScope(brief), brief.purpose),
+      describeScope(planScope(brief), brief.purpose, missingDefiningPiece),
       brief.wants.some((want) => want.notes)
         ? `Notes on requested items: ${brief.wants
             .filter((want) => want.notes)
@@ -129,12 +149,30 @@ export async function proposeZones(
           .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
           .join("; ")}`,
       );
-    return buildDesignPlan({ room, brief, products, request: request.data });
+    return buildDesignPlan({
+      room,
+      brief,
+      products,
+      request: request.data,
+      placementHints,
+    });
   } catch (error) {
     // One correction pass: the rules are stated in the rejection, so the model
     // can repair a plan that overreached or left out a want.
-    if (correction || !(error instanceof Error)) throw error;
-    return proposeZones(room, brief, products, instruction, error.message);
+    if (
+      correction ||
+      !(error instanceof Error) ||
+      /defining .+ could not be reserved/i.test(error.message)
+    )
+      throw error;
+    return proposeZones(
+      room,
+      brief,
+      products,
+      instruction,
+      error.message,
+      placementHints,
+    );
   }
 }
 
@@ -153,7 +191,26 @@ export const planRoom = internalAction({
       normalizeBrief(doc.brief),
       products,
       instruction,
+      "",
+      removedPlacementHints(doc.snapshot, doc.history ?? []),
     );
     return plan;
   },
 });
+
+export function removedPlacementHints(
+  room: RoomSnapshot,
+  history: RoomObject[][],
+): RoomObject[] {
+  const currentIds = new Set(room.objects.map((object) => object.id));
+  const seen = new Set<string>();
+  const removed: RoomObject[] = [];
+  for (const snapshot of [...history].reverse()) {
+    for (const object of snapshot) {
+      if (currentIds.has(object.id) || seen.has(object.id)) continue;
+      seen.add(object.id);
+      removed.push(object);
+    }
+  }
+  return removed;
+}

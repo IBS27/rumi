@@ -40,6 +40,7 @@ export const patchBrief = internalMutation({
     materials: v.optional(v.array(v.string())),
     purpose: v.optional(v.string()),
     wants: v.optional(zodToConvex(z.array(wantSchema))),
+    excludedCategories: v.optional(v.array(v.string())),
     accessories: v.optional(
       v.union(
         v.literal("unspecified"),

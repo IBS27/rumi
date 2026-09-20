@@ -7,7 +7,7 @@ import { api, internal } from "../convex/_generated/api";
 import { sampleBrief, sampleProducts, sampleRoom } from "../shared/fixtures";
 import { MAX_IMAGE_BYTES } from "../shared/chat/uploads";
 import { buildDesignPlan } from "../shared/planner";
-import { SPEC_SUMMARY_OPTIONS } from "../shared/chat/spec";
+import { SPEC_SUMMARY_OPTIONS, specStatus } from "../shared/chat/spec";
 
 // Provider actions are excluded from these deterministic boundary tests.
 const skipAgent = internalAction({
@@ -191,6 +191,28 @@ describe("live chat boundaries", () => {
     expect(attached?.brief.budgetCents).toBe(50000);
   });
 
+  it("saves a purpose from the user's message before the agent chooses the next Spec question", async () => {
+    const { owner } = await setup();
+    const projectId = await owner.mutation(api.projects.create, {
+      title: "Bedroom furniture",
+      room: { ...sampleRoom, name: "My scanned room" },
+      firstMessage: "I need some furniture for my bedroom",
+    });
+    const context = await owner.query(api.projects.context, { projectId });
+    expect(context?.brief.purpose).toBe("bedroom");
+    expect(specStatus(context!.brief).missing[0]).toBe("style");
+
+    const existing = await setup();
+    await existing.owner.mutation(api.messages.send, {
+      projectId: existing.projectId,
+      content: "Let's find pieces for the living room",
+    });
+    const updated = await existing.owner.query(api.projects.context, {
+      projectId: existing.projectId,
+    });
+    expect(updated?.brief.purpose).toBe("living room");
+  });
+
   it("treats the old unlimited-budget sentinel as no budget", async () => {
     const { t, owner, projectId } = await setup();
     await t.run(async (ctx) => {
@@ -368,6 +390,34 @@ describe("live chat boundaries", () => {
     const second = await t.mutation(internal.plans.propose, { projectId, roomId, plan });
     expect((await t.query(internal.plans.get, { planId }))?.status).toBe("searching");
     expect((await t.query(internal.plans.get, { planId: second }))?.status).toBe("proposed");
+  });
+
+  it("persists cap explanations and searches only the pieces retained on the plan card", async () => {
+    const { t, owner, projectId } = await setup();
+    const room = { ...sampleRoom, objects: [], openings: [], dimensions: { width: 6, depth: 5, height: 2.7 } };
+    await owner.mutation(api.projects.attachRoom, { projectId, room, expectedRevision: null });
+    const roomId = (await t.run(async (ctx) => (await ctx.db.get(projectId))!.roomId))!;
+    const categories = ["bed", "desk", "chair", "floor lamp", "nightstand", "rug"];
+    const { plan } = buildDesignPlan({
+      room, products: [], brief: { ...sampleBrief, budgetCents: 0, purpose: "bedroom", wants: [] },
+      request: { summary: "Start with the essentials.", spacing: "balanced", zones: categories.map((category, index) => ({
+        id: category, category, query: category, purpose: category,
+        mount: category === "rug" ? "under" : "floor", anchor: "wall", relatedObjectId: null,
+        desiredFootprint: { width: 0.5, depth: 0.5 }, desiredHeight: null, miscellaneous: [], priority: index + 1,
+      })) },
+    });
+    const planId = await t.mutation(internal.plans.propose, { projectId, roomId, plan });
+    const page = () => owner.query(api.messages.list, { projectId, paginationOpts: { numItems: 20, cursor: null } });
+    const card = (await page()).page.find((message) => message.plan?.planId === planId)!;
+    expect(card.plan?.zones).toHaveLength(5);
+    expect(card.plan?.rejected[0].reason).toContain("Left out nightstand");
+    const kept = plan.zones.map((zone) => zone.id);
+    await owner.mutation(api.plans.confirm, { messageId: card._id, zoneIds: [...kept, "nightstand"] });
+    const active = await t.query(internal.plans.active, { projectId });
+    expect(active?.selectedZoneIds).toEqual(kept);
+    const reloaded = (await page()).page.find((message) => message._id === card._id)!;
+    expect(reloaded.answer).toEqual(kept);
+    expect(reloaded.plan?.rejected).toEqual(card.plan?.rejected);
   });
 
   it.each([false, true])("rejects stale plans before confirmation or search (confirmed=%s)", async (confirmed) => {
