@@ -25,7 +25,7 @@ tab (`docs/design-parts/05-plaster.html`).
 
 | Component                                                             | Use for                                                                                                             |
 | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `TopBar`, `Brand`                                                     | The app header. `title` for the room name, actions as children.                                                     |
+| `TopBar`, `Brand`                                                     | The app header. `title` for the room name, actions as children; `brand` swaps the wordmark for a menu button.       |
 | `Button`                                                              | Every button. `variant`: `primary` (one per screen), `soft` (default), `quiet`, `danger`. `size`: `sm`, `md`, `lg`. |
 | `Segmented`                                                           | Exclusive view switches (3D view / Floor plan).                                                                     |
 | `Chip`                                                                | On/off overlays and filters (Walls, Dimensions, Fit checks).                                                        |

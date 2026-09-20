@@ -10,12 +10,17 @@ export function Brand() {
   );
 }
 
-/** App header: brand, an optional title, then actions pushed to the right. */
+/**
+ * App header: brand, an optional title, then actions pushed to the right.
+ * `brand` replaces the plain wordmark, e.g. with a menu button around it.
+ */
 export function TopBar({
+  brand,
   title,
   children,
   className,
 }: {
+  brand?: ReactNode;
   title?: ReactNode;
   children?: ReactNode;
   className?: string;
@@ -24,7 +29,7 @@ export function TopBar({
     <header
       className={cx("flex shrink-0 items-center gap-4 px-5 py-2.5", className)}
     >
-      <Brand />
+      {brand ?? <Brand />}
       {title && (
         <div className="flex items-center gap-2.5 font-display text-base font-medium">
           {title}
