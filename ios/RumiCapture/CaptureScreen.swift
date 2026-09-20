@@ -4,6 +4,9 @@ import SwiftUI
 struct CaptureScreen: View {
     @ObservedObject var model: ScanModel
     @State private var confirmsDiscard = false
+    @StateObject private var connection = CaptureConnection()
+    @State private var showsPairing = false
+    @State private var startAfterPairing = false
     @Environment(\.openURL) private var openURL
 
     var body: some View {
@@ -52,6 +55,7 @@ struct CaptureScreen: View {
                 if let message = model.surfaceMessage {
                     Text(message).font(.footnote).foregroundStyle(.secondary)
                 }
+                connectionStatus
                 actions
             }
             .multilineTextAlignment(.center)
@@ -60,10 +64,24 @@ struct CaptureScreen: View {
         }
         .tint(Color(red: 0.16, green: 0.36, blue: 0.30))
         .confirmationDialog("Discard this scan?", isPresented: $confirmsDiscard, titleVisibility: .visible) {
-            Button("Discard and start another scan", role: .destructive) { model.startOver() }
+            Button("Discard and start another scan", role: .destructive) {
+                connection.prepareForNewScan()
+                model.startOver()
+            }
             Button("Keep scan", role: .cancel) {}
         } message: {
             Text("Export any completed scan you want to keep before starting over. This removes the saved result from this iPhone.")
+        }
+        .sheet(isPresented: $showsPairing, onDismiss: {
+            // Release the QR camera before RoomPlan takes ownership of it.
+            if startAfterPairing {
+                startAfterPairing = false
+                model.start()
+            }
+        }) {
+            PairingScreen(connection: connection) {
+                startAfterPairing = model.lifecycle.phase == .welcome
+            }
         }
         .sheet(item: $model.shareFile, onDismiss: model.shareDismissed) { file in
             RoomShareSheet(url: file.url, onCompletion: model.shareFinished)
@@ -80,7 +98,8 @@ struct CaptureScreen: View {
     @ViewBuilder private var actions: some View {
         switch model.lifecycle.phase {
         case .welcome:
-            primary("Start Scan", action: model.start)
+            primary("Connect to Rumi") { showsPairing = true }
+            Button("Start Scan", action: model.start)
         case .requestingPermission:
             ProgressView("Waiting for camera permission…")
         case .unsupported:
@@ -103,20 +122,49 @@ struct CaptureScreen: View {
             ProgressView("Finishing the scan. Keep Rumi open.")
             Button("Start over") { confirmsDiscard = true }
         case .completed:
+            if connection.isBusy {
+                ProgressView("Sending room…")
+                Button("Cancel transfer", action: connection.cancel)
+            } else if connection.sent {
+                Label("Sent to Rumi", systemImage: "checkmark.circle")
+            } else if connection.isConnected {
+                primary("Send to Rumi") { connection.send(bytes: model.completedBytes) }
+                    .disabled(model.isSharing || model.isPreparingSurface)
+            } else {
+                primary("Connect to Rumi") { showsPairing = true }
+                    .disabled(model.isSharing || model.isPreparingSurface)
+            }
             if model.isPreparingSurface {
                 ProgressView("Saving surfaces and photos. Keep Rumi open.")
             } else if model.hasSurfacePackage {
-                primary("Export scan", action: model.exportScan).disabled(model.isSharing)
-                Button("Export layout JSON", action: model.export).disabled(model.isSharing)
+                Button("Export scan", action: model.exportScan).disabled(model.isSharing || connection.isBusy)
+                Button("Export layout JSON", action: model.export).disabled(model.isSharing || connection.isBusy)
             } else {
-                primary("Export JSON", action: model.export).disabled(model.isSharing)
+                Button("Export layout JSON", action: model.export).disabled(model.isSharing || connection.isBusy)
                 if model.controller != nil {
-                    Button("Retry saving detailed scan", action: model.retrySurfacePackage).disabled(model.isSharing)
+                    Button("Retry saving detailed scan", action: model.retrySurfacePackage).disabled(model.isSharing || connection.isBusy)
                 }
             }
-            Button("Start another scan", action: requestStartOver).disabled(model.isSharing || model.isPreparingSurface)
+            Button("Start another scan", action: requestStartOver).disabled(model.isSharing || connection.isBusy || model.isPreparingSurface)
         case .failed:
             primary("Start another scan", action: requestStartOver)
+        }
+    }
+
+    @ViewBuilder private var connectionStatus: some View {
+        if let message = connection.message {
+            Text(message).font(.footnote).foregroundStyle(.secondary)
+        }
+        if connection.isConnected, !connection.sent {
+            TimelineView(.periodic(from: .now, by: 1)) { _ in
+                Text(connection.canSend ? "Connected to Rumi" : "Connection expired. Reconnect to send your scan.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+        }
+        if !model.lifecycle.isCapturing, model.lifecycle.phase != .requestingPermission,
+           model.lifecycle.phase != .welcome, model.lifecycle.phase != .completed || connection.isConnected {
+            Button(connection.isConnected ? "Connect to another session" : "Connect to Rumi") { showsPairing = true }
+                .disabled(model.isSharing || connection.isBusy || model.isPreparingSurface)
         }
     }
 
@@ -128,7 +176,7 @@ struct CaptureScreen: View {
 
     private func requestStartOver() {
         if model.needsDiscardConfirmation { confirmsDiscard = true }
-        else { model.startOver() }
+        else { connection.prepareForNewScan(); model.startOver() }
     }
 
     private func roomSummary(_ room: CapturedRoom) -> some View {
@@ -158,10 +206,10 @@ struct CaptureScreen: View {
         case .cameraDenied:
             "Rumi needs the camera to scan your room. Enable Camera for Rumi Capture in Settings, then return here and check permission again. If access is restricted, check Screen Time or device-management settings."
         case .completed:
-            "Share your saved scan with your Mac and import it into Rumi. Detailed scans include photos of your room."
+            "Send the room layout to your paired browser, or export the detailed scan ZIP to include surfaces and room photos. You can also export layout JSON."
         case .failed(let message): message
         default:
-            "Scan one room with your iPhone's LiDAR camera. Move slowly around the room and show furniture from several angles, then export the scan to Rumi on your Mac.\n\nThe scan includes room photos and visible surface shapes. Scanning and saving stay on this iPhone until you share the file."
+            "Open Scan with iPhone in Rumi, then scan its QR code. Move slowly around the room and show the sides of furniture. Send to Rumi transfers the layout; Export scan shares the surfaces and room photos as a ZIP.\n\nYou can also scan offline and connect or export later."
         }
     }
 

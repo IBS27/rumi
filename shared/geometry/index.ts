@@ -1,4 +1,5 @@
 import {
+  categorySchema,
   proposalSchema,
   roomSchema,
   type DesignBrief,
@@ -119,11 +120,12 @@ export function findPlacement(
   product: ProductCandidate,
 ): RoomObject | null {
   if (room.shape !== "rectangle") return null;
-  if (!product.measurement.dimensions) return null;
+  const category = categorySchema.safeParse(product.category);
+  if (!product.measurement.dimensions || !category.success) return null;
   const object: RoomObject = {
     id: `placed-${product.id}`,
     name: product.name,
-    category: product.category,
+    category: category.data,
     productId: product.id,
     assetId: product.assetId,
     dimensions: product.measurement.dimensions,

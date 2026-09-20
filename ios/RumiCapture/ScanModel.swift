@@ -168,6 +168,16 @@ final class ScanModel: ObservableObject {
         }
     }
 
+    func completedBytes() throws -> Data {
+        guard lifecycle.phase == .completed else { throw CaptureError.invalidRoom }
+        persistResult()
+        guard let savedURL else {
+            throw NSError(domain: "RumiCapture", code: 1, userInfo: [NSLocalizedDescriptionKey:
+                "Could not save the scan. Free some storage and try again. Your room is still in memory."])
+        }
+        return try Data(contentsOf: savedURL)
+    }
+
     func export() {
         guard lifecycle.phase == .completed, !isSharing else { return }
         persistResult()

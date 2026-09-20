@@ -101,6 +101,10 @@ export function readPackage(bytes: Uint8Array): CapturePackage {
       if (!path.safeParse(entry.name).success || names.has(entry.name))
         throw new Error("Invalid or duplicate scan file path.");
       names.add(entry.name);
+      // STORE copies `size` bytes, while DEFLATE allocates `originalSize`.
+      // Reject inconsistent STORE metadata before unzipSync allocates its output.
+      if (entry.compression === 0 && entry.size !== entry.originalSize)
+        throw new Error("Invalid stored scan file size.");
       expanded += entry.originalSize;
       if (
         ++count > 6500 ||

@@ -10,9 +10,11 @@ Import the ZIP in the web workspace. **Captured surfaces** shows the original me
 
 Select furniture in the list to switch to the editable RoomPlan layout. Changing a furniture box does not modify the measured scene. Turning captured surfaces back on closes the furniture editor. The floor-plan view always uses the structured layout.
 
+**Walk inside** works in both captured-surface and layout views. In captured surfaces, collision checks use the original RoomPlan layout so furniture edits do not move obstacles away from the measured scene. In the layout view, collision checks use the edited furniture. Collision geometry remains approximate RoomPlan geometry, not the detailed mesh. Exiting restores the panels and the chosen surface/layout view.
+
 Large source packages are saved as Blobs in IndexedDB under the current identity. Only the small room snapshot and random local asset key go in localStorage. Download writes the original package plus validated edits to a new ZIP. Source photos, depth, and geometry remain unchanged. If browser storage fails, the current tab can still display and download the package; the UI asks the user to download before closing. Clearing browser storage removes these local copies.
 
-The native app's transfer remains the share sheet. Existing QR endpoints accept layout JSON only; sending ZIP packages through them is not part of this change. No backend changes or deployment are required for file import.
+The native app offers **Send to Rumi** for paired layout transfer and **Export scan** for detailed ZIP sharing. Existing QR endpoints accept layout JSON only; sending ZIP packages through them is not part of this change. No backend changes or deployment are required for file import.
 
 ## Version 1 package
 

@@ -201,7 +201,9 @@ export const cancel = mutation({
     const session = await ctx.db.get(sessionId);
     if (!identity || !session || session.ownerId !== identity.tokenIdentifier)
       return fail("UNAUTHORIZED");
-    if (session.storageId) await ctx.storage.delete(session.storageId);
+    // Closing the QR dialog can race the upload subscription. An accepted room
+    // belongs to the workspace and must remain available for delivery.
+    if (session.state === "uploaded") return null;
     await ctx.db.patch(sessionId, { state: "canceled", storageId: undefined });
     return null;
   },

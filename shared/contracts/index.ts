@@ -11,14 +11,26 @@ export const dimensionsSchema = z.object({
   height: z.number().positive(),
   depth: z.number().positive(),
 });
+// Where a measurement came from. "structured" is machine-readable merchant data,
+// "spec-text" a printed specification, "image" a dimension diagram, "mixed" a text
+// reading completed by a diagram.
+export const evidenceSchema = z.object({
+  kind: z.enum(["structured", "spec-text", "image", "mixed", "none"]),
+  detail: z.string().nullable(),
+});
 export const measurementSchema = z
   .object({
     dimensions: dimensionsSchema.nullable(),
     source: z.enum(["confirmed", "estimated", "unknown"]),
+    evidence: evidenceSchema,
   })
   .refine(
     (value) => (value.dimensions === null) === (value.source === "unknown"),
     "Unknown measurements must have null dimensions",
+  )
+  .refine(
+    (value) => (value.dimensions === null) === (value.evidence.kind === "none"),
+    "Measurements without dimensions must have no evidence",
   );
 export const categorySchema = z.enum([
   "bed",
@@ -42,6 +54,8 @@ export const categorySchema = z.enum([
   "stairs",
   "unknown",
 ]);
+// Product search accepts concrete item labels without widening captured room objects.
+export const searchCategorySchema = z.string().trim().min(1).max(80);
 export const assetSchema = z
   .object({
     id: idSchema,
@@ -59,10 +73,12 @@ export const productSchema = z.object({
   id: idSchema,
   variantId: idSchema,
   name: z.string().min(1),
-  category: categorySchema,
+  category: searchCategorySchema,
   merchant: z.string(),
   sourceUrl: z.url(),
   imageUrl: z.url().nullable(),
+  // The gallery, best first. imageUrl is its first entry, kept for product cards.
+  images: z.array(z.url()).max(8),
   priceCents: z.number().int().nonnegative(),
   currency: z.literal("USD"),
   measurement: measurementSchema,
@@ -174,21 +190,42 @@ export const footprintSchema = z.object({
   width: z.number().positive(),
   depth: z.number().positive(),
 });
+export const hexColorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/);
 export const searchTaskSchema = z.object({
-  query: z.string(),
-  category: categorySchema,
+  query: z.string().trim().min(1).max(200),
+  category: searchCategorySchema,
   maxPriceCents: z.number().int().nonnegative(),
   maxFootprint: footprintSchema.nullable(),
+  maxHeight: z.number().positive().nullable(),
   styleTerms: z.array(z.string()),
+  palette: z.array(hexColorSchema),
+  miscellaneous: z.array(z.string().trim().min(1).max(160)).max(12),
   excludeTags: z.array(z.string()),
 });
 export const searchFailureSchema = z.object({
-  stage: z.enum(["search", "extract", "filter"]),
+  stage: z.enum(["search", "extract", "dimensions", "filter"]),
   detail: z.string(),
 });
-export const searchTaskResultSchema = searchResultSchema.extend({
+export const scoreBreakdownSchema = z.object({
+  fit: z.number().min(0).max(1),
+  style: z.number().min(0).max(1),
+  color: z.number().min(0).max(1),
+  price: z.number().min(0).max(1),
+  completeness: z.number().min(0).max(1),
+});
+export const rankedCandidateSchema = z.object({
+  product: productSchema,
+  score: z.number().min(0).max(1),
+  breakdown: scoreBreakdownSchema,
+});
+export const searchTaskResultSchema = z.object({
+  category: searchCategorySchema,
+  query: z.string(),
+  candidates: z.array(rankedCandidateSchema),
+  explanation: z.string(),
   failures: z.array(searchFailureSchema),
 });
+export type Category = z.infer<typeof searchCategorySchema>;
 export type RoomSnapshot = z.infer<typeof roomSchema>;
 export type RoomObject = z.infer<typeof roomObjectSchema>;
 export type CapturedSurface = z.infer<typeof capturedSurfaceSchema>;
@@ -202,3 +239,9 @@ export type SearchResult = z.infer<typeof searchResultSchema>;
 export type SearchTask = z.infer<typeof searchTaskSchema>;
 export type SearchFailure = z.infer<typeof searchFailureSchema>;
 export type SearchTaskResult = z.infer<typeof searchTaskResultSchema>;
+export type MeasurementEvidence = z.infer<typeof evidenceSchema>;
+export type Measurement = z.infer<typeof measurementSchema>;
+export type Footprint = z.infer<typeof footprintSchema>;
+export type Dimensions = z.infer<typeof dimensionsSchema>;
+export type ScoreBreakdown = z.infer<typeof scoreBreakdownSchema>;
+export type RankedCandidate = z.infer<typeof rankedCandidateSchema>;

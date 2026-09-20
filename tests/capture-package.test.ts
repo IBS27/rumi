@@ -155,7 +155,7 @@ describe("single-scan package", () => {
       expect(() => readPackage(altered(variant))).toThrow();
   });
   test("rejects oversized decompressed entries before allocating them", () => {
-    const bytes = syntheticCaptureZip();
+    const bytes = zipSync(syntheticCaptureFiles().files, { level: 6 });
     const view = new DataView(bytes.buffer);
     for (let i = 0; i < bytes.length - 4; i++) {
       if (view.getUint32(i, true) === 0x02014b50) {
@@ -164,6 +164,44 @@ describe("single-scan package", () => {
       }
     }
     expect(() => readPackage(bytes)).toThrow("size limit");
+  });
+  test("rejects understated STORE sizes even when directory entries share payloads", () => {
+    const bytes = syntheticCaptureZip();
+    const view = new DataView(bytes.buffer);
+    const end = bytes.length - 22;
+    const central = view.getUint32(end + 16, true);
+    const count = view.getUint16(end + 10, true);
+    const nameLength = view.getUint16(central + 28, true);
+    const recordLength =
+      46 +
+      nameLength +
+      view.getUint16(central + 30, true) +
+      view.getUint16(central + 32, true);
+    const alias = bytes.slice(central, central + recordLength);
+    // A different valid filename references the same stored payload, but claims
+    // it expands to zero bytes. The old filter accepted and copied both entries.
+    alias[46] = "x".charCodeAt(0);
+    new DataView(alias.buffer).setUint32(24, 0, true);
+    const crafted = new Uint8Array(bytes.length + alias.length);
+    crafted.set(bytes.subarray(0, end));
+    crafted.set(alias, end);
+    crafted.set(bytes.subarray(end), end + alias.length);
+    const result = new DataView(crafted.buffer);
+    const newEnd = end + alias.length;
+    result.setUint16(newEnd + 8, count + 1, true);
+    result.setUint16(newEnd + 10, count + 1, true);
+    result.setUint32(
+      newEnd + 12,
+      view.getUint32(end + 12, true) + alias.length,
+      true,
+    );
+    expect(() => readPackage(crafted)).toThrow("Invalid stored scan file size");
+  });
+  test("continues accepting valid deflated capture packages", () => {
+    const files = syntheticCaptureFiles().files;
+    const capture = readPackage(zipSync(files, { level: 6 }));
+    expect(capture.files["mesh.bin"]).toEqual(files["mesh.bin"]);
+    expect(textureCapture(capture).texturedFaceCount).toBe(1);
   });
   test("rejects edits whose original geometry belongs to another capture", () => {
     const bytes = syntheticCaptureZip();

@@ -1,20 +1,20 @@
 # Rumi room capture
 
-A SwiftUI iPhone app that scans one room with RoomPlan and ARKit in one session. It retains the original Apple JSON and captures surface geometry, selected camera photos, and depth for a textured room view in Rumi. **Export scan** shares a ZIP; **Export layout JSON** retains the original JSON handoff. See [single-session surface capture](../docs/surface-capture.md) for the package format, implementation limits, and physical-device verification still required. It has no third-party dependencies, backend, login, analytics, or networking code. All app files live under `ios/`.
+A SwiftUI iPhone app that pairs with Rumi by QR code and scans one room with RoomPlan and ARKit in one session. Send the room layout to the paired browser, or use **Export scan** to share a ZIP with surface geometry, photos, and depth for a textured room view. **Export layout JSON** preserves the original Apple JSON. Offline scanning remains available. No native login or third-party dependencies are required. See [surface capture](../docs/surface-capture.md) for the package format and device verification requirements. All app files live under `ios/`.
 
 ## Requirements
 
 - Xcode 16 or later with an iOS 17+ SDK. Use an Xcode version that supports the iOS version on your phone. This checkout was built with Xcode 26.6.
 - Deployment target: iOS 17.0. Swift 5 language mode with complete concurrency checking.
 - A physical LiDAR-equipped iPhone. The app checks `RoomCaptureSession.isSupported` before creating a capture view and explicitly rejects the simulator. A simulator can verify onboarding and the unsupported-device screen only.
-- A free Apple Account is sufficient for running on your own phone. No paid capabilities or development team are configured.
+- A free Apple Account is sufficient for running on your own phone. No paid capabilities are required. Choose your own signing team in Xcode.
 
 ## Open and run on your phone
 
 1. Open `ios/RumiCapture.xcodeproj` in Xcode. Select the **RumiCapture** scheme.
 2. In **Xcode > Settings > Accounts**, add your Apple Account. Complete login and two-factor authentication yourself.
 3. Select the project, then the **RumiCapture** app target and **Signing & Capabilities**. Leave **Automatically manage signing** enabled. Choose your **Personal Team**.
-4. Change the bundle identifier from `com.example.rumi.RumiCapture` to a unique value, such as `com.yourname.rumi.capture`. No team ID is hardcoded. If running tests on the phone, also select your team and unique identifiers on both test targets.
+4. Change the bundle identifier from `com.example.rumi.RumiCapture` to a unique value, such as `com.yourname.rumi.capture`. The checked-in project has a development team selected; replace it with yours if needed. If running tests on the phone, also select your team and unique identifiers on both test targets.
 5. Connect the iPhone to the Mac by USB, unlock it, and accept **Trust This Computer** on the phone. In **Window > Devices and Simulators**, wait for Xcode to finish pairing/preparing it.
 6. On the iPhone, enable **Settings > Privacy & Security > Developer Mode**, restart when asked, then unlock and confirm enabling Developer Mode. Pair with Xcode first if the option is missing. See [Apple's Developer Mode instructions](https://developer.apple.com/documentation/xcode/enabling-developer-mode-on-a-device).
 7. Select your physical iPhone as the run destination and press **Run** or `Command-R`. Allow Xcode to create the development signing profile. If iOS requests developer trust, open **Settings > General > VPN & Device Management**, select your developer profile, and trust it.
@@ -23,6 +23,20 @@ A SwiftUI iPhone app that scans one room with RoomPlan and ARKit in one session.
 Signing and initial setup may need an internet connection to Apple. Scanning and local export do not.
 
 Free-account provisioning profiles expire after **7 days**. Reconnect the phone, select the same Personal Team and bundle identifier, and run the app from Xcode again to rebuild and reinstall with a fresh profile. Keep the existing app installed to preserve its saved scan. Deleting it also deletes its local data. Apple also limits free accounts to 10 App IDs, 3 devices, and 3 installed development apps per device. See [Apple's Personal Team limits](https://developer.apple.com/help/account/basics/about-your-developer-account).
+
+## Pair, scan, and send
+
+1. Sign in to the web app and choose **Scan with iPhone**. Keep the QR dialog open.
+2. Open Rumi Capture on the iPhone and tap **Connect to Rumi**. Allow camera access and scan the web QR code.
+3. Check the displayed destination, then tap **Connect to Rumi**. After the QR camera closes, RoomPlan starts automatically for a new room.
+4. Scan the room and tap **Finish Scan**. Wait for processing and review the result.
+5. Wait for detailed scan packaging, then tap **Send to Rumi**. The browser imports the layout automatically. To view surfaces and room photos, use **Export scan** and import the ZIP in the browser. The saved scan remains on the iPhone for export or reconnection.
+
+You can also pair after an offline scan or after restoring a saved room. If a connection expires or the browser cancels it, show a new QR code and reconnect without discarding the scan. Pairing credentials stay in memory, so relaunching requires reconnection. One session accepts one room; starting over after an upload attempt requires a fresh session. Starting over before sending keeps the existing connection.
+
+`CaptureClient.swift` implements [the version 1 handoff](../docs/room-capture-pairing.md). Its explicit `CapturePairing.allowedOrigins` currently includes only Srinivas's development backend, `https://utmost-cow-946.convex.site`. Add other reviewed deployment origins in that list before using them. Arbitrary QR destinations and HTTP redirects are rejected. Tokens, QR payloads, and room data are not logged.
+
+Claim and upload requests retry network failures, HTTP 429, and HTTP 5xx at most three times. Short `Retry-After` values are honored; longer waits return an error without retrying early. Cancel stops the task and retry loop. A lost response can mean the server accepted the request, so manual retry preserves the original claim ID or exact upload bytes and idempotency key. Only completed, saved RoomPlan JSON can be sent. The server's upload size limit is enforced before sending.
 
 ## Scan and export
 
@@ -57,9 +71,15 @@ python3 ios/scripts/inspect_room_json.py ~/Downloads/rumi-room-*.json
 
 Use one filename if you have multiple exports. The checker reports root fields and version, checks surface/object arrays and each element's identifier, category, confidence, three dimensions, and 4x4 transform. Missing detections may be real; the checker cannot prove that dimensions match the physical room. No mock or downloaded room is presented as a successful capture or supplied as a verified handoff.
 
-## Verification of the original JSON-only app
+## Verification
 
-The surface-capture additions have not been compiled or tested on iPhone in this Fedora session. The results below predate those additions. See [surface capture verification](../docs/surface-capture.md#verification).
+The combined walkthrough, QR pairing, and surface-capture branch passes TypeScript, lint, and 228 Bun tests on Fedora. Browser checks cover synthetic ZIP import and texturing, walkthrough controls and panel restoration, furniture edits, reload, ZIP download, and reimport. Native compilation, XCTest, and physical QR/RoomPlan transfer still require Xcode and a LiDAR iPhone. See [surface capture verification](../docs/surface-capture.md#verification).
+
+Pairing backend tests include closing the browser dialog while an upload completes. Authenticated browser-to-phone transfer was not exercised in the local preview. The historical results below cover the earlier offline scanner only.
+
+New native tests in `CaptureClientTests.swift` and `CaptureConnectionTests.swift` cover QR validation, request encoding, stable retry identities and bytes, retry limits, response validation, upload size checks, cancellation, and reconnection. Run the RumiCapture scheme's tests in Xcode, then use a physical LiDAR iPhone for the pairing checklist below.
+
+The backend cancellation fix requires syncing `convex/captures.ts` to the deployment after ownership is checked. No schema migration is needed. Code generation does not deploy that fix.
 
 Verified on 2026-09-19 on the Mac checkout at `/Users/srinivasib/Developer/rumi`, branch `feat/room-capture-ios`, with Xcode 26.6:
 
@@ -95,6 +115,12 @@ Choose an installed simulator name from `xcrun simctl list devices available`. T
 
 ### Physical-device checklist
 
+- In the web app, create a QR code. Scan it in Rumi Capture, confirm the displayed destination, and verify that the web app says the phone is connected before RoomPlan starts.
+- Finish a real scan and send it. Confirm the browser renders the room, survives reload, and the phone still offers Export JSON.
+- Scan an unrelated QR code, deny camera access, and try an expired or already claimed code. Confirm each error offers recovery without losing a saved room.
+- Cancel the web dialog before sending; reconnect to a new code and send the same saved room. Close the web dialog just as an upload completes and verify an accepted room still imports.
+- Interrupt networking during a send, retry, and confirm one room is imported. Cancel an upload retry, then retry manually. Relaunch and reconnect to send the retained file.
+
 - Deny camera permission; verify Settings recovery. Rapidly tap Start/Finish and confirm only one scan/session runs.
 - Scan a furnished room with walls and openings. Finish, wait for processing, inspect the preview and counts. Confirm Export is unavailable before final processing.
 - Open Export JSON, cancel sharing, then export again. Confirm **Keep scan** cancels the start-over confirmation.
@@ -106,7 +132,7 @@ Choose an installed simulator name from `xcrun simctl list devices available`. T
 
 ## Limitations
 
-One room at a time. No multi-room merging, individual furniture mesh editing, measurements UI, USDZ export, or empty-space calculations. Surface quality and texture coverage depend on the captured views; hidden geometry is not invented. RoomPlan detects supported categories and approximate geometry; it can miss or misclassify objects. An interrupted active scan is discarded with an explanation; partial geometry is never labeled a completed room. Processing has a two-minute failure timeout with retry. Saved JSON remains private until you choose a share destination. Uninstalling the app deletes its local result.
+One room at a time. No multi-room merging, individual furniture mesh editing, measurements UI, USDZ export, or empty-space calculations. Surface quality and texture coverage depend on the captured views; hidden geometry is not invented. RoomPlan detects supported categories and approximate geometry; it can miss or misclassify objects. An interrupted active scan is discarded with an explanation; partial geometry is never labeled a completed room. Processing has a two-minute failure timeout with retry. Saved captures remain private until you send the layout to the paired browser or choose a share destination for JSON or ZIP. Uninstalling the app deletes its local result.
 
 ## Apple references
 

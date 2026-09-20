@@ -6,6 +6,11 @@ final class RumiCaptureUITests: XCTestCase {
         #if targetEnvironment(simulator)
         let app = XCUIApplication()
         app.launch()
+        let connect = app.buttons["Connect to Rumi"]
+        XCTAssertTrue(connect.waitForExistence(timeout: 10))
+        connect.tap()
+        XCTAssertTrue(app.staticTexts["QR scanning needs a supported physical iPhone."].waitForExistence(timeout: 5))
+        app.buttons["Cancel"].tap()
         let start = app.buttons["Start Scan"]
         XCTAssertTrue(start.waitForExistence(timeout: 10))
         start.tap()

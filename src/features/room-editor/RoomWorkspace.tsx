@@ -22,6 +22,9 @@ import {
   savedRoomSchema,
   type SavedRoom,
 } from "../../../shared/capture/roomplan";
+import { createWalkthrough } from "../../../shared/capture/walkthrough";
+import type { WalkInput } from "./FirstPersonCamera";
+import { WalkControls } from "./WalkControls";
 import type { CapturedRoom, RoomObject } from "../../../shared/contracts";
 import { syntheticRoomPlan } from "../../../shared/fixtures/roomplan";
 import {
@@ -102,6 +105,10 @@ export function RoomWorkspace({
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState(false);
   const [view, setView] = useState<ViewMode>("3d");
+  const [walking, setWalking] = useState(false);
+  const [walkSession, setWalkSession] = useState(0);
+  const walkInput = useRef<WalkInput>({ pressed: new Set() });
+  const root = useRef<HTMLDivElement>(null);
   const [wallsVisible, setWallsVisible] = useState(true);
   const [dimensionsVisible, setDimensionsVisible] = useState(false);
   const [showScan, setShowScan] = useState(true);
@@ -113,6 +120,11 @@ export function RoomWorkspace({
   const scanId = workspace?.scanId;
   const resource = capture?.id === scanId ? capture : null;
   const scanVisible = showScan && view === "3d" && !!resource?.scan;
+  const original = workspace?.original;
+  const originalRoom = useMemo(
+    () => (original ? importRoomPlan(original) : undefined),
+    [original],
+  );
   useEffect(() => {
     if (!scanId || capture?.id === scanId) return;
     const controller = new AbortController();
@@ -138,7 +150,34 @@ export function RoomWorkspace({
   const scanError = useCallback((message: string) => {
     setError(message);
     setShowScan(false);
+    setWalking(false);
   }, []);
+  // Captured surfaces never move with furniture edits. Match collisions to the
+  // layout represented by the visible scene, including when walking a ZIP scan.
+  const walkRoom = scanVisible ? originalRoom : room;
+  const walkthrough = useMemo(
+    () => (walkRoom ? createWalkthrough(walkRoom) : null),
+    [walkRoom],
+  );
+  const exitWalk = useCallback(() => {
+    setWalking(false);
+    walkInput.current.pressed.clear();
+    requestAnimationFrame(() =>
+      root.current
+        ?.querySelector<HTMLButtonElement>("[data-walk-entry]")
+        ?.focus(),
+    );
+  }, []);
+  function enterWalk() {
+    if (!walkthrough?.start) {
+      setError(
+        "First person needs a flat captured floor with enough clear space to stand. Try a more complete room scan.",
+      );
+      return;
+    }
+    setError("");
+    setWalking(true);
+  }
 
   function persist(next: Workspace | null) {
     setWorkspace(next);
@@ -170,6 +209,7 @@ export function RoomWorkspace({
       );
     commit({ ...next, room: next.room });
     setSelected(null);
+    setWalking(false);
   }
   async function importFile(file?: File) {
     if (!file) return;
@@ -201,6 +241,7 @@ export function RoomWorkspace({
         setCapture({ id, blob: file, scan: result.scan, persisted: stored });
         setShowScan(true);
         setView("3d");
+        setWalking(false);
         commit({ ...result.saved, room: result.saved.room, scanId: id });
         setSelected(null);
         if (!stored)
@@ -298,13 +339,8 @@ export function RoomWorkspace({
     }
   }
 
-  const original = workspace?.original;
-  const originalObjects = useMemo(
-    () => (original ? importRoomPlan(original).objects : []),
-    [original],
-  );
   const originalObject = (id: string) =>
-    originalObjects.find((item) => item.id === id);
+    originalRoom?.objects.find((item) => item.id === id);
   const chatToggle = (
     <Button
       aria-pressed={chatOpen}
@@ -314,11 +350,18 @@ export function RoomWorkspace({
     </Button>
   );
   /** Keeps floating controls clear of the chat panel while it is open. */
-  const clearChat = chatOpen ? "right-[328px]" : "right-4";
+  const clearChat = chatOpen ? "right-4 lg:right-[328px]" : "right-4";
   const chatDock = chatOpen && (
     <FloatingPanel
       aria-label="Design chat"
-      className="top-4 right-4 bottom-4 flex w-[296px] max-w-[calc(100%-32px)] flex-col overflow-hidden p-0"
+      inert={walking}
+      aria-hidden={walking}
+      className={cx(
+        "right-4 bottom-4 flex w-[296px] max-w-[calc(100%-32px)] flex-col overflow-hidden p-0 transition-[translate,opacity] duration-400 ease-in-out motion-reduce:transition-none",
+        room ? "top-28 lg:top-4" : "top-4",
+        walking &&
+          "translate-x-[calc(100%+32px)] opacity-0 pointer-events-none",
+      )}
     >
       {chat({ room, onCollapse: () => setChatOpen(false) })}
     </FloatingPanel>
@@ -326,11 +369,15 @@ export function RoomWorkspace({
 
   return (
     <div
-      className="flex h-full flex-col bg-chalk"
+      ref={root}
+      className={cx(
+        "flex h-dvh flex-col bg-chalk",
+        room ? "overflow-hidden" : "overflow-auto",
+      )}
       onDragOver={(event) => event.preventDefault()}
       onDrop={(event) => {
         event.preventDefault();
-        void importFile(event.dataTransfer.files[0]);
+        if (!walking) void importFile(event.dataTransfer.files[0]);
       }}
     >
       <input
@@ -339,6 +386,8 @@ export function RoomWorkspace({
         accept=".json,.zip,application/json,application/zip"
         className="sr-only"
         aria-label="Import room JSON or scan ZIP"
+        inert={walking}
+        aria-hidden={walking}
         onChange={(event) => {
           void importFile(event.target.files?.[0]);
           event.target.value = "";
@@ -384,38 +433,52 @@ export function RoomWorkspace({
         </>
       ) : (
         <>
-          <TopBar
-            title={
-              <>
-                {room.name}
-                {room.capture.synthetic && <Pill>sample</Pill>}
-              </>
-            }
+          <div
+            inert={walking}
+            aria-hidden={walking}
+            className={cx(
+              "grid shrink-0 transition-[grid-template-rows,opacity] duration-400 ease-in-out motion-reduce:transition-none",
+              walking
+                ? "grid-rows-[0fr] opacity-0"
+                : "grid-rows-[1fr] opacity-100",
+            )}
           >
-            {status && <Muted className="text-xs">{status}</Muted>}
-            {chatToggle}
-            <Button disabled={!history.length} onClick={undo}>
-              <Undo2 /> Undo
-            </Button>
-            <Button disabled={busy} onClick={() => void download()}>
-              <Download /> Download room
-            </Button>
-            {// eslint-disable-next-line react-hooks/refs -- scan renders a control; receive runs only when a scan arrives.
-            scan?.("bar", receive)}
-            <Button
-              variant="primary"
-              disabled={busy}
-              onClick={() => fileInput.current?.click()}
-            >
-              <Upload />
-              {busy ? "Importing…" : "Import a scan"}
-            </Button>
-            {account}
-          </TopBar>
+            <div className="min-h-0 overflow-x-auto">
+              <TopBar
+                className="min-w-max"
+                title={
+                  <>
+                    {room.name}
+                    {room.capture.synthetic && <Pill>sample</Pill>}
+                  </>
+                }
+              >
+                {status && <Muted className="text-xs">{status}</Muted>}
+                {chatToggle}
+                <Button disabled={!history.length} onClick={undo}>
+                  <Undo2 /> Undo
+                </Button>
+                <Button disabled={busy} onClick={() => void download()}>
+                  <Download /> Download room
+                </Button>
+                {// eslint-disable-next-line react-hooks/refs -- scan renders a control; receive runs only when a scan arrives.
+                scan?.("bar", receive)}
+                <Button
+                  disabled={busy}
+                  onClick={() => fileInput.current?.click()}
+                >
+                  <Upload />
+                  {busy ? "Importing…" : "Import a scan"}
+                </Button>
+                {account}
+              </TopBar>
+            </div>
+          </div>
 
           <main
             className="relative min-h-0 flex-1 bg-sage"
             aria-label="Room view"
+            data-view={walking ? "first-person" : view}
           >
             <div className="absolute inset-0">
               <Suspense
@@ -427,11 +490,14 @@ export function RoomWorkspace({
               >
                 <RoomViewer
                   room={room}
-                  selected={selected}
+                  selected={walking ? null : selected}
                   onSelect={setSelected}
                   top={view === "plan"}
-                  wallsVisible={wallsVisible}
-                  dimensionsVisible={dimensionsVisible}
+                  wallsVisible={walking || wallsVisible}
+                  dimensionsVisible={!walking && dimensionsVisible}
+                  walkthrough={walking ? walkthrough : null}
+                  walkInput={walkInput}
+                  walkSession={walkSession}
                   scan={scanVisible ? resource?.scan : undefined}
                   onScanError={scanError}
                 />
@@ -456,6 +522,7 @@ export function RoomWorkspace({
             )}
 
             <ScanDock
+              hidden={walking}
               room={room}
               selected={selected}
               onSelect={(id) => {
@@ -488,6 +555,8 @@ export function RoomWorkspace({
 
             <ViewerTools
               view={view}
+              hidden={walking}
+              onWalk={enterWalk}
               onView={setView}
               walls={wallsVisible}
               onWalls={setWallsVisible}
@@ -508,8 +577,11 @@ export function RoomWorkspace({
             />
 
             <div
+              inert={walking}
+              aria-hidden={walking}
               className={cx(
-                "absolute bottom-4 z-10 flex gap-3 rounded-full bg-chalk/80 px-2.5 py-[5px] text-[11px] text-[#3f5049]",
+                walking && "translate-y-20 opacity-0 pointer-events-none",
+                "transition-[translate,opacity] duration-400 motion-reduce:transition-none absolute bottom-4 z-10 flex gap-3 rounded-full bg-chalk/80 px-2.5 py-[5px] text-[11px] text-[#3f5049]",
                 clearChat,
               )}
             >
@@ -525,6 +597,18 @@ export function RoomWorkspace({
               </span>
             </div>
             {chatDock}
+            {walking && (
+              <WalkControls
+                name={room.name}
+                synthetic={room.capture.synthetic}
+                input={walkInput}
+                onExit={exitWalk}
+                onReset={() => {
+                  walkInput.current.pressed.clear();
+                  setWalkSession((value) => value + 1);
+                }}
+              />
+            )}
           </main>
         </>
       )}
