@@ -1,6 +1,7 @@
 import { Button, TextArea, TextInput } from "../../ui";
 import { useRef, useState } from "react";
 import { ArrowUp, ImagePlus } from "lucide-react";
+import { IMAGE_TYPES } from "../../../shared/chat/uploads";
 
 export function Composer({
   onSend,
@@ -16,7 +17,34 @@ export function Composer({
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [dragging, setDragging] = useState(false);
   const file = useRef<HTMLInputElement>(null);
+  // One path for the picker, the clipboard, and drag-and-drop.
+  async function attach(image: File | null | undefined) {
+    if (!image || disabled || busy) return;
+    if (!IMAGE_TYPES.includes(image.type)) {
+      setError("Paste or drop a JPEG, PNG, WebP, or GIF image.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      await onUpload(image);
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "Could not upload this image.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+  function imageFrom(list: DataTransfer | null): File | null {
+    if (!list) return null;
+    for (const item of list.items)
+      if (item.kind === "file" && item.type.startsWith("image/"))
+        return item.getAsFile();
+    return null;
+  }
   async function submit() {
     const text = value.trim();
     if (!text || busy || disabled) return;
@@ -46,10 +74,26 @@ export function Composer({
         </p>
       )}
       <form
-        className="flex flex-col rounded-panel border border-line bg-white p-2 transition-colors focus-within:border-teal/50 focus-within:ring-2 focus-within:ring-teal/10"
+        className={`flex flex-col rounded-panel border bg-white p-2 transition-colors focus-within:border-teal/50 focus-within:ring-2 focus-within:ring-teal/10 ${
+          dragging ? "border-teal bg-teal-tint/40" : "border-line"
+        }`}
         onSubmit={(event) => {
           event.preventDefault();
           void submit();
+        }}
+        onDragOver={(event) => {
+          if (imageFrom(event.dataTransfer) || event.dataTransfer.types.includes("Files")) {
+            event.preventDefault();
+            setDragging(true);
+          }
+        }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={(event) => {
+          setDragging(false);
+          const image = imageFrom(event.dataTransfer);
+          if (!image) return;
+          event.preventDefault();
+          void attach(image);
         }}
       >
         <TextArea
@@ -62,6 +106,13 @@ export function Composer({
           maxLength={16000}
           placeholder={placeholder}
           rows={2}
+          onPaste={(event) => {
+            const image = imageFrom(event.clipboardData);
+            if (!image) return;
+            // An image on the clipboard is an upload, not text.
+            event.preventDefault();
+            void attach(image);
+          }}
           onKeyDown={(event) => {
             if (
               event.key === "Enter" &&
@@ -81,23 +132,10 @@ export function Composer({
           disabled={disabled || busy}
           aria-label="Inspiration image"
           accept="image/jpeg,image/png,image/webp,image/gif"
-          onChange={async (event) => {
+          onChange={(event) => {
             const image = event.target.files?.[0];
             event.target.value = "";
-            if (!image || disabled || busy) return;
-            setBusy(true);
-            setError("");
-            try {
-              await onUpload(image);
-            } catch (cause) {
-              setError(
-                cause instanceof Error
-                  ? cause.message
-                  : "Could not upload this image.",
-              );
-            } finally {
-              setBusy(false);
-            }
+            void attach(image);
           }}
         />
         <div className="mt-1 flex items-center gap-2">
@@ -114,7 +152,7 @@ export function Composer({
             <ImagePlus size={18} />
           </Button>
           <span className="mr-auto text-[10px] text-mute">
-            Shift + Enter for a new line
+            {busy ? "Uploading image…" : "Paste or drop an image · Shift + Enter for a new line"}
           </span>
           <Button
             size="sm"

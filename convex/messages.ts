@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { requireOwner } from "./ownership";
-import schema from "./schema";
+import schema, { zoneRecommendation } from "./schema";
 import { paginationOptsValidator } from "convex/server";
 import {
   internalMutation,
@@ -11,6 +11,11 @@ import {
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
+import { SPEC_SUMMARY_OPTIONS } from "../shared/chat/spec";
+
+const isSpecSummary = (options: string[]) =>
+  options.length === SPEC_SUMMARY_OPTIONS.length &&
+  options.every((option, index) => option === SPEC_SUMMARY_OPTIONS[index]);
 
 const activityValidator = v.object({
   id: v.string(),
@@ -42,11 +47,58 @@ const productCard = v.object({
   imageUrl: v.union(v.string(), v.null()),
   priceCents: v.number(),
 });
+const planZoneCard = v.object({
+  id: v.string(),
+  category: v.string(),
+  purpose: v.string(),
+  mount: v.string(),
+  footprint: v.object({ width: v.number(), depth: v.number() }),
+  where: v.string(),
+  suggested: v.boolean(),
+});
+const planCard = v.object({
+  planId: v.id("plans"),
+  status: v.string(),
+  spacing: v.string(),
+  zones: v.array(planZoneCard),
+  rejected: v.array(v.object({ zoneId: v.string(), reason: v.string() })),
+});
+const zoneCard = v.object({
+  zoneId: v.string(),
+  category: v.string(),
+  fits: v.union(v.literal("yes"), v.literal("no"), v.literal("unknown")),
+  issues: v.array(v.string()),
+  product: v.union(productCard, v.null()),
+});
 const listedMessage = v.object({
   ...messageDoc.fields,
   imageUrl: v.union(v.string(), v.null()),
+  imageAnalysis: v.union(v.string(), v.null()),
   recommendation: v.union(productCard, v.null()),
+  plan: v.union(planCard, v.null()),
+  zoneCards: v.array(zoneCard),
 });
+
+// Where a reserved zone sits, in words the card can show.
+function describeWhere(
+  zone: { mount: string; anchor: string; relatedObjectId: string | null; position: { x: number; z: number } },
+  room: { dimensions: { width: number; depth: number } } | null,
+  names: Map<string, string>,
+): string {
+  const raw = zone.relatedObjectId ? names.get(zone.relatedObjectId) : null;
+  // "Your bed" → "your bed"; "the your bed" would read badly.
+  const host = raw ? raw.replace(/^(the|your|my)\s+/, "") : null;
+  if (zone.mount === "surface") return host ? `on the ${host}` : "on a surface";
+  if (zone.mount === "under") return host ? `under the ${host}` : "on the floor";
+  if (zone.mount === "wall") return "on the wall";
+  if (host) return `beside the ${host}`;
+  if (!room) return "on the floor";
+  const { width, depth } = room.dimensions;
+  const nearX = zone.position.x < width * 0.3 ? "left" : zone.position.x > width * 0.7 ? "right" : "";
+  const nearZ = zone.position.z < depth * 0.3 ? "back" : zone.position.z > depth * 0.7 ? "front" : "";
+  const spot = [nearZ, nearX].filter(Boolean).join(" ");
+  return spot ? `${spot} ${zone.anchor === "corner" ? "corner" : "wall"}` : "center of the room";
+}
 
 export const list = query({
   returns: v.object({
@@ -76,32 +128,84 @@ export const list = query({
       .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
       .order("desc")
       .paginate(paginationOpts);
+    const room = project.roomId ? await ctx.db.get(project.roomId) : null;
+    const names = new Map(
+      (room?.snapshot.objects ?? []).map((object) => [object.id, object.name.toLowerCase()]),
+    );
+    const productById = async (id: string) => {
+      const product = await ctx.db
+        .query("products")
+        .withIndex("by_catalog_id", (q) => q.eq("id", id))
+        .unique();
+      return product
+        ? {
+            id: product.id,
+            name: product.name,
+            merchant: product.merchant,
+            sourceUrl: product.sourceUrl,
+            imageUrl: product.imageUrl,
+            priceCents: product.priceCents,
+          }
+        : null;
+    };
     const page = await Promise.all(
       messages.page.map(async (message) => {
-        const [image, product] = await Promise.all([
+        const [image, product, planDoc] = await Promise.all([
           message.imageId ? ctx.db.get(message.imageId) : null,
           message.recommendationProductId
-            ? ctx.db
-                .query("products")
-                .withIndex("by_catalog_id", (q) =>
-                  q.eq("id", message.recommendationProductId!),
-                )
-                .unique()
+            ? productById(message.recommendationProductId)
             : null,
+          message.planId ? ctx.db.get(message.planId) : null,
         ]);
+        const zoneNames = new Map(names);
+        for (const zone of planDoc?.plan.zones ?? [])
+          zoneNames.set(zone.id, zone.category.toLowerCase());
+        const plan = planDoc
+          ? {
+              planId: planDoc._id,
+              status: planDoc.status,
+              spacing: planDoc.plan.spacing,
+              zones: planDoc.plan.zones.map((zone) => ({
+                id: zone.id,
+                category: zone.category,
+                purpose: zone.purpose,
+                mount: zone.mount,
+                footprint: zone.footprint,
+                where: describeWhere(zone, room?.snapshot ?? null, zoneNames),
+                suggested: zone.suggested,
+              })),
+              rejected: planDoc.plan.rejected,
+            }
+          : null;
+        // The searched plan's zones give each product card its category.
+        const searched = message.recommendations?.length
+          ? await ctx.db
+              .query("plans")
+              .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
+              .order("desc")
+              .take(10)
+          : [];
+        const categoryOf = new Map<string, string>();
+        for (const item of searched)
+          for (const zone of item.plan.zones)
+            if (!categoryOf.has(zone.id)) categoryOf.set(zone.id, zone.category);
+        const zoneCards = await Promise.all(
+          (message.recommendations ?? []).map(async (item) => ({
+            zoneId: item.zoneId,
+            category: categoryOf.get(item.zoneId) ?? item.zoneId,
+            fits: item.fits,
+            issues: item.issues,
+            product: item.productId ? await productById(item.productId) : null,
+          })),
+        );
         return {
           ...message,
           imageUrl: image ? await ctx.storage.getUrl(image.storageId) : null,
-          recommendation: product
-            ? {
-                id: product.id,
-                name: product.name,
-                merchant: product.merchant,
-                sourceUrl: product.sourceUrl,
-                imageUrl: product.imageUrl,
-                priceCents: product.priceCents,
-              }
-            : null,
+          imageAnalysis:
+            image?.status === "analyzed" ? (image.analysis ?? null) : null,
+          recommendation: product,
+          plan,
+          zoneCards,
         };
       }),
     );
@@ -199,11 +303,34 @@ export const answer = mutation({
     if (choice.length === 0 || (!question.multiSelect && choice.length !== 1))
       throw new Error("Choose an answer.");
     await ctx.db.patch(messageId, { answer: choice, status: "done" });
+    // The spec summary card moves the stage itself. Leaving this to the model
+    // let it re-show the summary in a loop.
+    const summaryCard = isSpecSummary(question.options ?? []);
+    if (summaryCard && choice[0] === SPEC_SUMMARY_OPTIONS[0]) {
+      if (!project.roomId)
+        return await postUserTurn(
+          ctx,
+          question.projectId,
+          ownerId,
+          "Start planning. (No room is attached yet.)",
+        );
+      await ctx.db.patch(project._id, { phase: "plan" });
+      return await postUserTurn(
+        ctx,
+        question.projectId,
+        ownerId,
+        "Start planning.",
+      );
+    }
+    // Echo the question's first line only; a long card must not become the
+    // user's whole message.
+    const heading = question.content.split("\n").find((line) => line.trim()) ?? "";
+    const prefix = summaryCard ? "" : `${heading.slice(0, 160)} — `;
     return await postUserTurn(
       ctx,
       question.projectId,
       ownerId,
-      `${question.content} — ${choice.join(", ")}`,
+      `${prefix}${choice.join(", ")}`,
     );
   },
 });
@@ -215,10 +342,11 @@ export const updateProgress = internalMutation({
     content: v.string(),
     activity: v.array(activityValidator),
     recommendationProductId: v.optional(v.union(v.string(), v.null())),
+    recommendations: v.optional(v.array(zoneRecommendation)),
   },
   handler: async (
     ctx,
-    { messageId, content, activity, recommendationProductId },
+    { messageId, content, activity, recommendationProductId, recommendations },
   ) => {
     const message = await ctx.db.get(messageId);
     if (!message || message.status !== "pending") return;
@@ -231,6 +359,7 @@ export const updateProgress = internalMutation({
       ...(recommendationProductId !== undefined
         ? { recommendationProductId: recommendationProductId ?? undefined }
         : {}),
+      ...(recommendations !== undefined ? { recommendations } : {}),
     });
   },
 });
@@ -264,17 +393,32 @@ export const complete = internalMutation({
   },
 });
 
+// The agent's view of the conversation. An image message carries its visual
+// analysis inline so the model sees the cues without them cluttering the chat.
 export const history = internalQuery({
   returns: v.array(messageDoc),
   args: { projectId: v.id("projects") },
-  handler: async (ctx, { projectId }): Promise<Doc<"messages">[]> =>
-    (
+  handler: async (ctx, { projectId }): Promise<Doc<"messages">[]> => {
+    const messages = (
       await ctx.db
         .query("messages")
         .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
         .order("desc")
         .take(100)
-    ).reverse(),
+    ).reverse();
+    return await Promise.all(
+      messages.map(async (message) => {
+        if (!message.imageId) return message;
+        const image = await ctx.db.get(message.imageId);
+        return image?.status === "analyzed" && image.analysis
+          ? {
+              ...message,
+              content: `${message.content} Visual analysis: ${image.analysis}`,
+            }
+          : message;
+      }),
+    );
+  },
 });
 
 export const expire = internalMutation({

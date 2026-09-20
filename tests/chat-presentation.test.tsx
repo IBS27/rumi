@@ -26,8 +26,48 @@ describe("product replies", () => {
     expect(html).toContain("Sample sofa");
     expect(html).toContain("$547.66");
     expect(html).toMatch(
-      /<details[^>]*><summary[^>]*>Rumi&#x27;s notes<\/summary><p[^>]*>Material caveat<\/p><\/details>/,
+      /<details[^>]*><summary[^>]*>Rumi&#x27;s notes<\/summary>[\s\S]*<p[^>]*>Material caveat<\/p>[\s\S]*<\/details>/,
     );
+    expect(html).not.toContain("<details open");
+  });
+
+  it("renders light Markdown as styled text, never raw markers", () => {
+    const html = renderToStaticMarkup(
+      <ChatMessage
+        message={{
+          role: "assistant",
+          status: "done",
+          content: [
+            "### Design Signals",
+            "**Style:** Modern and cozy with **eclectic** touches.",
+            "- Vertical wood slats",
+            "- Plush bedding",
+            "Palette: neutral base with dark accents",
+          ].join("\n"),
+        }}
+      />,
+    );
+    expect(html).not.toContain("###");
+    expect(html).not.toContain("**");
+    expect(html).toContain("<strong");
+    expect(html).toContain("<li>Vertical wood slats</li>");
+    expect(html).toMatch(/<span[^>]*>Palette:<\/span> neutral base/);
+  });
+
+  it("shows the image analysis as a closed note under the user's image", () => {
+    const html = renderToStaticMarkup(
+      <ChatMessage
+        message={{
+          role: "user",
+          status: "done",
+          content: "I uploaded an inspiration image.",
+          imageUrl: "https://example.com/a.png",
+          imageAnalysis: "Style: warm minimal.\nMaterials: oak, linen.",
+        }}
+      />,
+    );
+    expect(html).toContain("What Rumi saw");
+    expect(html).toContain("warm minimal");
     expect(html).not.toContain("<details open");
   });
 

@@ -446,6 +446,12 @@ describe("search hits", () => {
     expect(isUnsupportedMerchant("https://www.ikea.com/us/en/p/item/")).toBe(
       false,
     );
+    // Country in the path, one shared host.
+    expect(isUnsupportedMerchant("https://www.ikea.com/at/en/p/tidtabell-rug/")).toBe(true);
+    expect(isUnsupportedMerchant("https://www.ikea.com/gb/en/p/rug/")).toBe(true);
+    // A single language segment is not a country.
+    expect(isUnsupportedMerchant("https://shop.example.com/en/products/rug")).toBe(false);
+    expect(isUnsupportedMerchant("https://www.wayfair.com/rugs/pdp/rug-w1.html")).toBe(false);
     expect(
       dedupeHits([
         { url: "https://www.amazon.com/dp/B08Z8GHPFV", title: "Lamp" },
