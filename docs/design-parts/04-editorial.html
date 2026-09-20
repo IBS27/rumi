@@ -1,0 +1,645 @@
+<section class="design" id="d4" data-title="Editorial">
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..700;1,9..144,300..700&family=Instrument+Sans:ital,wght@0,400..700;1,400..700&display=swap');
+
+#d4 {
+  --paper: #FBF9F4;
+  --ink: #1B1915;
+  --muted: #6B655B;
+  --field: #F0EBE1;
+  --field-deep: #E4DDCF;
+  --moss: #55663F;
+  --moss-deep: #414F30;
+  --serif: 'Fraunces', Georgia, serif;
+  --sans: 'Instrument Sans', Helvetica, sans-serif;
+  box-sizing: border-box;
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--ink);
+  background: var(--paper);
+  padding: 64px 0;
+}
+#d4 *, #d4 *::before, #d4 *::after { box-sizing: inherit; }
+#d4 .note {
+  max-width: 62ch;
+  margin: 0 auto 56px;
+  font-family: var(--serif);
+  font-variation-settings: 'opsz' 14;
+  font-size: 18px;
+  line-height: 1.55;
+  color: var(--ink);
+}
+#d4 .screen { margin: 0 auto 96px; width: 1280px; max-width: 100%; }
+#d4 .frame {
+  width: 1280px;
+  max-width: 100%;
+  height: 800px;
+  background: var(--paper);
+  box-shadow: 0 0 0 1px var(--field-deep);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* type roles */
+#d4 .display {
+  font-family: var(--serif);
+  font-weight: 400;
+  font-variation-settings: 'opsz' 144;
+  letter-spacing: -0.015em;
+  line-height: 1;
+  margin: 0;
+}
+#d4 .title {
+  font-family: var(--serif);
+  font-weight: 400;
+  font-variation-settings: 'opsz' 72;
+  letter-spacing: -0.01em;
+  line-height: 1.1;
+  margin: 0;
+}
+#d4 .caption { font-size: 13px; color: var(--muted); line-height: 1.45; }
+#d4 .num { font-variant-numeric: tabular-nums; }
+#d4 .est { text-decoration: underline dotted var(--muted); text-underline-offset: 3px; text-decoration-thickness: 1px; }
+#d4 p { margin: 0; }
+
+/* controls */
+#d4 button, #d4 input, #d4 select, #d4 textarea {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  border-radius: 0;
+}
+#d4 button { cursor: pointer; }
+#d4 :is(button, input, select, textarea, a, [tabindex]):focus-visible {
+  outline: 2px solid var(--moss);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+#d4 .btn {
+  display: inline-block;
+  padding: 11px 18px;
+  background: var(--moss);
+  color: var(--paper);
+  font-weight: 500;
+  border-radius: 3px;
+  line-height: 1.2;
+}
+#d4 .btn:hover { background: var(--moss-deep); }
+#d4 .link {
+  display: inline-block;
+  color: var(--ink);
+  font-weight: 500;
+  text-decoration: underline;
+  text-decoration-color: var(--field-deep);
+  text-underline-offset: 4px;
+  text-decoration-thickness: 1.5px;
+  line-height: 1.2;
+}
+#d4 .link:hover { text-decoration-color: var(--moss); color: var(--moss-deep); }
+#d4 .link.quiet { color: var(--muted); font-weight: 400; }
+#d4 .seg { display: inline-flex; gap: 20px; }
+#d4 .seg button {
+  padding: 4px 0 6px;
+  color: var(--muted);
+  border-bottom: 2px solid transparent;
+}
+#d4 .seg button[aria-pressed="true"] { color: var(--ink); border-bottom-color: var(--moss); }
+#d4 .check { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+#d4 .check input {
+  appearance: none;
+  width: 16px; height: 16px;
+  background: var(--field);
+  border-radius: 2px;
+  flex: none;
+  position: relative;
+}
+#d4 .check input:checked { background: var(--moss); }
+#d4 .check input:checked::after {
+  content: '';
+  position: absolute; left: 5px; top: 2px;
+  width: 4px; height: 8px;
+  border: solid var(--paper); border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+#d4 .field { display: block; }
+#d4 .field span { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+#d4 .field input, #d4 .field select {
+  width: 100%;
+  background: var(--field);
+  padding: 8px 10px;
+  border-radius: 2px;
+  line-height: 1.3;
+}
+#d4 .field select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%231B1915' stroke-width='1.5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+}
+
+/* top bar shared by open-room screens */
+#d4 .bar {
+  display: grid;
+  grid-template-columns: 260px 1fr auto;
+  align-items: baseline;
+  gap: 40px;
+  padding: 22px 48px 0;
+}
+#d4 .bar .brand { font-family: var(--serif); font-size: 26px; font-variation-settings: 'opsz' 72; line-height: 1; }
+#d4 .bar .where { color: var(--muted); }
+#d4 .bar .where b { color: var(--ink); font-weight: 500; }
+#d4 .bar .tools { display: flex; align-items: baseline; gap: 22px; }
+#d4 .avatar {
+  width: 30px; height: 30px; border-radius: 50%;
+  background: var(--ink); color: var(--paper);
+  font-family: var(--serif); font-size: 15px;
+  display: inline-grid; place-items: center; align-self: center;
+}
+
+/* ---------- Start ---------- */
+#d4 .start {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  gap: 40px;
+  padding: 36px 48px 40px;
+}
+#d4 .start .margin { display: flex; flex-direction: column; }
+#d4 .start .margin .brand { font-family: var(--serif); font-size: 44px; font-variation-settings: 'opsz' 144; line-height: 1; }
+#d4 .start .margin .caption { margin-top: auto; max-width: 22ch; }
+#d4 .start .margin .signin { margin-top: 18px; }
+#d4 .start .fieldwrap { position: relative; display: flex; flex-direction: column; }
+#d4 .start h1 { font-size: 84px; max-width: 9ch; }
+#d4 .start .lede { max-width: 44ch; margin-top: 22px; font-size: 17px; }
+#d4 .start .actions { margin-top: 44px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 40px; max-width: 900px; }
+#d4 .start .action { display: flex; flex-direction: column; gap: 10px; }
+#d4 .start .action .title { font-size: 30px; }
+#d4 .start .action .caption { max-width: 28ch; }
+#d4 .start .action .btn, #d4 .start .action .link { align-self: flex-start; margin-top: 8px; }
+#d4 .start .drop {
+  margin-top: auto;
+  color: var(--muted);
+  font-size: 13px;
+  padding-top: 24px;
+}
+
+/* pairing sheet, overlaid on the start field */
+#d4 .pair {
+  position: absolute;
+  right: 0; top: 24px;
+  width: 300px;
+  background: var(--paper);
+  box-shadow: 0 1px 0 var(--field-deep), 0 24px 48px -24px rgba(27,25,21,.35);
+  padding: 22px 24px 20px;
+  border-radius: 4px;
+}
+#d4 .pair .title { font-size: 24px; }
+#d4 .pair .qr { display: block; width: 140px; height: 140px; margin: 16px 0 14px; }
+#d4 .pair .row { display: flex; justify-content: space-between; align-items: baseline; }
+
+/* ---------- Room review ---------- */
+#d4 .review {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  grid-template-rows: minmax(0, 1fr);
+  gap: 48px;
+  align-items: stretch;
+  padding: 20px 48px 24px;
+}
+#d4 .roomhead { display: flex; flex-direction: column; min-height: 0; }
+#d4 .roomhead .title { font-size: 32px; }
+#d4 .roomhead .caption { margin-top: 4px; }
+#d4 .extents { margin-top: 14px; font-family: var(--serif); }
+#d4 .extents .line { display: flex; align-items: baseline; gap: 10px; line-height: 0.9; }
+#d4 .extents .line .n {
+  font-size: 40px;
+  font-weight: 300;
+  font-variation-settings: 'opsz' 144;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+#d4 .extents .line .by { font-size: 20px; font-weight: 300; color: var(--muted); width: 18px; text-align: right; }
+#d4 .extents .line .of { font-family: var(--sans); font-size: 13px; color: var(--muted); }
+#d4 .extents .sum { margin-top: 10px; font-size: 16px; font-variation-settings: 'opsz' 20; line-height: 1.35; }
+#d4 .extents .sum .caption { font-family: var(--sans); display: block; margin-top: 4px; }
+#d4 .index { margin-top: 14px; margin-left: -12px; flex: 1; min-height: 0; overflow: auto; }
+#d4 .index .caption { margin-bottom: 4px; padding-left: 12px; }
+#d4 .entry { border-radius: 3px; }
+#d4 .entry.selected { background: var(--field); box-shadow: inset 3px 0 0 var(--moss); }
+#d4 .entry .pick {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 5px 12px 6px;
+  border-radius: 3px;
+}
+#d4 .entry:not(.selected) .pick:hover { background: var(--field); }
+#d4 .entry .name { font-family: var(--serif); font-size: 17px; font-variation-settings: 'opsz' 20; line-height: 1.15; }
+#d4 .entry .dims { font-size: 12px; color: var(--muted); margin-top: 1px; }
+#d4 .edit { padding: 0 8px 10px 12px; display: grid; gap: 5px; }
+#d4 .edit .three { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+#d4 .edit .field input { background: var(--paper); padding: 5px 8px; font-size: 13px; }
+#d4 .edit .field span { font-size: 12px; margin-bottom: 2px; }
+#d4 .edit .check { font-size: 13px; }
+#d4 .edit .check input { background: var(--paper); }
+#d4 .edit .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 2px; }
+#d4 .edit .btn { padding: 6px 10px; font-size: 13px; }
+#d4 .edit .link { font-size: 13px; }
+
+#d4 .viewer { display: flex; flex-direction: column; min-height: 0; }
+#d4 .viewer .head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 12px; }
+#d4 .viewer .head .toggles { display: flex; gap: 20px; font-size: 14px; }
+#d4 .viewer .canvas { flex: 1; min-height: 0; position: relative; background: var(--field); border-radius: 4px; }
+#d4 .viewer .canvas svg { position: absolute; inset: 24px; width: calc(100% - 48px); height: calc(100% - 48px); }
+
+/* ---------- Design workspace ---------- */
+#d4 .work {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 360px 1fr;
+  grid-template-rows: minmax(0, 1fr);
+  gap: 40px;
+  padding: 28px 48px 36px;
+}
+#d4 .letter { display: flex; flex-direction: column; min-height: 0; }
+#d4 .letter .brief { font-family: var(--serif); font-variation-settings: 'opsz' 20; font-size: 18px; line-height: 1.35; }
+#d4 .letter .from { margin-top: 22px; flex: 1; min-height: 0; overflow: auto; padding-right: 8px; }
+#d4 .letter .from p { font-family: var(--serif); font-variation-settings: 'opsz' 14; font-size: 16px; line-height: 1.5; max-width: 40ch; }
+#d4 .letter .from p + p { margin-top: 12px; }
+#d4 .letter .sign { font-family: var(--serif); font-style: italic; font-size: 18px; margin-top: 14px; }
+#d4 .letter .compose { margin-top: auto; padding-top: 18px; }
+#d4 .letter textarea {
+  width: 100%;
+  min-height: 64px;
+  background: var(--field);
+  padding: 12px 14px;
+  border-radius: 3px;
+  resize: vertical;
+  line-height: 1.45;
+}
+#d4 .letter .compose .row { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-top: 12px; }
+#d4 .letter .compose .row .btn { white-space: nowrap; flex: none; }
+
+#d4 .scene { display: flex; flex-direction: column; min-height: 0; }
+#d4 .scene .head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 12px; }
+#d4 .scene .canvas { flex: 0 0 260px; position: relative; background: var(--field); border-radius: 4px; }
+#d4 .scene .canvas svg { position: absolute; inset: 8px 24px; width: calc(100% - 48px); height: calc(100% - 16px); }
+#d4 .fit { display: grid; grid-template-columns: 1fr auto; gap: 24px; align-items: baseline; margin-top: 14px; }
+#d4 .fit .what { font-weight: 600; }
+#d4 .fit .what::before { content: ''; display: inline-block; width: 9px; height: 9px; background: var(--ink); margin-right: 10px; transform: translateY(-1px); }
+#d4 .fit .how { color: var(--muted); margin-top: 2px; margin-left: 19px; }
+
+#d4 .picks { margin-top: 12px; flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 240px; gap: 40px; }
+#d4 .products { display: grid; gap: 2px; align-content: start; min-height: 0; overflow: auto; }
+#d4 .product {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 24px;
+  padding: 4px 14px;
+  margin-left: -14px;
+  border-radius: 3px;
+}
+#d4 .product:hover { background: var(--field); }
+#d4 .product .name { font-family: var(--serif); font-size: 20px; font-variation-settings: 'opsz' 40; line-height: 1.1; }
+#d4 .product .price { font-family: var(--serif); font-size: 20px; font-variation-settings: 'opsz' 40; line-height: 1.1; text-align: right; font-variant-numeric: tabular-nums; }
+#d4 .product .meta { grid-column: 1; font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 2px 16px; white-space: nowrap; }
+#d4 .product .meta .warn { color: var(--ink); font-weight: 500; }
+#d4 .product .lock { grid-column: 2; grid-row: 2; text-align: right; font-size: 12px; }
+#d4 .product .lock .link { font-size: 12px; }
+
+#d4 .budget { font-family: var(--serif); }
+#d4 .budget .big { font-size: 44px; font-weight: 300; font-variation-settings: 'opsz' 144; letter-spacing: -0.03em; line-height: 1; font-variant-numeric: tabular-nums; }
+#d4 .budget .of { font-size: 17px; font-variation-settings: 'opsz' 20; margin-top: 6px; line-height: 1.3; }
+#d4 .budget .track { margin: 12px 0 8px; height: 6px; background: var(--field-deep); border-radius: 3px; overflow: hidden; }
+#d4 .budget .track i { display: block; height: 100%; width: 66%; background: var(--ink); }
+#d4 .budget .caption { font-family: var(--sans); }
+#d4 .budget .kept { margin-top: 18px; font-family: var(--sans); font-size: 13px; color: var(--muted); display: grid; gap: 6px; }
+#d4 .budget .kept b { color: var(--ink); font-weight: 500; }
+
+/* narrower windows */
+@media (max-width: 1100px) {
+  #d4 .review { grid-template-columns: 250px 1fr; gap: 36px; }
+  #d4 .work { grid-template-columns: 320px 1fr; gap: 36px; }
+  #d4 .start h1 { font-size: 72px; }
+  #d4 .start .actions { grid-template-columns: 1fr 1fr; }
+  #d4 .pair { position: static; margin-top: 40px; }
+  #d4 .picks { grid-template-columns: 1fr; }
+}
+</style>
+
+<aside class="note">
+Rumi set like an interiors magazine: a wide left margin carries the room's name, its measurements, and the designer's letter, while the right field holds the plan and the objects. Fraunces does the names and numbers; Instrument Sans does controls and captions. Paper white, ink, and one moss green used only where something can be clicked. Nothing is ruled off; space does the separating.
+</aside>
+
+<!-- ===================== 1. Start ===================== -->
+<article class="screen" data-screen="Start">
+<div class="frame">
+  <div class="start">
+    <div class="margin">
+      <div class="brand">rumi</div>
+      <button class="link signin" type="button">Sign in</button>
+      <p class="caption">Nothing leaves this browser until you choose a room and ask the designer for something.</p>
+    </div>
+
+    <div class="fieldwrap">
+      <h1 class="display">Start with the room you already have.</h1>
+      <p class="lede">Scan it with an iPhone, import a RoomPlan file, or open the sample room to see how review works. Rumi then furnishes it from real listings and shows you what fits and what it costs.</p>
+
+      <div class="actions">
+        <div class="action">
+          <h2 class="title">Scan with iPhone</h2>
+          <p class="caption">Pairs your phone to this window. You walk the room with the camera; the walls, doors and furniture arrive here.</p>
+          <button class="btn" type="button">Scan with iPhone</button>
+        </div>
+        <div class="action">
+          <h2 class="title">Import a scan</h2>
+          <p class="caption">A RoomPlan JSON export from your phone or from a previous session.</p>
+          <button class="link" type="button">Choose a file</button>
+        </div>
+        <div class="action">
+          <h2 class="title">Open the sample room</h2>
+          <p class="caption">The corner living room, a sample capture. Its measurements and listings are made up, and it says so.</p>
+          <button class="link" type="button">Open the sample room</button>
+        </div>
+      </div>
+
+      <p class="drop">You can also drop a RoomPlan JSON file anywhere on this page.</p>
+
+      <div class="pair" role="dialog" aria-labelledby="d4-pair-title">
+        <h3 class="title" id="d4-pair-title">Open Rumi on your iPhone and scan this code</h3>
+        <svg class="qr" viewBox="0 0 21 21" shape-rendering="crispEdges" aria-label="Pairing code placeholder">
+          <rect width="21" height="21" fill="#FBF9F4"/>
+          <g fill="#1B1915">
+            <path d="M0 0h7v7H0zM14 0h7v7h-7zM0 14h7v7H0z"/>
+            <path d="M8 0h1v2H8zM10 0h2v1h-2zM8 3h2v1H8zM11 2h1v3h-1zM9 5h1v3H9zM12 6h1v1h-1zM0 8h2v1H0zM3 8h1v2H3zM5 9h2v1H5zM8 8h1v1H8zM10 9h3v1h-3zM14 8h1v2h-1zM16 9h2v1h-2zM19 8h2v1h-2zM1 10h1v2H1zM4 11h2v1H4zM7 10h2v2H7zM11 11h1v2h-1zM13 10h1v2h-1zM15 11h2v1h-2zM18 10h1v3h-1zM20 11h1v2h-1zM0 12h1v1H0zM2 12h2v1H2zM5 13h1v1H5zM8 13h2v1H8zM12 13h1v1h-1zM14 12h2v1h-2zM17 13h1v1h-1zM19 13h1v1h-1zM8 15h1v2H8zM10 14h2v1h-2zM13 15h2v1h-2zM16 15h1v2h-1zM18 14h2v1h-2zM20 15h1v2h-1zM9 17h2v1H9zM12 17h1v2h-1zM14 17h1v1h-1zM17 17h2v1h-2zM8 19h1v2H8zM10 19h1v2h-1zM13 19h2v1h-2zM16 19h1v2h-1zM18 20h3v1h-3z"/>
+          </g>
+          <g fill="#FBF9F4"><path d="M1 1h5v5H1zM15 1h5v5h-5zM1 15h5v5H1z"/></g>
+          <g fill="#1B1915"><path d="M2 2h3v3H2zM16 2h3v3h-3zM2 16h3v3H2z"/></g>
+        </svg>
+        <div class="row">
+          <span class="caption num">Code expires in 4:59</span>
+          <button class="link quiet" type="button">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</article>
+
+<!-- ===================== 2. Room review ===================== -->
+<article class="screen" data-screen="Room review">
+<div class="frame">
+  <div class="bar">
+    <div class="brand">rumi</div>
+    <div class="where">Rooms <b>The corner living room</b></div>
+    <div class="tools">
+      <span class="caption">Saved on this browser</span>
+      <button class="link quiet" type="button">Undo</button>
+      <button class="link" type="button">Download room</button>
+      <span class="avatar" aria-label="Signed in as S">S</span>
+    </div>
+  </div>
+
+  <div class="review">
+    <div class="roomhead">
+      <h1 class="title">The corner living&nbsp;room</h1>
+      <p class="caption">Sample capture. Reviewed 19 September.</p>
+
+      <div class="extents" aria-label="Room extents">
+        <div class="line"><span class="by"></span><span class="n">5.20</span><span class="of">m long</span></div>
+        <div class="line"><span class="by">×</span><span class="n">3.55</span><span class="of">m wide</span></div>
+        <div class="line"><span class="by">×</span><span class="n">2.60</span><span class="of">m high</span></div>
+        <p class="sum">18.4 m² of floor,<br>six walls, five things already in it.</p>
+      </div>
+
+      <div class="index">
+        <p class="caption">Objects in the scan. Choose one to edit it.</p>
+        <div class="entry"><button class="pick" type="button"><div class="name">Sofa</div><div class="dims num">2.10 × 0.95 × 0.82 m, confirmed</div></button></div>
+        <div class="entry selected">
+          <button class="pick" type="button" aria-current="true"><div class="name">Coffee table</div><div class="dims num">1.10 × 0.60 × 0.42 m, <span class="est">estimated</span></div></button>
+          <form class="edit" aria-label="Edit coffee table">
+            <div class="three">
+              <label class="field"><span>Width</span><input class="num" type="text" value="1.10"></label>
+              <label class="field"><span>Depth</span><input class="num" type="text" value="0.60"></label>
+              <label class="field"><span>Height</span><input class="num" type="text" value="0.42"></label>
+            </div>
+            <label class="check"><input type="checkbox"> Measurements confirmed</label>
+            <label class="check"><input type="checkbox"> Keep in place when designing</label>
+            <div class="actions">
+              <button class="btn" type="button">Save changes</button>
+              <button class="link quiet" type="button">Reset to scan</button>
+              <button class="link quiet" type="button">Remove</button>
+            </div>
+          </form>
+        </div>
+        <div class="entry"><button class="pick" type="button"><div class="name">Bookshelf</div><div class="dims num">0.80 × 0.30 × 1.90 m, <span class="est">estimated</span></div></button></div>
+        <div class="entry"><button class="pick" type="button"><div class="name">Armchair</div><div class="dims num">0.85 × 0.90 × 0.78 m, confirmed</div></button></div>
+        <div class="entry"><button class="pick" type="button"><div class="name">Floor lamp</div><div class="dims num">0.35 × 0.35 × 1.60 m, <span class="est">estimated</span></div></button></div>
+      </div>
+    </div>
+
+    <div class="viewer">
+      <div class="head">
+        <div class="seg" role="group" aria-label="View">
+          <button type="button" aria-pressed="false">3D view</button>
+          <button type="button" aria-pressed="true">Floor plan</button>
+        </div>
+        <div class="toggles">
+          <label class="check"><input type="checkbox" checked> Walls</label>
+          <label class="check"><input type="checkbox" checked> Dimensions</label>
+        </div>
+      </div>
+      <div class="canvas">
+        <svg viewBox="0 0 600 440" role="img" aria-label="Floor plan of the corner living room, coffee table selected">
+          <defs>
+            <marker id="d4-tick" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto">
+              <path d="M3 0v6" stroke="#6B655B" stroke-width="1"/>
+            </marker>
+          </defs>
+          <g font-family="Instrument Sans, sans-serif" font-size="9" fill="#6B655B">
+            <!-- dimension overlays -->
+            <path d="M40 22H560" stroke="#6B655B" stroke-width="1" marker-start="url(#d4-tick)" marker-end="url(#d4-tick)"/>
+            <text x="300" y="16" text-anchor="middle">5.20 m</text>
+            <path d="M22 50V405" stroke="#6B655B" stroke-width="1" marker-start="url(#d4-tick)" marker-end="url(#d4-tick)"/>
+            <text x="14" y="232" text-anchor="middle" transform="rotate(-90 14 232)">3.55 m</text>
+            <path d="M578 50V210" stroke="#6B655B" stroke-width="1" marker-start="url(#d4-tick)" marker-end="url(#d4-tick)"/>
+            <text x="586" y="132" text-anchor="middle" transform="rotate(90 586 132)">1.60 m</text>
+          </g>
+          <!-- walls: six segments, a notch in the lower right corner -->
+          <path d="M40 50H560V210H440V405H40Z" fill="#FBF9F4" stroke="#1B1915" stroke-width="5" stroke-linejoin="miter"/>
+          <!-- doorway on the left wall with swing -->
+          <path d="M40 300V390" stroke="#F0EBE1" stroke-width="7"/>
+          <path d="M40 390A90 90 0 0 1 130 300" fill="none" stroke="#6B655B" stroke-width="1" stroke-dasharray="3 3"/>
+          <path d="M40 390V300" stroke="#1B1915" stroke-width="1.5"/>
+          <!-- window on top wall -->
+          <path d="M180 50H400" stroke="#FBF9F4" stroke-width="5"/>
+          <path d="M180 47H400M180 53H400" stroke="#1B1915" stroke-width="1"/>
+          <g font-family="Instrument Sans, sans-serif" font-size="9" fill="#1B1915">
+            <!-- sofa 2.10 x 0.95, along the top wall -->
+            <rect x="170" y="62" width="210" height="95" rx="6" fill="#E4DDCF" stroke="#1B1915" stroke-width="1.2"/>
+            <path d="M190 62V157M360 62V157M170 82H380" fill="none" stroke="#1B1915" stroke-width="0.8" opacity=".5"/>
+            <text x="275" y="123" text-anchor="middle">Sofa</text>
+            <!-- coffee table 1.10 x 0.60, selected -->
+            <rect x="220" y="190" width="110" height="60" rx="3" fill="#FBF9F4" stroke="#55663F" stroke-width="2.5"/>
+            <rect x="211" y="181" width="128" height="78" rx="4" fill="none" stroke="#55663F" stroke-width="1" stroke-dasharray="4 4"/>
+            <text x="275" y="224" text-anchor="middle" fill="#55663F" font-weight="600">Coffee table</text>
+            <text x="275" y="276" text-anchor="middle" fill="#6B655B">1.10 × 0.60 m, estimated</text>
+            <!-- bookshelf 0.80 x 0.30 on the left wall -->
+            <rect x="46" y="120" width="30" height="80" fill="#E4DDCF" stroke="#1B1915" stroke-width="1.2"/>
+            <path d="M46 140H76M46 160H76M46 180H76" stroke="#1B1915" stroke-width="0.8" opacity=".5"/>
+            <text x="88" y="164" fill="#1B1915">Bookshelf</text>
+            <!-- armchair 0.85 x 0.90, lower centre -->
+            <rect x="260" y="300" width="85" height="90" rx="10" fill="#E4DDCF" stroke="#1B1915" stroke-width="1.2"/>
+            <path d="M276 300V390M329 300V390M260 316H345" fill="none" stroke="#1B1915" stroke-width="0.8" opacity=".5"/>
+            <text x="302" y="352" text-anchor="middle">Armchair</text>
+            <!-- floor lamp 0.35 dia -->
+            <circle cx="404" cy="90" r="17" fill="#E4DDCF" stroke="#1B1915" stroke-width="1.2"/>
+            <circle cx="404" cy="90" r="3" fill="#1B1915"/>
+            <text x="404" y="128" text-anchor="middle">Floor lamp</text>
+          </g>
+          <text x="40" y="428" font-family="Instrument Sans, sans-serif" font-size="9" fill="#6B655B">Sample room. Walls confirmed by the scan; dotted arc shows the door swing.</text>
+        </svg>
+      </div>
+    </div>
+
+  </div>
+</div>
+</article>
+
+<!-- ===================== 3. Design workspace ===================== -->
+<article class="screen" data-screen="Design workspace">
+<div class="frame">
+  <div class="bar">
+    <div class="brand">rumi</div>
+    <div class="where">Rooms <b>The corner living room</b> Design</div>
+    <div class="tools">
+      <span class="caption">Saved on this browser</span>
+      <button class="link quiet" type="button">Undo</button>
+      <button class="link" type="button">Back to review</button>
+      <span class="avatar" aria-label="Signed in as S">S</span>
+    </div>
+  </div>
+
+  <div class="work">
+    <div class="letter">
+      <p class="caption">You wrote</p>
+      <p class="brief">Warm, minimal living room. Keep the sofa. No drilling. Budget $600.</p>
+
+      <div class="from">
+        <p class="caption">From your designer, a minute ago</p>
+        <p>Here is a first pass. I kept the sofa where your scan has it and built the rest around it: a wool rug to anchor the seating, a low oak cabinet against the wall by the door, an arc lamp, and one print that leans on the cabinet, since you asked for no drilling.</p>
+        <p>One trade-off. I chose the wool rug over the jute one to stay under budget; the arc lamp reaches over the sofa without a side table, so you get light where you read without another piece.</p>
+        <p>The lamp needs an outlet. Is there one on the wall behind the sofa, or only by the door?</p>
+        <p class="sign">Rumi</p>
+      </div>
+
+      <div class="compose">
+        <label class="field"><span>Reply to your designer</span>
+          <textarea placeholder="Tell me what to keep, swap, or move."></textarea>
+        </label>
+        <div class="row">
+          <span class="caption">Replies change the room, not your scan.</span>
+          <button class="btn" type="button">Send feedback</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="scene">
+      <div class="head">
+        <div class="seg" role="group" aria-label="View">
+          <button type="button" aria-pressed="true">Walkthrough</button>
+          <button type="button" aria-pressed="false">Overhead</button>
+        </div>
+        <span class="caption">Drag to look around. Click a piece to select it.</span>
+      </div>
+      <div class="canvas">
+        <svg viewBox="190 12 500 396" role="img" aria-label="Isometric view of the furnished room. The cabinet by the door is flagged.">
+          <g stroke="#1B1915" stroke-width="1.2" stroke-linejoin="round">
+          <polygon points="400,160 670,295 486,388 215,252" fill="#FBF9F4" />
+          <polygon points="400,160 215,252 215,117 400,25" fill="#F0EBE1" />
+          <polygon points="400,160 670,295 670,160 400,25" fill="#E4DDCF" />
+          <polygon points="499,160 592,207 592,144 499,98" fill="#FBF9F4" stroke-width="1"/>
+          <line x1="546" y1="183" x2="546" y2="121" stroke-width="1"/>
+          <polygon points="270,225 223,248 223,142 270,118" fill="#FBF9F4" stroke-width="1"/>
+          <polyline points="270,225 277,229 283,234 287,240 289,246 289,251 287,257 283,262 277,267 270,272" fill="none" stroke-width="1" stroke-dasharray="3 3"/>
+          <line x1="223" y1="248" x2="270" y2="272" stroke-width="1" stroke-dasharray="3 3"/>
+          <polygon points="410,228 514,280 442,316 338,264" fill="#E4DDCF" stroke-width="1" stroke-dasharray="2 3"/>
+          <polygon points="462,154 572,208 560,214 451,159" fill="#F0EBE1" /><polygon points="451,202 560,257 560,214 451,159" fill="#E4DDCF" /><polygon points="572,251 560,257 560,214 572,208" fill="#D8D0BF" />
+          <polygon points="452,178 561,233 522,252 413,198" fill="#F0EBE1" /><polygon points="413,221 522,276 522,252 413,198" fill="#E4DDCF" /><polygon points="561,256 522,276 522,252 561,233" fill="#D8D0BF" />
+          <polygon points="462,163 474,168 424,193 413,187" fill="#F0EBE1" /><polygon points="413,221 424,227 424,193 413,187" fill="#E4DDCF" /><polygon points="474,202 424,227 424,193 474,168" fill="#D8D0BF" />
+          <polygon points="560,211 572,217 522,242 511,236" fill="#F0EBE1" /><polygon points="511,270 522,276 522,242 511,236" fill="#E4DDCF" /><polygon points="572,251 522,276 522,242 572,217" fill="#D8D0BF" />
+          <polygon points="326,171 346,182 284,213 263,202" fill="#F0EBE1" /><polygon points="263,231 284,241 284,213 263,202" fill="#E4DDCF" /><polygon points="346,210 284,241 284,213 346,182" fill="#D8D0BF" />
+          <polygon points="315,180 289,193 289,157 315,144" fill="#FBF9F4" stroke-width="1"/>
+          <polygon points="326,163 355,177 284,213 284,247 255,232 326,196" fill="none" stroke-width="1.5" stroke-dasharray="5 4"/>
+          <path d="M520 295L540 295" stroke-width="2.5"/>
+          <path d="M530 295L530 212Q530 131 496 140L496 152" fill="none" stroke-width="2"/>
+          <polygon points="495,144 513,153 497,172 480,163" fill="#1B1915" />
+          </g>
+          <text x="486" y="186" font-family="Instrument Sans, sans-serif" font-size="14" font-weight="400" fill="#1B1915" text-anchor="middle">Sofa, kept</text>
+          <text x="416" y="286" font-family="Instrument Sans, sans-serif" font-size="14" font-weight="400" fill="#6B655B" text-anchor="middle">Wool rug</text>
+          <text x="482" y="128" font-family="Instrument Sans, sans-serif" font-size="14" font-weight="400" fill="#1B1915" text-anchor="end">Arc lamp, locked</text>
+          <text x="236" y="318" font-family="Instrument Sans, sans-serif" font-size="14" font-weight="600" fill="#1B1915" text-anchor="start">Oak cabinet, 0.18 m into the door swing</text>
+          <text x="200" y="402" font-family="Instrument Sans, sans-serif" font-size="14" font-weight="400" fill="#6B655B" text-anchor="start">Stand-in for the walkthrough view. Sample room, sample listings.</text>
+        </svg>
+      </div>
+
+      <div class="fit">
+        <div>
+          <p class="what">Cabinet blocks the doorway swing by 0.18 m</p>
+          <p class="how">Suggested: slide it 0.25 m along the same wall, away from the door.</p>
+        </div>
+        <button class="btn" type="button">Move the cabinet</button>
+      </div>
+
+      <div class="picks">
+        <div class="products" aria-label="Products in this design">
+          <div class="product">
+            <div class="name">Arc floor lamp</div>
+            <div class="price">$79</div>
+            <div class="meta"><span>Studio sample catalog</span><span class="num">0.30 × 1.80 m</span><span>In stock</span></div>
+            <div class="lock">Locked by you. <button class="link quiet" type="button">Unlock</button></div>
+          </div>
+          <div class="product">
+            <div class="name">Woven wool rug</div>
+            <div class="price">$129</div>
+            <div class="meta"><span>Studio sample catalog</span><span class="num">2.00 × 1.40 m</span><span>In stock</span></div>
+            <div class="lock"><button class="link quiet" type="button">Swap</button></div>
+          </div>
+          <div class="product">
+            <div class="name">Low oak cabinet</div>
+            <div class="price">$149</div>
+            <div class="meta"><span>Studio sample catalog</span><span class="num">1.20 × 0.40 × 0.55 m</span><span>In stock</span><span class="warn">Blocks the door</span></div>
+            <div class="lock"><button class="link quiet" type="button">Swap</button></div>
+          </div>
+          <div class="product">
+            <div class="name">Quiet forms print</div>
+            <div class="price">$39</div>
+            <div class="meta"><span>Studio sample catalog</span><span class="num">0.50 × 0.70 m</span><span class="warn">Low stock</span></div>
+            <div class="lock"><button class="link quiet" type="button">Swap</button></div>
+          </div>
+        </div>
+
+        <div class="budget" aria-label="Budget">
+          <div class="big">$396</div>
+          <p class="of">of your $600, with $204 left.</p>
+          <div class="track" role="img" aria-label="66 percent of budget used"><i></i></div>
+          <p class="caption">Prices are estimates until checkout. Payments are paused for now.</p>
+          <div class="kept">
+            <span><b>Sofa</b> kept from your room</span>
+            <span><b>Arc floor lamp</b> locked by you</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</article>
+</section>

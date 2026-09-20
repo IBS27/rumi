@@ -1,9 +1,11 @@
-import { ChatPanel, ChatUnavailable } from "./features/chat/ChatPanel";
-import { RoomWorkspace } from "./features/room-editor/RoomWorkspace";
 import { SignInButton, UserButton, useUser } from "@clerk/react";
 import { useConvexAuth } from "convex/react";
-import { ScanLine } from "lucide-react";
+import { Smartphone } from "lucide-react";
+import { ChatPanel, ChatUnavailable } from "./features/chat/ChatPanel";
+import { RoomWorkspace } from "./features/room-editor/RoomWorkspace";
 import { PhoneCapture } from "./features/room-import/PhoneCapture";
+import { ScanAction } from "./features/room-setup/StartScreen";
+import { Button } from "./ui";
 
 function SignedInWorkspace() {
   const { user, isLoaded } = useUser();
@@ -11,7 +13,11 @@ function SignedInWorkspace() {
   const pairingEnabled =
     import.meta.env.VITE_CAPTURE_PAIRING_ENABLED === "true";
   if (!isLoaded)
-    return <div className="viewer-fallback">Loading your account…</div>;
+    return (
+      <div className="grid h-full place-items-center text-mute">
+        Loading your account…
+      </div>
+    );
   return (
     <RoomWorkspace
       key={user?.id ?? "local"}
@@ -30,7 +36,7 @@ function SignedInWorkspace() {
                 </p>
               ) : (
                 <SignInButton mode="modal">
-                  <button className="primary">Sign in to chat</button>
+                  <Button variant="primary">Sign in to chat</Button>
                 </SignInButton>
               )
             }
@@ -42,26 +48,59 @@ function SignedInWorkspace() {
           <UserButton />
         ) : (
           <SignInButton mode="modal">
-            <button>Sign in</button>
+            <Button>Sign in</Button>
           </SignInButton>
         )
       }
-      phone={
+      scan={
         pairingEnabled
-          ? (receive) =>
-              !user ? (
-                <SignInButton mode="modal">
-                  <button>
-                    <ScanLine size={16} /> Scan with iPhone
-                  </button>
-                </SignInButton>
-              ) : isAuthenticated ? (
-                <PhoneCapture onReceive={receive} />
-              ) : (
-                <button disabled>
-                  {isLoading ? "Connecting…" : "Capture connection unavailable"}
-                </button>
-              )
+          ? (placement, receive) => {
+              if (!user)
+                return (
+                  <SignInButton mode="modal">
+                    {placement === "start" ? (
+                      <ScanAction
+                        onClick={() => undefined}
+                        note="Sign in first, then pair your phone."
+                      />
+                    ) : (
+                      <Button>
+                        <Smartphone /> Scan with iPhone
+                      </Button>
+                    )}
+                  </SignInButton>
+                );
+              if (!isAuthenticated)
+                return placement === "start" ? (
+                  <ScanAction
+                    disabled
+                    onClick={() => undefined}
+                    note={
+                      isLoading
+                        ? "Connecting…"
+                        : "Capture connection unavailable."
+                    }
+                  />
+                ) : (
+                  <Button disabled>
+                    <Smartphone />
+                    {isLoading ? "Connecting…" : "Capture unavailable"}
+                  </Button>
+                );
+              return (
+                <PhoneCapture onReceive={receive}>
+                  {(open) =>
+                    placement === "start" ? (
+                      <ScanAction onClick={open} />
+                    ) : (
+                      <Button onClick={open}>
+                        <Smartphone /> Scan with iPhone
+                      </Button>
+                    )
+                  }
+                </PhoneCapture>
+              );
+            }
           : undefined
       }
     />

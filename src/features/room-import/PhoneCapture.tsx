@@ -1,15 +1,33 @@
 import { useAction, useMutation, useQuery } from "convex/react";
-import { useEffect, useEffectEvent, useRef, useState } from "react";
+import {
+  useEffect,
+  useEffectEvent,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { QRCodeSVG } from "qrcode.react";
-import { ScanLine, X } from "lucide-react";
 import { api } from "../../../convex/_generated/api";
 import type { FunctionReturnType } from "convex/server";
+import { Button, Dialog, Heading, Muted } from "../../ui";
 
 type Pairing = FunctionReturnType<typeof api.captures.create>;
+
+function countdown(ms: number) {
+  const total = Math.max(0, Math.ceil(ms / 1000));
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
+}
+
+/**
+ * Pairs an iPhone with this session and hands back the uploaded room text.
+ * `children` renders the trigger and receives `open`.
+ */
 export function PhoneCapture({
   onReceive,
+  children,
 }: {
   onReceive: (text: string) => void;
+  children: (open: () => void, busy: boolean) => ReactNode;
 }) {
   const create = useAction(api.captures.create);
   const cancel = useMutation(api.captures.cancel);
@@ -52,8 +70,17 @@ export function PhoneCapture({
       });
     return () => abort.abort();
   }, [session?.fileUrl, retry]);
+  const [isOpen, setIsOpen] = useState(false);
+  useEffect(() => {
+    const node = dialog.current;
+    if (!node) return;
+    if (isOpen && !node.open) node.showModal();
+    if (!isOpen && node.open) node.close();
+  }, [isOpen]);
   async function start() {
-    dialog.current?.showModal();
+    setIsOpen(true);
+    // Reopening an accepted scan must preserve its download or retry state.
+    if (session?.state === "uploaded" && !received) return;
     setError("");
     setBusy(true);
     setReceived(false);
@@ -61,9 +88,7 @@ export function PhoneCapture({
       if (pairing && session?.state !== "uploaded")
         await cancel({ sessionId: pairing.sessionId });
       setPairing(null);
-      const next = await create({});
-      setPairing(next);
-      setNow(Date.now());
+      setPairing(await create({}));
     } catch {
       setError(
         "Could not connect to the capture service. Check your connection and try again.",
@@ -72,6 +97,10 @@ export function PhoneCapture({
       setBusy(false);
     }
   }
+  /** Opens the dialog and starts a fresh pairing session. Safe to pass around. */
+  const open = () => {
+    void start();
+  };
   async function close() {
     if (busy) return;
     if (pairing && session?.state !== "uploaded") {
@@ -81,7 +110,10 @@ export function PhoneCapture({
         /* An unrevoked token still expires automatically. */
       }
     }
-    dialog.current?.close();
+    setIsOpen(false);
+    // The accepted upload still belongs to this workspace after dismissal.
+    // Keep its query alive until delivery succeeds, including on retry.
+    if (session?.state === "uploaded" && !received) return;
     setPairing(null);
     setError("");
   }
@@ -93,101 +125,98 @@ export function PhoneCapture({
   const waiting = pairing && session?.state === "waiting" && !expired;
   return (
     <>
-      <button
-        onClick={() => {
-          void start();
-        }}
-      >
-        <ScanLine size={16} /> Scan with iPhone
-      </button>
-      <dialog
+      {children(open, busy)}
+      <Dialog
         ref={dialog}
-        className="pairing-dialog"
+        onClose={() => {
+          void close();
+        }}
+        closeDisabled={busy}
         onCancel={(event) => {
           event.preventDefault();
           void close();
         }}
       >
-        <button
-          className="dialog-close"
-          disabled={busy}
-          aria-label="Close phone pairing"
-          onClick={() => {
-            void close();
-          }}
-        >
-          <X size={18} />
-        </button>
-        <div className="eyebrow">CONNECT YOUR SPACE</div>
-        <h2>Bring your room to Rumi.</h2>
-        {busy ? (
-          <p role="status">Creating a secure connection…</p>
-        ) : received ? (
-          <p role="status">
-            Your scan is ready. Close this window to explore your room.
-          </p>
-        ) : expired || unavailable ? (
-          <>
-            <p>
-              This connection is no longer available. Your scan remains on your
-              phone.
+        <div className="grid gap-3">
+          <Heading className="text-[20px]">Pair your iPhone</Heading>
+          {busy ? (
+            <p role="status">Creating a secure connection…</p>
+          ) : received ? (
+            <p role="status">
+              Your scan is ready. Close this window to review your room.
             </p>
-            <button
-              onClick={() => {
-                void start();
-              }}
-            >
-              Create a new QR code
-            </button>
-          </>
-        ) : waiting ? (
-          <>
-            <p>
-              Open the Rumi scanner on your iPhone and choose{" "}
-              <strong>Connect to Rumi</strong>.
-            </p>
-            <div className="qr-code">
-              <QRCodeSVG
-                value={JSON.stringify(pairing)}
-                size={240}
-                marginSize={4}
-                level="M"
-                title="Pair your iPhone with this Rumi session"
-              />
+          ) : expired || unavailable ? (
+            <>
+              <p>
+                This code is no longer valid. Your scan stays on your phone.
+              </p>
+              <Button onClick={open} className="justify-self-start">
+                Show a new code
+              </Button>
+            </>
+          ) : waiting ? (
+            <div className="grid grid-cols-[164px_1fr] items-center gap-4 rounded-[14px] bg-blue p-4">
+              <div className="rounded-tile bg-white p-2.5">
+                <QRCodeSVG
+                  value={JSON.stringify(pairing)}
+                  size={144}
+                  marginSize={0}
+                  level="M"
+                  className="block h-auto w-full"
+                  title="Pair your iPhone with this Rumi session"
+                />
+              </div>
+              <div className="text-[#34424d]">
+                <p>
+                  Open Rumi on your iPhone and scan this code, then choose{" "}
+                  <strong>Connect to Rumi</strong>.
+                </p>
+                <p className="mt-2 text-xs text-[#5b6a75]">
+                  Code expires in{" "}
+                  <b className="font-semibold text-[#2e4656] tabular-nums">
+                    {countdown(expiresAt - now)}
+                  </b>
+                </p>
+                <Button
+                  variant="quiet"
+                  size="sm"
+                  onClick={open}
+                  className="mt-2 -ml-2.5"
+                >
+                  Show a new code
+                </Button>
+              </div>
             </div>
-            <p className="muted">
-              Expires in {Math.max(0, Math.ceil((expiresAt - now) / 60000))}{" "}
-              minutes. Keep this page open.
+          ) : pairing ? (
+            <p role="status">
+              {session?.state === "uploaded"
+                ? "Loading your room…"
+                : session === undefined
+                  ? "Connecting…"
+                  : "Phone connected. Finish your scan and tap Send to Rumi."}
             </p>
-          </>
-        ) : pairing ? (
-          <p role="status">
-            {session?.state === "uploaded"
-              ? "Loading your room…"
-              : session === undefined
-                ? "Connecting…"
-                : "Phone connected. Finish your scan and tap Send to Rumi."}
-          </p>
-        ) : null}
-        {error && (
-          <>
-            <p className="error" role="alert">
-              {error}
-            </p>
-            <button
-              onClick={() => {
-                if (session?.fileUrl) setRetry((value) => value + 1);
-                else void start();
-              }}
-            >
-              Try again
-            </button>
-          </>
-        )}
-        <p className="small muted">
-          Only this capture session is shared with your phone.
-        </p>
-      </dialog>
+          ) : null}
+          {error && (
+            <>
+              <p className="text-rust" role="alert">
+                {error}
+              </p>
+              <Button
+                className="justify-self-start"
+                onClick={() => {
+                  if (session?.fileUrl) setRetry((value) => value + 1);
+                  else open();
+                }}
+              >
+                Try again
+              </Button>
+            </>
+          )}
+          <Muted className="text-xs">
+            Only this capture session is shared with your phone.
+          </Muted>
+        </div>
+      </Dialog>
     </>
   );
 }

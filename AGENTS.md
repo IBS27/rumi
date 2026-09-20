@@ -4,7 +4,8 @@ React + Vite + TypeScript + Tailwind, with Convex and Clerk. The frontend is a r
 
 ## Where things live
 
-- `src/App.tsx`: frontend entry; `src/features/`: sidebar, room editor, and team feature folders.
+- `src/App.tsx`: frontend entry; `src/features/`: room setup, room editor, room import, and team feature folders.
+- `src/ui/`: the shared component kit and its rules (`src/ui/README.md`). Theme tokens live in `src/styles.css`. Reference design: `docs/design-new.html`, Plaster tab.
 - `shared/contracts/`: Zod schemas and inferred types shared by both teams.
 - `shared/fixtures/`: synthetic room/product data and deterministic search.
 - `shared/geometry/` and `shared/budget/`: placement checks and price calculations.
@@ -19,6 +20,7 @@ React + Vite + TypeScript + Tailwind, with Convex and Clerk. The frontend is a r
 
 - Read the relevant contract before changing a feature. Update producers, consumers, fixtures, and tests together when changing a shared shape.
 - Use strict TypeScript; avoid `any`. Validate external data with the shared schemas.
+- Build UI from `src/ui` components and theme tokens only. No ad-hoc buttons, inputs, panels, or hex colours in feature code. The room view is the base layer of a workspace screen; other content floats over it in `FloatingPanel`s. Read `src/ui/README.md` first.
 - Geometry uses meters and Y-up coordinates; money uses integer cents. Keep unknown dimensions explicit.
 - Keep sample data labeled. Do not present fixture behavior as a live integration.
 - Read [convex-workflow.md](convex-workflow.md) before configuring Convex or changing backend code. Check deployment ownership before running `bunx convex dev`; it pushes backend changes. Keep secrets out of Git and `VITE_` variables.
