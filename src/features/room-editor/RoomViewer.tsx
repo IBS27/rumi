@@ -21,12 +21,14 @@ import type {
   CapturedSurface,
   RoomObject,
 } from "../../../shared/contracts";
+import type { ParametricModel as ParametricModelData } from "../../../shared/assets/model";
 import { localCorners, worldCorners } from "../../../shared/capture/roomplan";
 import type { Walkthrough } from "../../../shared/capture/walkthrough";
 import { FirstPersonCamera, type WalkInput } from "./FirstPersonCamera";
 import { surfaceShape } from "../../../shared/capture/surfaces";
 import type { TexturedScan } from "../../../shared/capture/texture";
 import { ScanSurface } from "./capture/ScanSurface";
+import { ParametricModel } from "./ParametricModel";
 
 function Surface({
   value,
@@ -59,10 +61,12 @@ function Surface({
 
 function Furniture({
   object,
+  model,
   selected,
   onSelect,
 }: {
   object: RoomObject;
+  model?: ParametricModelData;
   selected: boolean;
   onSelect: (id: string) => void;
 }) {
@@ -71,23 +75,23 @@ function Furniture({
     <group
       position={[object.position.x, object.position.y, object.position.z]}
       rotation={[object.rotation.x, object.rotation.y, object.rotation.z]}
+      onClick={(event) => {
+        event.stopPropagation();
+        onSelect(object.id);
+      }}
     >
-      <mesh
-        position={[0, height / 2, 0]}
-        onClick={(event) => {
-          event.stopPropagation();
-          onSelect(object.id);
-        }}
-        castShadow
-        receiveShadow
-      >
-        <boxGeometry args={[width, height, depth]} />
-        <meshStandardMaterial
-          color={selected ? "#1e6b63" : object.color}
-          roughness={0.85}
-        />
-        <Edges color={selected ? "#124f49" : "#5a5044"} />
-      </mesh>
+      {model ? (
+        <ParametricModel model={model} dimensions={object.dimensions} />
+      ) : (
+        <mesh position={[0, height / 2, 0]} castShadow receiveShadow>
+          <boxGeometry args={[width, height, depth]} />
+          <meshStandardMaterial
+            color={selected ? "#1e6b63" : object.color}
+            roughness={0.85}
+          />
+          <Edges color={selected ? "#124f49" : "#5a5044"} />
+        </mesh>
+      )}
       {selected && (
         <Html
           position={[0, height + 0.2, 0]}
@@ -204,6 +208,7 @@ export function RoomViewer({
   walkthrough,
   walkInput,
   walkSession,
+  assetScenes = {},
 }: {
   room: CapturedRoom;
   selected: string | null;
@@ -216,6 +221,8 @@ export function RoomViewer({
   walkthrough: Walkthrough | null;
   walkInput: RefObject<WalkInput>;
   walkSession: number;
+  /** Validated scenes keyed by RoomObject.assetId. Missing scenes use a box. */
+  assetScenes?: Readonly<Record<string, ParametricModelData>>;
 }) {
   return (
     <ViewerBoundary key={room.id}>
@@ -298,6 +305,9 @@ export function RoomViewer({
                 <Furniture
                   key={object.id}
                   object={object}
+                  model={
+                    object.assetId ? assetScenes[object.assetId] : undefined
+                  }
                   selected={selected === object.id}
                   onSelect={(id) => {
                     if (!walkthrough) onSelect(id);
