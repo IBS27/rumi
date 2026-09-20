@@ -15,21 +15,21 @@
 
 ## Boundaries
 
-| Input/output                      | Owner           | Consumer                         |
-| --------------------------------- | --------------- | -------------------------------- |
-| `RoomSnapshot`                    | Capture/editor  | Search, renderer, validation     |
-| `DesignBrief`                     | Conversation    | Search and budget checks         |
-| `SearchRequest` → `SearchResult`  | Search adapter  | Assistant/product panel          |
-| `SearchTask` → `SearchTaskResult` | Search subagent | Main agent `searchProducts` tool |
-| `ProductCandidate`                | Search/catalog  | Product cards, assets, budget    |
-| `DesignProposal`                  | Agent/planner   | Validated editor commands        |
-| `AssetRecord`                     | Asset pipeline  | Renderer                         |
+| Input/output                      | Owner          | Consumer                         |
+| --------------------------------- | -------------- | -------------------------------- |
+| `RoomSnapshot`                    | Capture/editor | Search, renderer, validation     |
+| `DesignBrief`                     | Conversation   | Search and budget checks         |
+| `SearchRequest` → `SearchResult`  | Search adapter | Assistant/product panel          |
+| `SearchTask` → `SearchTaskResult` | Search agent   | Main agent `searchProducts` tool |
+| `ProductCandidate`                | Search/catalog | Product cards, assets, budget    |
+| `DesignProposal`                  | Agent/planner  | Validated editor commands        |
+| `AssetRecord`                     | Asset pipeline | Renderer                         |
 
 The first proposal operation is additions only. Define explicit move/remove operations when the agent supports them; never silently replace a complete room snapshot. `baseRevision` must match the current room revision, and accepted edits increment it.
 
 The fixture adapter is synchronous. A live search implementation may return a promise of the same validated result and report progress separately. The renderer must not depend on a model provider or search API response format.
 
-The live path is two levels. `convex/agent.ts` runs the main agent, which plans the room and calls `convex/search.ts` (`searchProducts`) with a `SearchTask` carrying hard constraints: `maxPriceCents`, `maxFootprint`, `styleTerms`, and `excludeTags`. The subagent searches the web, extracts pages into `ProductCandidate` records, filters against those constraints in code, and returns a `SearchTaskResult` whose `failures` tell the agent why candidates were dropped. Extracted dimensions are always `estimated`; unknowns stay `unknown`. Agent and search functions are internal. Public project and message functions require authenticated ownership; the room workspace chat calls them. See [agent integration](agent-integration.md) for API and migration details.
+The live path is two levels. `convex/agent.ts` runs the main agent, which plans the room and calls `convex/search.ts` (`searchProducts`, or `searchCategories` for several categories at once) with a `SearchTask` carrying hard constraints: `maxPriceCents`, `maxFootprint`, `maxHeight`, `styleTerms`, `palette`, and `excludeTags`. The search agent reads product pages, normalizes them into `ProductCandidate` records, enforces those constraints in code, and returns a `SearchTaskResult` of `RankedCandidate` entries — each a product with a score and its breakdown — plus `failures` explaining why the rest were dropped. Extracted dimensions are always `estimated`, never `confirmed`, and `measurement.evidence` records where each one came from: structured merchant data, a printed specification, a dimension drawing, or nothing. A product carries its gallery in `images`, with `imageUrl` as the first entry. Agent and search functions are internal. Public project and message functions require authenticated ownership; the room workspace chat calls them. See [the search agent](search-agent.md) for the pipeline and [agent integration](agent-integration.md) for API and migration details.
 
 ## Applying a result
 
