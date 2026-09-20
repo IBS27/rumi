@@ -50,8 +50,8 @@ export interface SpaceModel {
 }
 
 export const DOOR_CLEARANCE = 0.9;
-export const WALK_PATH = 0.75;
-export const FURNITURE_GAP = 0.35;
+export const WALK_PATH = 0.6;
+export const FURNITURE_GAP = 0.2;
 
 export function rectangleRing(
   center: Point2,

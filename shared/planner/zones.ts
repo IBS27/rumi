@@ -25,6 +25,66 @@ const cm = (value: number) => Math.round(value * 100) / 100 + 0;
 // the planner reports a rejection instead and lets the model rethink the zone.
 const SHRINK_STEPS = [1, 0.9, 0.8, 0.7];
 
+// Beds come in standard sizes. Scaling a queen by 0.9 asks the shops for a
+// bed nobody makes; stepping to the next size down asks for one they do.
+// Footprints include a typical frame around the mattress.
+const BED_SIZES: { name: string; pattern: RegExp; width: number; depth: number }[] = [
+  { name: "king", pattern: /\bking\b/i, width: 2.0, depth: 2.15 },
+  { name: "queen", pattern: /\bqueen\b/i, width: 1.6, depth: 2.1 },
+  { name: "full", pattern: /\b(full|double)\b/i, width: 1.45, depth: 2.0 },
+  { name: "twin", pattern: /\b(twin|single)\b/i, width: 1.05, depth: 2.0 },
+];
+
+// We shop US stores. UK size names pull in UK retailers, which are then
+// dropped for their currency, so the words are translated before search.
+const UK_BED_TERMS: [RegExp, string][] = [
+  [/\bsmall double\b/gi, "full"],
+  [/\bdouble\b/gi, "full"],
+  [/\bsuper king\b/gi, "king"],
+  [/\bking[- ]size\b/gi, "king"],
+  [/\bsingle\b/gi, "twin"],
+];
+export function usBedTerms(text: string): string {
+  return UK_BED_TERMS.reduce((value, [pattern, us]) => value.replace(pattern, us), text);
+}
+
+interface SizeStep {
+  width: number;
+  depth: number;
+  // Wording changes that go with the size, applied to category and query.
+  rename: ((text: string) => string) | null;
+  // True when the step is a smaller size than the one requested.
+  renamed?: boolean;
+}
+
+// The sizes to try for a request, largest first. Beds walk the standard
+// ladder from the requested size down; everything else shrinks by steps.
+function sizeSteps(request: ZoneRequest): SizeStep[] {
+  const words = usBedTerms(`${request.category} ${request.query}`);
+  if (/\bbed\b/i.test(request.category) && !/\bbedside|bed bench\b/i.test(request.category)) {
+    const start = BED_SIZES.findIndex((size) => size.pattern.test(words));
+    const from = start === -1 ? BED_SIZES.findIndex((size) => size.name === "queen") : start;
+    const named = BED_SIZES[from];
+    // A standard size is the size: the model's guess at a footprint does not
+    // shrink it, or the zone would reject every bed of the size it names.
+    return BED_SIZES.slice(from).map((size) => ({
+      width: size.width,
+      depth: size.depth,
+      rename: (text) => {
+        const us = usBedTerms(text);
+        if (size.name === named.name) return us;
+        return named.pattern.test(us) ? us.replace(named.pattern, size.name) : `${size.name} ${us}`;
+      },
+      renamed: size.name !== named.name,
+    }));
+  }
+  return SHRINK_STEPS.map((factor) => ({
+    width: Math.max(MIN_FOOTPRINT, request.desiredFootprint.width * factor),
+    depth: Math.max(MIN_FOOTPRINT, request.desiredFootprint.depth * factor),
+    rename: null,
+  }));
+}
+
 interface Margins {
   front: number;
   back: number;
@@ -34,27 +94,30 @@ interface Margins {
 // Clearance is a property of how a piece is used, not of the model's wording.
 export function marginsFor(category: string): Margins {
   const value = category.toLowerCase();
-  if (/bed/.test(value)) return { front: 0.75, back: 0.05, sides: 0.6 };
-  if (/desk|vanity|workstation/.test(value))
-    return { front: 0.9, back: 0.05, sides: 0.3 };
-  if (/dining|table/.test(value)) return { front: 0.9, back: 0.9, sides: 0.9 };
-  if (/sofa|couch|sectional|loveseat/.test(value))
-    return { front: 0.75, back: 0.1, sides: 0.3 };
+  // Rooms are furnished tightly in practice: enough to use the piece and
+  // squeeze past, not showroom spacing. Only the front strip is hard.
+  if (/bed/.test(value)) return { front: 0.5, back: 0.05, sides: 0.4 };
+  // Seating first: a "desk chair" or "dining chair" is a chair, not a desk.
   if (/chair|stool|bench|ottoman/.test(value))
-    return { front: 0.6, back: 0.1, sides: 0.3 };
+    return { front: 0.45, back: 0.05, sides: 0.15 };
+  if (/desk|vanity|workstation/.test(value))
+    return { front: 0.6, back: 0.05, sides: 0.15 };
+  if (/dining|table/.test(value)) return { front: 0.6, back: 0.6, sides: 0.6 };
+  if (/sofa|couch|sectional|loveseat/.test(value))
+    return { front: 0.5, back: 0.05, sides: 0.15 };
   if (/wardrobe|dresser|cabinet|bookcase|shelf|storage|console/.test(value))
-    return { front: 0.75, back: 0.02, sides: 0.15 };
+    return { front: 0.5, back: 0.02, sides: 0.1 };
   if (/lamp|light|plant|art|mirror/.test(value))
-    return { front: 0.3, back: 0.02, sides: 0.15 };
+    return { front: 0.2, back: 0.02, sides: 0.1 };
   if (/rug/.test(value)) return { front: 0, back: 0, sides: 0 };
   return { front: WALK_PATH, back: 0.05, sides: FURNITURE_GAP };
 }
 
 // A person still needs to get past the piece and open it, whatever the style.
 // A cozy plan may not scale a clearance below the walking minimum, or below
-// the category's own value when that is already smaller (a lamp needs 0.3 m).
-const MIN_FRONT = 0.6;
-const MIN_SIDES = 0.1;
+// the category's own value when that is already smaller (a lamp needs 0.2 m).
+const MIN_FRONT = 0.45;
+const MIN_SIDES = 0.05;
 
 export function scaleMargins(margins: Margins, spacing: Spacing): Margins {
   const factor = SPACING_FACTOR[spacing];
@@ -90,8 +153,11 @@ function reservationRing(
   );
 }
 
-// The strip a person needs in front of the piece. Unlike side clearance, a
-// wall may never cut into it.
+// The strip a person needs in front of the piece to use it and pass by. The
+// full front margin shapes where candidates go; only this much of it is hard,
+// so a tight real room (a bed with 0.3 m at its foot) is still furnishable.
+const HARD_FRONT = 0.3;
+
 function frontRing(
   center: Point2,
   width: number,
@@ -99,13 +165,14 @@ function frontRing(
   rotationY: number,
   margins: Margins,
 ): Ring {
-  const shift = depth / 2 + margins.front / 2;
+  const front = Math.min(margins.front, HARD_FRONT);
+  const shift = depth / 2 + front / 2;
   const c = Math.cos(rotationY),
     s = Math.sin(rotationY);
   return rectangleRing(
     { x: center.x + shift * s, z: center.z + shift * c },
     width,
-    Math.max(margins.front, 0.01),
+    Math.max(front, 0.01),
     rotationY,
   );
 }
@@ -155,23 +222,56 @@ function candidatePositions(
   // Back edge against the wall; the reservation ring already holds the margin.
   const wallInset = depth / 2 + margins.back + 0.02;
   const sideInset = width / 2 + margins.sides + 0.02;
-  const steps = 8;
+  // Positions come from the room's actual wall segments, so an irregular
+  // scan (a notch, a bathroom, an angled wall) offers its real walls and not
+  // the edges of its bounding box. The piece faces away from the wall.
+  const floorCenter = model.floor[0].reduce(
+    (sum, point) => ({
+      x: sum.x + point.x / model.floor[0].length,
+      z: sum.z + point.z / model.floor[0].length,
+    }),
+    { x: 0, z: 0 },
+  );
+  const segments = model.walls
+    .map((wall) => {
+      const length = Math.hypot(wall.end.x - wall.start.x, wall.end.z - wall.start.z);
+      if (length < 0.2) return null;
+      const dx = (wall.end.x - wall.start.x) / length;
+      const dz = (wall.end.z - wall.start.z) / length;
+      const mid = { x: (wall.start.x + wall.end.x) / 2, z: (wall.start.z + wall.end.z) / 2 };
+      let nx = -dz, nz = dx;
+      if ((floorCenter.x - mid.x) * nx + (floorCenter.z - mid.z) * nz < 0) {
+        nx = -nx;
+        nz = -nz;
+      }
+      // Local +Z (the front) must point along the inward normal.
+      return { wall, length, dx, dz, nx, nz, rotationY: Math.atan2(nx, nz) };
+    })
+    .filter((segment): segment is NonNullable<typeof segment> => segment !== null);
+  const alongWallAt = (segment: (typeof segments)[number], t: number) => ({
+    x: segment.wall.start.x + segment.dx * t + segment.nx * wallInset,
+    z: segment.wall.start.z + segment.dz * t + segment.nz * wallInset,
+  });
   const walls = () => {
-    for (let i = 0; i <= steps; i++) {
-      const t = i / steps;
-      const x = sideInset + t * Math.max(0, roomWidth - 2 * sideInset);
-      const z = sideInset + t * Math.max(0, roomDepth - 2 * sideInset);
-      push(x, wallInset, 0);
-      push(x, roomDepth - wallInset, Math.PI);
-      push(wallInset, z, Math.PI / 2);
-      push(roomWidth - wallInset, z, -Math.PI / 2);
+    for (const segment of segments) {
+      if (segment.length < width) continue;
+      const usable = Math.max(0, segment.length - 2 * sideInset);
+      const steps = Math.max(1, Math.min(8, Math.round(usable / 0.25)));
+      for (let i = 0; i <= steps; i++) {
+        const t = sideInset + (usable * i) / steps;
+        const spot = alongWallAt(segment, Math.min(Math.max(t, width / 2), segment.length - width / 2));
+        push(spot.x, spot.z, segment.rotationY);
+      }
     }
   };
   const corners = () => {
-    push(sideInset, wallInset, 0);
-    push(roomWidth - sideInset, wallInset, 0);
-    push(sideInset, roomDepth - wallInset, Math.PI);
-    push(roomWidth - sideInset, roomDepth - wallInset, Math.PI);
+    for (const segment of segments) {
+      if (segment.length < width) continue;
+      for (const t of [sideInset, segment.length - sideInset]) {
+        const spot = alongWallAt(segment, Math.min(Math.max(t, width / 2), segment.length - width / 2));
+        push(spot.x, spot.z, segment.rotationY);
+      }
+    }
   };
   const center = () => {
     push(roomWidth / 2, roomDepth / 2, 0);
@@ -203,7 +303,7 @@ export function mountFor(request: Pick<ZoneRequest, "mount" | "category">): Zone
   if (request.mount !== "floor") return request.mount;
   const value = request.category.toLowerCase();
   if (isRug(value)) return "under";
-  if (/\bart\b|painting|wall art|artwork|print|poster|mirror|wall shelf|sconce|tapestry|clock/.test(value))
+  if (/\bart\b|painting|wall art|artwork|print|poster|mirror|wall shelf|sconce|tapestry|clock|curtain|drape/.test(value))
     return "wall";
   if (/table lamp|desk lamp|bedside lamp|vase|tray|sculpture|bookend|candle|small plant|desk organizer/.test(value))
     return "surface";
@@ -212,18 +312,60 @@ export function mountFor(request: Pick<ZoneRequest, "mount" | "category">): Zone
 
 const WALL_HANG_BOTTOM = 1.2;
 const WALL_EDGE_GAP = 0.15;
+const WALL_TOP_GAP = 0.2;
+// An object whose underside is above this is wall- or ceiling-mounted and
+// leaves the floor beneath it free.
+const OVERHEAD_BOTTOM = 0.9;
 
-// Categories whose top is a usable surface for a small accessory.
-function isSurfaceHost(category: string): boolean {
-  return /table|desk|dresser|nightstand|console|sideboard|shelf|cabinet|counter|credenza|bench|vanity/i.test(
+function isCurtain(category: string): boolean {
+  return /curtain|drape/i.test(category);
+}
+
+// Pieces that stand or hang from near the floor rather than at eye level.
+function hangsLow(category: string): boolean {
+  return /full[- ]length|floor mirror|leaner|standing mirror|tall shelf|curtain|drape/i.test(
     category,
   );
+}
+
+// Where the bottom edge goes, and how tall the piece may be. Eye-level pieces
+// hang at 1.2 m; a piece too tall for that drops until it fits under the top
+// gap; floor-length pieces start near the floor.
+function hangingRange(
+  request: Pick<ZoneRequest, "category" | "desiredHeight">,
+  wallHeight: number,
+): { bottom: number; maxHeight: number } {
+  const ceiling = wallHeight - WALL_TOP_GAP;
+  let bottom = hangsLow(request.category) ? 0.1 : WALL_HANG_BOTTOM;
+  if (request.desiredHeight && bottom + request.desiredHeight > ceiling)
+    bottom = Math.max(0.1, ceiling - request.desiredHeight);
+  return {
+    bottom: Math.round(bottom * 100) / 100,
+    maxHeight: Math.round(Math.max(0, ceiling - bottom) * 100) / 100,
+  };
+}
+
+// Categories whose top is a usable surface for a small accessory. A scan
+// labels dressers and chests simply "storage".
+function isSurfaceHost(category: string): boolean {
+  return /table|desk|dresser|nightstand|console|sideboard|shelf|cabinet|counter|credenza|bench|vanity|storage|chest/i.test(
+    category,
+  );
+}
+
+// Soft goods lie on seating and beds rather than on a hard top.
+function isSoftGood(category: string): boolean {
+  return /throw|blanket|pillow|cushion|bedding|duvet|quilt|comforter/i.test(category);
+}
+
+function isSoftHost(category: string): boolean {
+  return /bed|sofa|couch|sectional|loveseat|chair|bench|ottoman|daybed/i.test(category);
 }
 
 // A floor reservation keeps both rings: the piece itself, and the piece plus
 // its clearance. A companion (nightstand by a bed) may stand in the host's
 // clearance but never on the host.
-type Reservation = { zoneId: string; body: Ring; withMargins: Ring };
+type Reservation = { zoneId: string; body: Ring; front: Ring; withMargins: Ring };
 
 function fits(
   model: SpaceModel,
@@ -247,25 +389,27 @@ function fits(
     );
     return clearance ? clearance.reason : null;
   }
-  const blocking = model.obstacles.find(
-    (obstacle) =>
-      obstacle.category !== "rug" && ringsOverlap(ring, obstacle.footprint),
-  );
-  if (blocking) return `overlaps ${blocking.name}`;
-  const clearance = model.clearances.find((zone) =>
-    ringsOverlap(ring, zone.footprint),
+  // Only the front strip is a hard clearance: a person must be able to stand
+  // there. Side clearance is a preference that shapes candidate positions,
+  // never a reason to reject. Two fronts may overlap (a shared walkway); a
+  // body may not stand in a front, and a front may not cover a body. The host
+  // a companion belongs beside is exempt. Things mounted above waist height
+  // (a wall mirror, a towel rack, a ceiling light) do not take floor.
+  for (const obstacle of model.obstacles) {
+    if (obstacle.category === "rug" || obstacle.bottom > OVERHEAD_BOTTOM) continue;
+    if (ringsOverlap(body, obstacle.footprint)) return `overlaps ${obstacle.name}`;
+    if (obstacle.id !== hostId && ringsOverlap(front, obstacle.footprint))
+      return `${obstacle.name} would block its front`;
+  }
+  const clearance = model.clearances.find(
+    (zone) => ringsOverlap(body, zone.footprint) || ringsOverlap(front, zone.footprint),
   );
   if (clearance) return clearance.reason;
   for (const other of reserved) {
-    // Two clearances may overlap: that is a shared walkway. A body may not
-    // enter another piece's clearance, and no clearance may cover a body.
-    // A companion (host given) may also stand inside its host's clearance.
     if (ringsOverlap(body, other.body)) return "overlaps another reserved zone";
     if (other.zoneId === hostId) continue;
-    if (ringsOverlap(body, other.withMargins))
-      return "stands in another piece's clearance";
-    if (ringsOverlap(ring, other.body))
-      return "its clearance would cover another piece";
+    if (ringsOverlap(body, other.front)) return "stands in front of another piece";
+    if (ringsOverlap(front, other.body)) return "another piece would block its front";
   }
   return null;
 }
@@ -293,25 +437,39 @@ function reserveOnWall(
   hung: WallSpan[],
   maxRoomHeight: number,
 ): { zone: Omit<ReservedZone, "priority">; span: WallSpan } | string {
-  const width = request.desiredFootprint.width;
   const depth = Math.min(request.desiredFootprint.depth, 0.2);
-  let issue = "no wall span is long enough";
+  const curtain = isCurtain(request.category);
+  let issue = curtain ? "no window to dress" : "no wall span is long enough";
   for (const wall of model.walls) {
     const length = wallLength(wall);
+    const spanOf = (opening: { start: Point2; end: Point2 }): [number, number] => [
+      Math.min(alongWall(wall, opening.start), alongWall(wall, opening.end)),
+      Math.max(alongWall(wall, opening.start), alongWall(wall, opening.end)),
+    ];
+    const windows = wall.openings.filter((opening) => opening.kind === "window");
+    // Curtains dress a window: the span is the window plus an overhang on
+    // each side, and only that wall's windows are candidates.
+    if (curtain && windows.length === 0) continue;
+    const width = curtain
+      ? Math.max(
+          ...windows.map((window) => {
+            const [a, b] = spanOf(window);
+            return b - a;
+          }),
+        ) + 0.4
+      : request.desiredFootprint.width;
     if (length < width + 2 * WALL_EDGE_GAP) continue;
+    const { bottom, maxHeight } = hangingRange(request, Math.min(wall.height, maxRoomHeight));
     const blocked: [number, number][] = [
-      ...wall.openings.map(
-        (opening): [number, number] => [
-          Math.min(alongWall(wall, opening.start), alongWall(wall, opening.end)),
-          Math.max(alongWall(wall, opening.start), alongWall(wall, opening.end)),
-        ],
-      ),
+      ...wall.openings
+        .filter((opening) => !(curtain && opening.kind === "window"))
+        .map(spanOf),
       ...hung
         .filter((span) => span.wallId === wall.id)
         .map((span): [number, number] => [span.from, span.to]),
-      // Tall furniture against this wall covers the hanging height.
+      // Furniture against this wall that rises into the hanging range.
       ...model.obstacles
-        .filter((obstacle) => obstacle.top > WALL_HANG_BOTTOM)
+        .filter((obstacle) => obstacle.top > bottom)
         .map((obstacle): [number, number] | null => {
           const along = obstacle.footprint.map((point) => alongWall(wall, point));
           const distances = obstacle.footprint.map((point) => {
@@ -326,11 +484,22 @@ function reserveOnWall(
         })
         .filter((span): span is [number, number] => span !== null),
     ];
-    const steps = 12;
-    for (let i = 0; i <= steps; i++) {
-      const center = WALL_EDGE_GAP + width / 2 + (i / steps) * (length - width - 2 * WALL_EDGE_GAP);
+    // Curtains center on each window; other pieces try positions along the wall.
+    const centers = curtain
+      ? windows.map((window) => {
+          const [a, b] = spanOf(window);
+          return (a + b) / 2;
+        })
+      : Array.from({ length: 13 }, (_, i) =>
+          WALL_EDGE_GAP + width / 2 + (i / 12) * (length - width - 2 * WALL_EDGE_GAP),
+        );
+    for (const center of centers) {
       const from = center - width / 2 - WALL_EDGE_GAP;
       const to = center + width / 2 + WALL_EDGE_GAP;
+      if (from < 0 || to > length) {
+        issue = `the window on wall ${wall.id} sits too close to a corner for curtains`;
+        continue;
+      }
       const hit = blocked.find(([a, b]) => from < b && to > a);
       if (hit) {
         issue = `wall ${wall.id} is taken by an opening or another piece there`;
@@ -350,8 +519,7 @@ function reserveOnWall(
         nx = -nx;
         nz = -nz;
       }
-      const availableHeight = Math.min(wall.height, maxRoomHeight) - WALL_HANG_BOTTOM - 0.2;
-      if (availableHeight < 0.2) {
+      if (maxHeight < 0.2) {
         issue = "the wall is too low to hang anything";
         continue;
       }
@@ -365,16 +533,21 @@ function reserveOnWall(
           mount: "wall",
           anchor: "wall",
           relatedObjectId: null,
-          position: { x: cm(px + nx * (depth / 2)), y: WALL_HANG_BOTTOM, z: cm(pz + nz * (depth / 2)) },
+          position: { x: cm(px + nx * (depth / 2)), y: bottom, z: cm(pz + nz * (depth / 2)) },
           rotationY: Math.atan2(nx, nz) + 0,
           footprint: { width: Math.round(width * 100) / 100, depth: Math.round(depth * 100) / 100 },
-          maxHeight: Math.round(availableHeight * 100) / 100,
+          maxHeight,
           margins: { front: 0, back: 0, sides: WALL_EDGE_GAP },
           clearanceRules: [
-            `Hangs on wall ${wall.id} with its bottom edge about ${WALL_HANG_BOTTOM} m above the floor.`,
+            curtain
+              ? `Dresses the window on wall ${wall.id}; panels may run to the floor.`
+              : `Hangs on wall ${wall.id} with its bottom edge about ${bottom} m above the floor.`,
             `Keep ${WALL_EDGE_GAP} m from openings and other hung pieces.`,
           ],
-          miscellaneous: [...request.miscellaneous, "wall mounted"].slice(0, 12),
+          miscellaneous: [
+            ...request.miscellaneous,
+            curtain ? "window curtains" : "wall mounted",
+          ].slice(0, 12),
           suggested: false,
         },
       };
@@ -421,7 +594,8 @@ function reserveOnSurface(
       label: host.purpose,
     };
   } else return `no object or reserved zone with id ${request.relatedObjectId}`;
-  if (!isSurfaceHost(top.category))
+  const soft = isSoftGood(request.category) && isSoftHost(top.category);
+  if (!isSurfaceHost(top.category) && !soft)
     return `${top.label} (${top.category}) has no top to put things on`;
   const used = surfaceUse.get(request.relatedObjectId) ?? 0;
   const inset = 0.05;
@@ -502,9 +676,8 @@ export function reserveZones(
     let placed: ReservedZone | null = null;
     const issues = new Map<string, number>();
     let lastIssue = "no free floor space";
-    outer: for (const factor of SHRINK_STEPS) {
-      const width = Math.max(MIN_FOOTPRINT, request.desiredFootprint.width * factor);
-      const depth = Math.max(MIN_FOOTPRINT, request.desiredFootprint.depth * factor);
+    outer: for (const step of sizeSteps(request)) {
+      const { width, depth } = step;
       for (const candidate of candidatePositions(model, request, width, depth, margins, zones)) {
         const ring = reservationRing(
           candidate.position,
@@ -522,12 +695,14 @@ export function reserveZones(
         }
         // Rugs do not claim floor from later zones.
         if (mount === "floor")
-          reserved.push({ zoneId: request.id, body, withMargins: ring });
+          reserved.push({ zoneId: request.id, body, front, withMargins: ring });
+        // A stepped-down bed is searched by its new size, not the old name.
+        const rename = step.rename ?? ((text: string) => text);
         placed = {
           id: request.id,
           purpose: request.purpose,
-          category: request.category,
-          query: request.query,
+          category: rename(request.category),
+          query: rename(request.query),
           mount,
           anchor: request.anchor,
           relatedObjectId: request.relatedObjectId,
@@ -543,6 +718,9 @@ export function reserveZones(
           maxHeight: Math.round((maxRoomHeight - 0.1) * 100) / 100,
           margins,
           clearanceRules: [
+            ...(step.renamed
+              ? [`Sized down to a ${rename("bed")} so it fits the room.`]
+              : []),
             `Keep ${margins.front} m in front for use and walking.`,
             ...(margins.sides > 0 ? [`Keep ${margins.sides} m on each side.`] : []),
             ...model.clearances.map((zone) => zone.reason),
@@ -561,12 +739,25 @@ export function reserveZones(
     }
     if (placed) zones.push(placed);
     else {
-      // Report the most common blocker, which is the one the user can act on.
-      for (const [issue, count] of issues)
-        if (count > (issues.get(lastIssue) ?? 0)) lastIssue = issue;
+      // Report the blocker the user can act on. A piece they placed can be
+      // moved, so it ranks first; a scanned object or door next; "outside
+      // the floor", which every tiny wall segment produces, last.
+      const movable = room.objects.filter((object) => !object.owned && !object.locked);
+      const rank = (issue: string) =>
+        movable.some((object) => issue.includes(object.name))
+          ? 0
+          : issue === "outside the floor" || issue === "faces a wall"
+            ? 2
+            : 1;
+      const ranked = [...issues].sort(
+        (a, b) => rank(a[0]) - rank(b[0]) || b[1] - a[1],
+      );
+      if (ranked.length) lastIssue = ranked[0][0];
+      const hint =
+        rank(lastIssue) === 0 ? " Move or remove it to make room." : "";
       rejected.push({
         zoneId: request.id,
-        reason: `Could not reserve ${request.desiredFootprint.width} × ${request.desiredFootprint.depth} m for ${request.category}: ${lastIssue}.`,
+        reason: `Could not reserve ${request.desiredFootprint.width} × ${request.desiredFootprint.depth} m for ${request.category}: ${lastIssue}.${hint}`,
       });
     }
   }

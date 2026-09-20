@@ -14,12 +14,14 @@ import {
 import { selectionTotal } from "../budget";
 import { colorFromWords } from "../search/color";
 import { buildSpaceModel, type SpaceModel } from "./space";
+import { splitBudget } from "./budget";
 import { isAccessoryMount, planScope, sameCategory } from "./scope";
 import { mountFor, reserveZones } from "./zones";
 
 export { buildSpaceModel } from "./space";
 export { marginsFor, mountFor, reserveZones, scaleMargins } from "./zones";
 export { MAX_ZONES, SPACING_FACTOR, describeScope, planScope } from "./scope";
+export { ceilingFloorCents, splitBudget, typicalPriceCents } from "./budget";
 
 const RESTRICTION_TAGS: [RegExp, string[]][] = [
   [/no drill|no drilling|no holes|renter|rental/i, ["wall-mounted", "drilling required"]],
@@ -47,33 +49,14 @@ export function remainingBudgetCents(
   return Math.max(0, brief.budgetCents - selectionTotal(room, products));
 }
 
-// Budget is split by priority weight so the pieces that define the room get more
-// headroom. Only an unspecified budget becomes an unlimited search ceiling.
+// Budget is split in proportion to what each category typically costs, so no
+// zone gets a ceiling the market cannot meet. Only an unspecified budget
+// becomes an unlimited search ceiling. See ./budget for the rules.
 export function allocateBudget(
   zones: ReservedZone[],
   remainingCents: number | null,
 ): Map<string, number> {
-  const allocation = new Map<string, number>();
-  if (remainingCents === null || zones.length === 0) {
-    zones.forEach((zone) => allocation.set(zone.id, 0));
-    return allocation;
-  }
-  if (remainingCents < zones.length)
-    throw new Error(
-      "The remaining budget cannot cover these items. Increase the budget or remove selections before planning more purchases.",
-    );
-  // Reserve one cent per zone so rounding never turns a finite limit into 0,
-  // which the search contract interprets as unlimited.
-  const weightedCents = remainingCents - zones.length;
-  const weights = zones.map((zone) => 1 / zone.priority);
-  const total = weights.reduce((sum, weight) => sum + weight, 0);
-  zones.forEach((zone, index) =>
-    allocation.set(
-      zone.id,
-      1 + Math.floor((weightedCents * weights[index]) / total),
-    ),
-  );
-  return allocation;
+  return splitBudget(zones, remainingCents).allocation;
 }
 
 export function zoneToSearchTask(
@@ -180,17 +163,19 @@ export function buildDesignPlan({
     );
   const model = buildSpaceModel(room);
   const reserved = reserveZones(room, model, parsed.zones, parsed.spacing);
-  const zones = reserved.zones.map((zone) => ({
+  const flagged = reserved.zones.map((zone) => ({
     ...zone,
     suggested: isSuggested(zone.category),
   }));
-  const rejected = reserved.rejected;
-  const allocation = allocateBudget(
-    zones,
-    remainingBudgetCents(room, brief, products),
-  );
+  // A zone the budget cannot give a workable ceiling is dropped like one that
+  // did not fit, with the reason on the card, rather than searched in vain.
+  const split = splitBudget(flagged, remainingBudgetCents(room, brief, products));
+  const zones = flagged
+    .filter((zone) => split.allocation.has(zone.id))
+    .map((zone, index) => ({ ...zone, priority: index + 1 }));
+  const rejected = [...reserved.rejected, ...split.dropped];
   const tasks = zones.map((zone) =>
-    zoneToSearchTask(zone, brief, allocation.get(zone.id) ?? 0),
+    zoneToSearchTask(zone, brief, split.allocation.get(zone.id) ?? 0),
   );
   const plan = designPlanSchema.parse({
     roomId: room.id,

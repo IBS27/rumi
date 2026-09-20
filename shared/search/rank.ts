@@ -22,11 +22,16 @@ export function footprintArea(dimensions: Dimensions): number {
   return dimensions.width * dimensions.depth;
 }
 
+// A reserved footprint already sits inside clearance margins, so a frame a
+// few centimetres over the line still works. Merchant sizes are also rounded.
+const FIT_TOLERANCE = 1.03;
+
 export function fitsTask(dimensions: Dimensions, task: SearchTask): boolean {
-  if (task.maxHeight !== null && dimensions.height > task.maxHeight)
+  if (task.maxHeight !== null && dimensions.height > task.maxHeight * FIT_TOLERANCE)
     return false;
   if (!task.maxFootprint) return true;
-  const { width, depth } = task.maxFootprint;
+  const width = task.maxFootprint.width * FIT_TOLERANCE;
+  const depth = task.maxFootprint.depth * FIT_TOLERANCE;
   return (
     (dimensions.width <= width && dimensions.depth <= depth) ||
     (dimensions.width <= depth && dimensions.depth <= width)
