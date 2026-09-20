@@ -2,7 +2,7 @@ import { SignInButton, UserButton, useUser } from "@clerk/react";
 import { useConvexAuth } from "convex/react";
 import { Smartphone } from "lucide-react";
 import { ChatPanel, ChatUnavailable } from "./features/chat/ChatPanel";
-import { RoomWorkspace } from "./features/room-editor/RoomWorkspace";
+import { SessionShell } from "./features/workspace/SessionShell";
 import { PhoneCapture } from "./features/room-import/PhoneCapture";
 import { ScanAction } from "./features/room-setup/StartScreen";
 import { Button } from "./ui";
@@ -19,7 +19,7 @@ function SignedInWorkspace() {
       </div>
     );
   return (
-    <RoomWorkspace
+    <SessionShell
       key={user?.id ?? "local"}
       identity={user?.id ?? "local"}
       chat={(context) =>
@@ -112,6 +112,6 @@ export function App() {
     import.meta.env.VITE_CONVEX_URL?.trim() ? (
     <SignedInWorkspace />
   ) : (
-    <RoomWorkspace chat={(context) => <ChatUnavailable {...context} />} />
+    <SessionShell chat={(context) => <ChatUnavailable {...context} />} />
   );
 }

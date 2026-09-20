@@ -65,24 +65,19 @@ export function StartScreen({
   busy?: boolean;
 }) {
   return (
-    <div className="grid flex-1 min-h-0 grid-cols-[1fr_380px] gap-7 px-7 pt-2 pb-7 max-lg:grid-cols-1">
-      <div className="relative flex min-h-[420px] flex-col overflow-hidden rounded-panel bg-sage">
-        <div className="absolute top-7 left-8 max-w-[34ch]">
+    <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden px-7 pt-2 pb-7">
+      <RoomIllustration className="pointer-events-none absolute right-0 bottom-0 h-auto w-[44%] max-w-[640px] opacity-40 max-lg:hidden" />
+      <div className="relative mx-auto flex w-full max-w-[520px] flex-1 flex-col justify-center gap-3 py-8">
+        <div className="mb-3 text-center">
           <Display>Bring in a room and we'll furnish it.</Display>
-          <p className="mt-3 max-w-[30ch] text-base text-[#3f5049]">
+          <p className="mx-auto mt-3 max-w-[38ch] text-base text-mute">
             Scan it with your iPhone or import a RoomPlan file. Then set a style
             and a budget, and the designer picks real products that fit.
           </p>
         </div>
-        <RoomIllustration className="mt-auto ml-auto block h-auto w-[86%]" />
-        <div className="absolute bottom-6 left-8 inline-flex items-center gap-2.5 rounded-tile border-[1.5px] border-dashed border-teal-deep/45 bg-chalk/60 px-3.5 py-2.5 font-medium text-teal-deep">
-          <Download size={18} />
-          Drop a RoomPlan file anywhere on this page
-        </div>
-      </div>
-
-      <div className="flex flex-col gap-3 pt-1.5">
-        <Heading className="mb-1 text-[22px]">Start with your room</Heading>
+        <Heading className="mb-1 text-[15px] text-mute">
+          Start this session with a room
+        </Heading>
         {scan}
         <StartAction
           icon={<Download />}
@@ -101,8 +96,12 @@ export function StartScreen({
         >
           The corner living room, sample data. Good for a first look.
         </StartAction>
-        <Muted className="mt-auto text-xs">
-          Rooms you open are saved on this browser until you sign in.
+        <div className="mx-auto mt-3 inline-flex items-center gap-2.5 rounded-tile border-[1.5px] border-dashed border-teal-deep/45 bg-chalk/60 px-3.5 py-2.5 text-sm font-medium text-teal-deep">
+          <Download size={18} />
+          Or drop a RoomPlan file anywhere on this page
+        </div>
+        <Muted className="text-center text-xs">
+          Each session keeps its own room and chat, saved on this browser.
         </Muted>
       </div>
     </div>

@@ -16,8 +16,14 @@ import { ChatMessage } from "./ChatMessage";
 import { Composer } from "./Composer";
 import { OptionsCard } from "./OptionsCard";
 import { ChatHistory } from "./ChatHistory";
+import { chatKey } from "../workspace/sessions";
 
-export type ChatContext = { room?: CapturedRoom; onCollapse: () => void };
+/** `sessionId` scopes the open conversation to the current session. */
+export type ChatContext = {
+  room?: CapturedRoom;
+  sessionId?: string;
+  onCollapse: () => void;
+};
 
 function ChatHeader({
   onCollapse,
@@ -92,10 +98,13 @@ function sameRoom(a: RoomSnapshot | null, b?: RoomSnapshot) {
 
 export function ChatPanel({
   room,
+  sessionId,
   onCollapse,
   identity,
 }: ChatContext & { identity: string }) {
-  const storageKey = `rumi.chat.v1.${identity}`;
+  const storageKey = sessionId
+    ? chatKey(identity, sessionId)
+    : `rumi.chat.v1.${identity}`;
   const [activeId, setActiveId] = useState<Id<"projects"> | null>(() => {
     try {
       const id = localStorage.getItem(storageKey);
