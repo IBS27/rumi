@@ -12,9 +12,12 @@ import {
   query,
 } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
+import { z } from "zod";
 import {
   roomSchema,
   briefSchema,
+  projectPhaseSchema,
+  wantSchema,
   type DesignBrief,
 } from "../shared/contracts";
 
@@ -144,10 +147,12 @@ export const create = mutation({
   },
 });
 
-export function normalizeBrief(brief: DesignBrief): DesignBrief {
-  return brief.budgetCents >= Number.MAX_SAFE_INTEGER / 2
-    ? { ...brief, budgetCents: 0 }
-    : brief;
+// Stored briefs may predate the Spec fields; parsing fills their defaults.
+export function normalizeBrief(brief: Partial<DesignBrief>): DesignBrief {
+  const parsed = briefSchema.parse({ ...emptyBrief(), ...brief });
+  return parsed.budgetCents >= Number.MAX_SAFE_INTEGER / 2
+    ? { ...parsed, budgetCents: 0 }
+    : parsed;
 }
 
 export function emptyBrief() {
@@ -168,6 +173,7 @@ export const context = query({
       project: projectDoc,
       room: v.union(zodToConvex(roomSchema), v.null()),
       brief: zodToConvex(briefSchema),
+      phase: zodToConvex(projectPhaseSchema),
     }),
   ),
   handler: async (ctx, { projectId }) => {
@@ -179,6 +185,7 @@ export const context = query({
       project,
       room: room?.snapshot ?? null,
       brief: normalizeBrief(room?.brief ?? project.brief ?? emptyBrief()),
+      phase: project.phase ?? "spec",
     };
   },
 });
@@ -216,6 +223,20 @@ export const attachRoom = mutation({
   },
 });
 
+export const setPhase = internalMutation({
+  args: {
+    projectId: v.id("projects"),
+    phase: zodToConvex(projectPhaseSchema),
+  },
+  returns: v.null(),
+  handler: async (ctx, { projectId, phase }) => {
+    const project = await ctx.db.get(projectId);
+    if (!project) throw new Error("This project does not exist.");
+    await ctx.db.patch(projectId, { phase });
+    return null;
+  },
+});
+
 export const updateBrief = internalMutation({
   args: {
     projectId: v.id("projects"),
@@ -223,6 +244,10 @@ export const updateBrief = internalMutation({
     styles: v.optional(v.array(v.string())),
     budgetCents: v.optional(v.number()),
     restrictions: v.optional(v.array(v.string())),
+    palette: v.optional(v.array(v.string())),
+    materials: v.optional(v.array(v.string())),
+    wants: v.optional(zodToConvex(z.array(wantSchema))),
+    inspiration: v.optional(v.string()),
   },
   returns: zodToConvex(briefSchema),
   handler: async (ctx, { projectId, ...patch }) => {

@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { z } from "zod";
 import { zodToConvex } from "convex-helpers/server/zod4";
 import { internalMutation, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
@@ -6,6 +7,7 @@ import {
   briefSchema,
   roomSchema,
   proposalSchema,
+  wantSchema,
   type RoomSnapshot,
 } from "../shared/contracts";
 import schema from "./schema";
@@ -32,6 +34,10 @@ export const patchBrief = internalMutation({
     styles: v.optional(v.array(v.string())),
     budgetCents: v.optional(v.number()),
     restrictions: v.optional(v.array(v.string())),
+    palette: v.optional(v.array(v.string())),
+    materials: v.optional(v.array(v.string())),
+    wants: v.optional(zodToConvex(z.array(wantSchema))),
+    inspiration: v.optional(v.string()),
   },
   handler: async (ctx, { roomId, ...patch }) => {
     const doc = await ctx.db.get(roomId);
@@ -63,7 +69,12 @@ export const applyDesignProposal = internalMutation({
     const products = await ctx.runQuery(internal.products.getByIds, {
       ids: productIds,
     });
-    const next = applyProposal(doc.snapshot, proposal, products, doc.brief);
+    const next = applyProposal(
+      doc.snapshot,
+      proposal,
+      products,
+      briefSchema.parse(doc.brief),
+    );
     await ctx.db.patch(doc._id, { snapshot: next });
     await ctx.db.insert("proposals", { ownerId: doc.ownerId, proposal });
     return next;

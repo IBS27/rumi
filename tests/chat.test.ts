@@ -205,6 +205,40 @@ describe("live chat boundaries", () => {
     ).toBe(0);
   });
 
+  it("starts in Spec, fills old briefs with defaults, and moves stages on request", async () => {
+    const { t, owner, projectId } = await setup();
+    // A brief stored before the Spec fields existed.
+    await t.run(async (ctx) => {
+      await ctx.db.patch(projectId, {
+        brief: {
+          prompt: "",
+          styles: ["Minimalist"],
+          budgetCents: 0,
+          currency: "USD",
+          restrictions: [],
+        },
+      });
+    });
+    const before = await owner.query(api.projects.context, { projectId });
+    expect(before?.phase).toBe("spec");
+    expect(before?.brief.wants).toEqual([]);
+    expect(before?.brief.palette).toEqual([]);
+    expect(before?.brief.inspiration).toBe("");
+    const saved = await t.mutation(internal.projects.updateBrief, {
+      projectId,
+      wants: [{ category: "floor lamp", notes: "warm light" }],
+      palette: ["#a3b18a"],
+      materials: ["oak"],
+      inspiration: "Soft, sage-toned Scandinavian bedroom.",
+    });
+    expect(saved.wants[0].category).toBe("floor lamp");
+    expect(saved.styles).toEqual(["Minimalist"]);
+    await t.mutation(internal.projects.setPhase, { projectId, phase: "plan" });
+    const after = await owner.query(api.projects.context, { projectId });
+    expect(after?.phase).toBe("plan");
+    expect(after?.brief.materials).toEqual(["oak"]);
+  });
+
   it("rejects cross-user room updates and stale room revisions", async () => {
     const { owner, other, projectId } = await setup();
     expect(await other.query(api.projects.context, { projectId })).toBeNull();

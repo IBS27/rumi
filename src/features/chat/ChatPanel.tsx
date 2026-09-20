@@ -14,7 +14,11 @@ import {
 } from "lucide-react";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
-import type { CapturedRoom, RoomSnapshot } from "../../../shared/contracts";
+import type {
+  CapturedRoom,
+  ProjectPhase,
+  RoomSnapshot,
+} from "../../../shared/contracts";
 import { IMAGE_TYPES, MAX_IMAGE_BYTES } from "../../../shared/chat/uploads";
 import { Composer } from "./Composer";
 import { OptionsCard } from "./OptionsCard";
@@ -139,6 +143,42 @@ function ProductCard({ product }: { product: Recommendation }) {
         </a>
       </div>
     </article>
+  );
+}
+
+const PHASES: { id: ProjectPhase; label: string }[] = [
+  { id: "spec", label: "Spec" },
+  { id: "plan", label: "Plan" },
+  { id: "review", label: "Review" },
+];
+
+function PhaseStepper({ phase }: { phase: ProjectPhase }) {
+  const current = PHASES.findIndex((step) => step.id === phase);
+  return (
+    <ol
+      className="mb-2 flex items-center gap-1.5 text-[11px]"
+      aria-label="Project stage"
+    >
+      {PHASES.map((step, index) => (
+        <li key={step.id} className="flex items-center gap-1.5">
+          {index > 0 && (
+            <span aria-hidden className="h-px w-3 bg-line" />
+          )}
+          <span
+            aria-current={index === current ? "step" : undefined}
+            className={
+              index === current
+                ? "rounded-full bg-wash px-2 py-0.5 font-medium text-ink"
+                : index < current
+                  ? "text-ink"
+                  : "text-mute"
+            }
+          >
+            {step.label}
+          </span>
+        </li>
+      ))}
+    </ol>
   );
 }
 
@@ -444,6 +484,7 @@ function Conversation({
   return (
     <>
       <div className="max-h-[35%] shrink-0 overflow-y-auto border-b border-line pb-2.5">
+        <PhaseStepper phase={context.phase} />
         <h3 className="mb-2 font-display text-sm font-medium leading-snug [overflow-wrap:anywhere]">
           {context.brief.prompt || context.project.title}
         </h3>
@@ -479,6 +520,19 @@ function Conversation({
                 ? "Update room measurements"
                 : "Attach current room"}
           </Button>
+        )}
+        {context.brief.wants.length > 0 && (
+          <p className="mt-1.5 flex flex-wrap gap-1 text-xs">
+            {context.brief.wants.map((want) => (
+              <span
+                key={want.category}
+                className="rounded-full border border-line px-2 py-0.5"
+                title={want.notes || undefined}
+              >
+                {want.category}
+              </span>
+            ))}
+          </p>
         )}
         {(context.brief.budgetCents > 0 ||
           context.brief.styles.length > 0 ||

@@ -6,21 +6,29 @@ import {
   assetSchema,
   briefSchema,
   productSchema,
+  projectPhaseSchema,
   proposalSchema,
   roomSchema,
 } from "../shared/contracts";
 
+// Briefs stored before the Spec stage lack its fields. Storage allows their
+// absence; normalizeBrief fills the defaults on every read.
+const briefFields = zodToConvex(briefSchema).fields;
+export const storedBrief = v.object({
+  ...briefFields,
+  palette: v.optional(briefFields.palette),
+  materials: v.optional(briefFields.materials),
+  wants: v.optional(briefFields.wants),
+  inspiration: v.optional(briefFields.inspiration),
+});
+
 // Zod refinements must also run at function boundaries; Convex validates storage shapes.
 export default defineSchema({
-  rooms: defineTable(
-    zodToConvex(
-      z.object({
-        ownerId: z.string(),
-        snapshot: roomSchema,
-        brief: briefSchema,
-      }),
-    ),
-  ).index("by_ownerId", ["ownerId"]),
+  rooms: defineTable({
+    ownerId: v.string(),
+    snapshot: zodToConvex(roomSchema),
+    brief: storedBrief,
+  }).index("by_ownerId", ["ownerId"]),
   products: defineTable(zodToConvex(productSchema)).index("by_catalog_id", [
     "id",
   ]),
@@ -33,7 +41,8 @@ export default defineSchema({
     ownerId: v.string(),
     title: v.string(),
     roomId: v.optional(v.id("rooms")),
-    brief: v.optional(zodToConvex(briefSchema)),
+    brief: v.optional(storedBrief),
+    phase: v.optional(zodToConvex(projectPhaseSchema)),
     activeMessageId: v.optional(v.id("messages")),
     createdAt: v.number(),
   }).index("by_ownerId", ["ownerId"]),

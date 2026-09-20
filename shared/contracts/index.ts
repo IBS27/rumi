@@ -168,12 +168,26 @@ export const roomSchema = z
       room.objects.length,
     "Object IDs must be unique",
   );
+// The workflow has two stages. Spec gathers the brief; Plan reserves space and
+// searches. Review is reached once every zone has a product.
+export const projectPhaseSchema = z.enum(["spec", "plan", "review"]);
+// An item the user asked for, before any space is reserved for it.
+export const wantSchema = z.object({
+  category: z.string().trim().min(1).max(80),
+  notes: z.string().trim().max(200),
+});
 export const briefSchema = z.object({
   prompt: z.string(),
   styles: z.array(z.string()),
   budgetCents: z.number().int().nonnegative(),
   currency: z.literal("USD"),
   restrictions: z.array(z.string()),
+  // Filled in during Spec. Older briefs lack these, so they default.
+  palette: z.array(z.string().regex(/^#[0-9a-fA-F]{6}$/)).max(8).default([]),
+  materials: z.array(z.string()).max(12).default([]),
+  wants: z.array(wantSchema).max(12).default([]),
+  // A merged summary of inspiration-image analyses, in the agent's words.
+  inspiration: z.string().max(1200).default(""),
 });
 export const proposalSchema = z.object({
   id: idSchema,
@@ -234,13 +248,142 @@ export const searchTaskResultSchema = z.object({
   explanation: z.string(),
   failures: z.array(searchFailureSchema),
 });
+// Planner contracts. The model proposes what a room needs; code owns every meter.
+export const zoneAnchorSchema = z.enum([
+  "wall",
+  "corner",
+  "center",
+  "window",
+  "near-object",
+  "anywhere",
+]);
+// Model output is clipped, not rejected, on length: a verbose sentence must not
+// discard an otherwise sound plan.
+const clipped = (max: number) =>
+  z
+    .string()
+    .transform((value) => value.trim().slice(0, max))
+    .pipe(z.string().min(1));
+// Where a piece lives: on the floor, hung on a wall, on top of another piece
+// (a table lamp on a desk), or under other pieces (a rug).
+export const zoneMountSchema = z.enum(["floor", "wall", "surface", "under"]);
+export const zoneRequestSchema = z.object({
+  id: idSchema,
+  purpose: clipped(120),
+  category: clipped(80),
+  query: clipped(200),
+  mount: zoneMountSchema,
+  anchor: zoneAnchorSchema,
+  // For surface mounts: the existing object or earlier zone the piece sits on.
+  relatedObjectId: z.string().nullable(),
+  // Desired footprint in meters. Code shrinks it to what actually fits. A
+  // model may write 0 for a print's thickness; clamp rather than reject.
+  desiredFootprint: z
+    .object({ width: z.number(), depth: z.number() })
+    .transform((value) => ({
+      width: Math.max(0.02, value.width),
+      depth: Math.max(0.02, value.depth),
+    }))
+    .pipe(footprintSchema),
+  desiredHeight: z
+    .number()
+    .nullable()
+    .transform((value) => (value !== null && value > 0 ? value : null)),
+  miscellaneous: z
+    .array(z.string())
+    .transform((items) =>
+      items
+        .map((item) => item.trim().slice(0, 160))
+        .filter((item) => item.length > 0)
+        .slice(0, 12),
+    ),
+  priority: z.number().int().positive(),
+});
+export const zonePlanRequestSchema = z.object({
+  summary: clipped(600),
+  zones: z.array(zoneRequestSchema).min(1).max(6),
+});
+// The same shape with no transforms or bounds, for structured model output.
+// The model fills this; zonePlanRequestSchema then clips and validates it.
+export const zonePlanWireSchema = z.object({
+  summary: z.string(),
+  zones: z.array(
+    z.object({
+      id: z.string(),
+      purpose: z.string(),
+      category: z.string(),
+      query: z.string(),
+      mount: zoneMountSchema,
+      anchor: zoneAnchorSchema,
+      relatedObjectId: z.string().nullable(),
+      desiredFootprint: z.object({ width: z.number(), depth: z.number() }),
+      desiredHeight: z.number().nullable(),
+      miscellaneous: z.array(z.string()),
+      priority: z.number(),
+    }),
+  ),
+});
+export const reservedZoneSchema = z.object({
+  id: idSchema,
+  purpose: z.string(),
+  category: searchCategorySchema,
+  query: z.string(),
+  mount: zoneMountSchema,
+  anchor: zoneAnchorSchema,
+  relatedObjectId: idSchema.nullable(),
+  // Base-center position and yaw, matching RoomObject conventions. For wall
+  // mounts, y is the bottom edge on the wall; for surface mounts, the host top.
+  position: vectorSchema,
+  rotationY: z.number().finite(),
+  // The product must fit inside this footprint, after margins are removed.
+  footprint: footprintSchema,
+  maxHeight: z.number().positive().nullable(),
+  margins: z.object({
+    front: z.number().nonnegative(),
+    back: z.number().nonnegative(),
+    sides: z.number().nonnegative(),
+  }),
+  clearanceRules: z.array(z.string()),
+  miscellaneous: z.array(z.string()),
+  priority: z.number().int().positive(),
+  // True when the planner added this beyond what the user asked for.
+  suggested: z.boolean(),
+});
+export const zoneRejectionSchema = z.object({
+  zoneId: idSchema,
+  reason: z.string(),
+});
+export const designPlanSchema = z.object({
+  roomId: idSchema,
+  baseRevision: z.number().int().nonnegative(),
+  summary: z.string(),
+  zones: z.array(reservedZoneSchema).max(6),
+  rejected: z.array(zoneRejectionSchema),
+  tasks: z.array(searchTaskSchema).max(6),
+});
+export const zoneFillSchema = z.object({
+  zoneId: idSchema,
+  productId: idSchema.nullable(),
+  fits: z.enum(["yes", "no", "unknown"]),
+  issues: z.array(z.string()),
+});
 export type Category = z.infer<typeof searchCategorySchema>;
+export type ZoneAnchor = z.infer<typeof zoneAnchorSchema>;
+export type ZoneMount = z.infer<typeof zoneMountSchema>;
+export type ZoneRequest = z.infer<typeof zoneRequestSchema>;
+export type ZonePlanRequest = z.infer<typeof zonePlanRequestSchema>;
+export type ReservedZone = z.infer<typeof reservedZoneSchema>;
+export type ZoneRejection = z.infer<typeof zoneRejectionSchema>;
+export type DesignPlan = z.infer<typeof designPlanSchema>;
+export type ZoneFill = z.infer<typeof zoneFillSchema>;
 export type RoomSnapshot = z.infer<typeof roomSchema>;
 export type RoomObject = z.infer<typeof roomObjectSchema>;
 export type CapturedSurface = z.infer<typeof capturedSurfaceSchema>;
 export type CapturedRoom = Extract<RoomSnapshot, { shape: "polygon" }>;
 export type ProductCandidate = z.infer<typeof productSchema>;
 export type DesignBrief = z.infer<typeof briefSchema>;
+export type ProjectPhase = z.infer<typeof projectPhaseSchema>;
+export type Want = z.infer<typeof wantSchema>;
 export type DesignProposal = z.infer<typeof proposalSchema>;
 export type AssetRecord = z.infer<typeof assetSchema>;
 export type SearchRequest = z.infer<typeof searchRequestSchema>;
