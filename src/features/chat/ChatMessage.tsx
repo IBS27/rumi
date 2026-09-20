@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { Check, ExternalLink, LoaderCircle, X } from "lucide-react";
 import { MessageBubble, Pill } from "../../ui";
 import type { PillTone } from "../../ui/Pill";
+import { RichText } from "./RichText";
 
 type Recommendation = {
   id: string;
@@ -175,6 +176,7 @@ type ChatMessageData = {
   status?: "pending" | "done" | "error";
   content: string;
   imageUrl?: string | null;
+  imageAnalysis?: string | null;
   recommendation?: Recommendation | null;
   zoneCards?: ZoneCard[];
   activity?: ActivityItem[];
@@ -208,12 +210,21 @@ export function ChatMessage({
         </a>
       )}
       {showText && message.content && (
-        <p
-          className={`whitespace-pre-wrap ${message.status === "error" ? "text-rust" : ""}`}
-        >
-          {message.content}
+        <div className={message.status === "error" ? "text-rust" : ""}>
+          <RichText text={message.content} />
           {pending && <RippleDots />}
-        </p>
+        </div>
+      )}
+      {message.imageAnalysis && (
+        <details className="mt-2 text-xs text-mute">
+          <summary className="w-fit cursor-pointer rounded-ctrl hover:text-teal-deep">
+            What Rumi saw
+          </summary>
+          <RichText
+            text={message.imageAnalysis}
+            className="mt-2 leading-relaxed"
+          />
+        </details>
       )}
       {pending &&
         !message.content &&
@@ -243,9 +254,7 @@ export function ChatMessage({
             <summary className="w-fit cursor-pointer rounded-ctrl hover:text-teal-deep">
               Rumi's notes
             </summary>
-            <p className="mt-2 whitespace-pre-wrap leading-relaxed">
-              {message.content}
-            </p>
+            <RichText text={message.content} className="mt-2 leading-relaxed" />
           </details>
         )}
       {children}

@@ -271,11 +271,14 @@ export const complete = internalMutation({
   handler: async (ctx, { imageId, userMessageId, status, analysis }) => {
     if (!(await ctx.db.get(imageId)) || !(await ctx.db.get(userMessageId)))
       return;
+    // The analysis stays on the image. The user's bubble keeps a short line;
+    // the chat shows the analysis as a note, and the agent reads it from the
+    // image when it builds its transcript.
     await ctx.db.patch(imageId, { status, analysis });
     await ctx.db.patch(userMessageId, {
       content:
         status === "analyzed"
-          ? `I uploaded an inspiration image. Visual analysis: ${analysis}`
+          ? "I uploaded an inspiration image."
           : "I uploaded an inspiration image, but it could not be analyzed.",
     });
   },
@@ -311,7 +314,7 @@ export const analyze = internalAction({
             "gpt-4o-mini",
         ),
         system:
-          "Analyze an interior-design inspiration image. Be concise and concrete. Identify visible style, palette, materials, lighting, furniture forms, layout cues, and practical ideas worth applying. Do not infer exact dimensions or unseen details.",
+          "Analyze an interior-design inspiration image. Be concise and concrete. Identify visible style, palette, materials, lighting, furniture forms, layout cues, and practical ideas worth applying. Do not infer exact dimensions or unseen details. Write plain prose: short labeled lines such as 'Style: …', 'Palette: …', 'Materials: …', 'Lighting: …', 'Furniture: …', 'Ideas: …'. No Markdown, no headings, no asterisks, no bullet symbols.",
         messages: [
           {
             role: "user",

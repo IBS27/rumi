@@ -4,6 +4,7 @@ import { useMutation } from "convex/react";
 import { Check, ArrowUp } from "lucide-react";
 import type { Doc } from "../../../convex/_generated/dataModel";
 import { api } from "../../../convex/_generated/api";
+import { RichText } from "./RichText";
 
 export function OptionsCard({
   message,
@@ -38,9 +39,9 @@ export function OptionsCard({
   return (
     <Panel
       tone="stone"
-      className="shrink-0 rounded-tile p-3 text-[12.5px] [&>p]:mb-2.5"
+      className="shrink-0 rounded-tile p-3 text-[12.5px]"
     >
-      <p>{message.content}</p>
+      <RichText text={message.content} className="mb-2.5" />
       <div className="flex flex-col gap-1.5 [&>button]:justify-between [&>button]:whitespace-normal [&>button]:text-left [&>button]:leading-relaxed [&>button[aria-pressed=true]]:border-teal [&>button[aria-pressed=true]]:bg-teal-tint [&>button[aria-pressed=true]]:opacity-100">
         {message.options?.map((option) => {
           const active = (message.answer ?? selected).includes(option);
