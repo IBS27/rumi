@@ -91,7 +91,7 @@ Set these variables on the personal Convex deployment:
 - `RUMI_AGENT_MODEL`, `RUMI_EXTRACTION_MODEL`, `RUMI_IMAGE_MODEL`: optional model
   overrides. The existing defaults are `gpt-4o` and `gpt-4o-mini`.
 - `RUMI_PLANNER_MODEL`, `RUMI_PLANNER_REASONING`: optional overrides for the
-  space planner's zone proposal. Defaults are `gpt-5.6-sol` (falling back to
+  space planner's zone proposal. Defaults are `gpt-6-astra` (falling back to
   `RUMI_AGENT_MODEL`) and `low` reasoning effort.
 - `RUMI_ASSET_MODEL`: optional model override for approximate product models.
 - `CHAT_ALLOWED_ORIGINS`: comma-separated exact frontend origins allowed to

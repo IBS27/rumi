@@ -83,7 +83,7 @@ export async function proposeZones(
     model: openai(
       process.env.RUMI_PLANNER_MODEL ??
         process.env.RUMI_AGENT_MODEL ??
-        "gpt-5.6-sol",
+        "gpt-6-astra",
     ),
     schema: zonePlanWireSchema,
     // Strict mode makes the provider enforce the schema so a stray string or

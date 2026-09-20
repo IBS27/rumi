@@ -403,9 +403,14 @@ export function buildSpaceModel(room: RoomSnapshot): SpaceModel {
           id: `door-${door.id}`,
           kind: "door" as const,
           // Swing direction is unknown: reserve approach/swing depth on both
-          // sides of the measured doorway, not an axis-aligned box extending
-          // an extra half-walkway past each jamb.
-          footprint: rectangleRing(center, clearance, clearance * 2, yaw),
+          // sides of the measured doorway, plus a shoulder past each jamb so
+          // furniture cannot stand flush against the doorway.
+          footprint: rectangleRing(
+            center,
+            Math.max(clearance, width + 0.6),
+            clearance * 2,
+            yaw,
+          ),
           reason: `Keep ${clearance.toFixed(2)} m clear in front of door ${door.id}.`,
         };
       });

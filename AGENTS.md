@@ -10,7 +10,7 @@ React + Vite + TypeScript + Tailwind, with Convex and Clerk. The frontend is a r
 - `shared/fixtures/`: synthetic room/product data and deterministic search.
 - `shared/geometry/` and `shared/budget/`: placement checks and price calculations.
 - `convex/schema.ts`: backend storage schema; personal dev deployments use project `rumi` in the dedicated `rumi` team, CLI slug `rumi-4592b`.
-- `convex/agent.ts` + `convex/search.ts`: internal agent functions — the main design agent's tool loop and the search agent. They require `EXA_API_KEY` and `OPENAI_API_KEY` in the deployment's environment, plus optional `RUMI_AGENT_MODEL`, `RUMI_EXTRACTION_MODEL`, `RUMI_VISION_MODEL`, `RUMI_PLANNER_MODEL` and `RUMI_PLANNER_REASONING` overrides (the search agent's two model calls default to `gpt-5.6-luna`; the planner defaults to `gpt-5.6-sol` at low reasoning).
+- `convex/agent.ts` + `convex/search.ts`: internal agent functions — the main design agent's tool loop and the search agent. They require `EXA_API_KEY` and `OPENAI_API_KEY` in the deployment's environment, plus optional `RUMI_AGENT_MODEL`, `RUMI_EXTRACTION_MODEL`, `RUMI_VISION_MODEL`, `RUMI_PLANNER_MODEL` and `RUMI_PLANNER_REASONING` overrides (the search agent's two model calls default to `gpt-5.6-luna`; the planner defaults to `gpt-6-astra` at low reasoning).
 - `shared/search/`: the search agent's pure pipeline — page reading, merchant data, dimension resolution, colour, ranking. Testable without a deployment; see [docs/search-agent.md](docs/search-agent.md).
 - `convex-workflow.md`: teammate setup, deployment ownership, syncing changes, and schema migrations.
 - `docs/spec.md`: product scope; `docs/contracts.md`: units, coordinates, and team handoff.

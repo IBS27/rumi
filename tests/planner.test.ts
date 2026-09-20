@@ -145,7 +145,8 @@ describe("space model", () => {
       surface.transform = rotation.clone()
         .multiply(new Matrix4().fromArray(surface.transform)).toArray();
     const rotated = buildSpaceModel(room).clearances[0];
-    expect(polygonArea([rotated.footprint])).toBeCloseTo(0.9 * 1.8, 6);
+    // Aperture 0.9 m plus a 0.3 m shoulder past each jamb, 0.9 m approach both sides.
+    expect(polygonArea([rotated.footprint])).toBeCloseTo(1.5 * 1.8, 6);
     for (const point of original.footprint) {
       const expected = {
         x: point.x * Math.cos(yaw) + point.z * Math.sin(yaw),
@@ -191,6 +192,63 @@ describe("zone reservation", () => {
         dimensions: { ...desiredFootprint, height: 1 },
       })).toBeNull();
     }
+  });
+
+  it("does not stand furniture against floor edges that have no wall behind them", () => {
+    const scan = importRoomPlan(syntheticRoomPlan);
+    // One square floor patch; only the east edge has a scanned wall. The
+    // other three edges are scan cutoffs, not walls.
+    const floorPatch = {
+      ...scan.floors[0],
+      transform: new Matrix4().toArray(),
+      polygonCorners: [
+        { x: 0, y: 0, z: 0 },
+        { x: 4.4, y: 0, z: 0 },
+        { x: 4.4, y: 0, z: 4 },
+        { x: 0, y: 0, z: 4 },
+      ],
+    };
+    const eastWall = {
+      ...scan.walls[0],
+      dimensions: { width: 4, height: 2.5, depth: 0 },
+      polygonCorners: [],
+      transform: new Matrix4()
+        .makeRotationY(-Math.PI / 2)
+        .setPosition(4.4, 1.2, 2)
+        .toArray(),
+    };
+    const room = {
+      ...scan,
+      floors: [floorPatch],
+      walls: [eastWall],
+      openings: [],
+      objects: [],
+    };
+    const { zones, rejected } = reserveZones(room, buildSpaceModel(room), [
+      {
+        ...lampZone,
+        id: "bed",
+        category: "bed",
+        query: "queen bed",
+        relatedObjectId: null,
+        anchor: "wall",
+        desiredFootprint: { width: 1.65, depth: 2.15 },
+      },
+    ]);
+    expect(rejected).toEqual([]);
+    const zone = zones[0];
+    // Flush to the real wall on the east edge — not floating at a cutoff.
+    expect(Math.abs(Math.abs(zone.rotationY) - Math.PI / 2)).toBeLessThan(0.01);
+    expect(zone.position.x).toBeGreaterThan(3);
+    expect(
+      designPlacementIssue(room, {
+        ...sampleRoom.objects[0],
+        owned: false,
+        position: zone.position,
+        rotation: { x: 0, y: zone.rotationY, z: 0 },
+        dimensions: { ...zone.footprint, height: 1 },
+      }),
+    ).toBeNull();
   });
 
   it("allows a bed walkway to share door access but never puts its body there", () => {

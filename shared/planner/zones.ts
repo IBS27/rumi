@@ -201,6 +201,36 @@ function frontRing(
   );
 }
 
+// A floor edge is only a wall when a scanned wall runs parallel to it, nearby,
+// and over a shared span. Interior seams between floor patches and scan
+// cutoffs have no wall behind them; hugging one floats furniture in the room.
+const WALL_EDGE_DISTANCE = 0.6;
+const WALL_EDGE_PARALLEL = 0.25; // sin of the allowed edge-to-wall angle
+
+function edgeHasWall(model: SpaceModel, start: Point2, end: Point2): boolean {
+  const length = Math.hypot(end.x - start.x, end.z - start.z);
+  if (!length) return false;
+  const dx = (end.x - start.x) / length;
+  const dz = (end.z - start.z) / length;
+  return model.walls.some((wall) => {
+    const wx = wall.end.x - wall.start.x;
+    const wz = wall.end.z - wall.start.z;
+    const wLength = Math.hypot(wx, wz);
+    if (!wLength) return false;
+    if (Math.abs(dx * wz - dz * wx) / wLength > WALL_EDGE_PARALLEL) return false;
+    const midX = (wall.start.x + wall.end.x) / 2;
+    const midZ = (wall.start.z + wall.end.z) / 2;
+    if (
+      Math.abs(dx * (midZ - start.z) - dz * (midX - start.x)) >
+      WALL_EDGE_DISTANCE
+    )
+      return false;
+    const t1 = (wall.start.x - start.x) * dx + (wall.start.z - start.z) * dz;
+    const t2 = (wall.end.x - start.x) * dx + (wall.end.z - start.z) * dz;
+    return Math.min(t1, t2) < length && Math.max(t1, t2) > 0;
+  });
+}
+
 function candidatePositions(
   model: SpaceModel,
   request: ZoneRequest,
@@ -284,6 +314,9 @@ function candidatePositions(
         const end = floor[(edge + 1) % floor.length];
         const length = Math.hypot(end.x - start.x, end.z - start.z);
         if (length < width + 2 * POSITION_ROUNDING_PAD) continue;
+        // With walls captured, an unbacked edge is a seam or scan cutoff —
+        // placing against it leaves the piece standing in open floor.
+        if (model.walls.length && !edgeHasWall(model, start, end)) continue;
         const dx = (end.x - start.x) / length;
         const dz = (end.z - start.z) / length;
         const alongInset = width / 2 + POSITION_ROUNDING_PAD;
@@ -306,15 +339,18 @@ function candidatePositions(
         }
       }
     }
-    for (let i = 0; i <= steps; i++) {
-      const t = i / steps;
-      const x = minX + sideInset + t * Math.max(0, roomWidth - 2 * sideInset);
-      const z = minZ + sideInset + t * Math.max(0, roomDepth - 2 * sideInset);
-      push(x, minZ + wallInset, 0);
-      push(x, maxZ - wallInset, Math.PI);
-      push(minX + wallInset, z, Math.PI / 2);
-      push(maxX - wallInset, z, -Math.PI / 2);
-    }
+    // Bounds edges guess where walls are; once the scan's own walls have been
+    // walked, they only add cutoff-edge positions that float in open floor.
+    if (model.shape !== "polygon" || !model.walls.length)
+      for (let i = 0; i <= steps; i++) {
+        const t = i / steps;
+        const x = minX + sideInset + t * Math.max(0, roomWidth - 2 * sideInset);
+        const z = minZ + sideInset + t * Math.max(0, roomDepth - 2 * sideInset);
+        push(x, minZ + wallInset, 0);
+        push(x, maxZ - wallInset, Math.PI);
+        push(minX + wallInset, z, Math.PI / 2);
+        push(maxX - wallInset, z, -Math.PI / 2);
+      }
   };
   const corners = () => {
     push(minX + sideInset, minZ + wallInset, 0);
