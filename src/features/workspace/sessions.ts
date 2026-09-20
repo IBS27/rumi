@@ -6,8 +6,13 @@ import {
 import type { CapturedRoom } from "../../../shared/contracts";
 
 /** A room with edits, plus the ID of its detailed scan in this browser. */
-export type Workspace = SavedRoom & { room: CapturedRoom; scanId?: string };
+export type Workspace = SavedRoom & {
+  room: CapturedRoom;
+  scanId?: string;
+  cloudProjectId?: string;
+};
 export const workspaceSchema = savedRoomSchema.safeExtend({
+  cloudProjectId: z.string().optional(),
   scanId: z
     .string()
     .regex(/^[a-f0-9]{32}$/)

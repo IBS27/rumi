@@ -68,6 +68,9 @@ export const assetSchema = z
     // Parametric scenes are generated from product photos and rendered directly by
     // Three.js. Existing GLB/manufacturer assets continue to use url.
     scene: parametricModelSchema.nullable().optional(),
+    error: z.string().max(500).optional(),
+    attempt: z.number().int().nonnegative().optional(),
+    updatedAt: z.number().optional(),
   })
   .refine(
     (value) =>
@@ -105,6 +108,10 @@ export const roomObjectSchema = z.object({
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
   owned: z.boolean(),
   locked: z.boolean(),
+  productLocked: z.boolean().optional(),
+  mount: z.enum(["floor", "wall", "surface", "under"]).optional(),
+  supportId: idSchema.optional(),
+  zoneId: idSchema.optional(),
   measurementSource: z.enum(["confirmed", "estimated"]).optional(),
   detectionConfidence: z.enum(["high", "medium", "low", "unknown"]).optional(),
   sourceCategory: z.string().optional(),
@@ -201,7 +208,9 @@ export const briefSchema = z.object({
   // Empty means the user left item choice to the planner.
   wants: z.array(wantSchema).max(12).default([]),
   // Whether the user asked for accessories (art, rugs, lamps) or ruled them out.
-  accessories: z.enum(["unspecified", "include", "skip"]).default("unspecified"),
+  accessories: z
+    .enum(["unspecified", "include", "skip"])
+    .default("unspecified"),
   // A merged summary of inspiration-image analyses, in the agent's words.
   inspiration: z.string().max(1200).default(""),
   // Spec questions the user has answered, including answers that leave the
@@ -309,14 +318,12 @@ export const zoneRequestSchema = z.object({
     .number()
     .nullable()
     .transform((value) => (value !== null && value > 0 ? value : null)),
-  miscellaneous: z
-    .array(z.string())
-    .transform((items) =>
-      items
-        .map((item) => item.trim().slice(0, 160))
-        .filter((item) => item.length > 0)
-        .slice(0, 12),
-    ),
+  miscellaneous: z.array(z.string()).transform((items) =>
+    items
+      .map((item) => item.trim().slice(0, 160))
+      .filter((item) => item.length > 0)
+      .slice(0, 12),
+  ),
   priority: z.number().int().positive(),
 });
 // How densely the style wants the room furnished. Code turns this into a

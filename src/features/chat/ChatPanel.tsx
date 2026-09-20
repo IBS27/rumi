@@ -10,16 +10,15 @@ import {
 } from "lucide-react";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
-import type {
-  CapturedRoom,
-  ProjectPhase,
-  RoomSnapshot,
-} from "../../../shared/contracts";
+import type { CapturedRoom, ProjectPhase } from "../../../shared/contracts";
 import { IMAGE_TYPES, MAX_IMAGE_BYTES } from "../../../shared/chat/uploads";
 import { ChatMessage } from "./ChatMessage";
 import { Composer } from "./Composer";
 import { OptionsCard } from "./OptionsCard";
 import { PlanCard } from "./PlanCard";
+import { DesignConnection } from "./DesignConnection";
+import { DesignSyncBoundary } from "./DesignSyncBoundary";
+import type { DesignConnection as Connection } from "../room-editor/designConnection";
 import { ChatHistory } from "./ChatHistory";
 import { chatKey } from "../workspace/sessions";
 
@@ -28,6 +27,14 @@ export type ChatContext = {
   room?: CapturedRoom;
   sessionId?: string;
   onCollapse: () => void;
+  selectedObjectId?: string | null;
+  onDesign?: (connection: Connection | null) => void;
+  onProject?: (projectId: string) => void;
+  onPlaceProduct?: (productId: string, zoneId?: string) => Promise<void>;
+  productPlacementIssues?: Record<string, string | null>;
+  placedProductIds?: string[];
+  placedZoneIds?: string[];
+  editing?: boolean;
 };
 
 const PHASES: { id: ProjectPhase; label: string }[] = [
@@ -46,7 +53,9 @@ function PhaseStepper({ phase }: { phase: ProjectPhase }) {
     >
       {PHASES.map((step, index) => (
         <li key={step.id} className="flex items-center gap-2">
-          {index > 0 && <span aria-hidden className="h-px w-4 bg-line-strong" />}
+          {index > 0 && (
+            <span aria-hidden className="h-px w-4 bg-line-strong" />
+          )}
           <span
             aria-current={index === current ? "step" : undefined}
             className={`flex items-center gap-1.5 ${
@@ -140,19 +149,19 @@ export function ChatUnavailable({
   );
 }
 
-function sameRoom(a: RoomSnapshot | null, b?: RoomSnapshot) {
-  if (!a || !b) return a === (b ?? null);
-  return (
-    JSON.stringify({ ...a, revision: 0 }) ===
-    JSON.stringify({ ...b, revision: 0 })
-  );
-}
-
 export function ChatPanel({
   room,
   sessionId,
   onCollapse,
   identity,
+  selectedObjectId,
+  onDesign,
+  onProject,
+  onPlaceProduct,
+  productPlacementIssues,
+  placedProductIds,
+  placedZoneIds,
+  editing,
 }: ChatContext & { identity: string }) {
   const storageKey = sessionId
     ? chatKey(identity, sessionId)
@@ -172,6 +181,9 @@ export function ChatPanel({
     activeId ? { projectId: activeId } : "skip",
   );
   const phase: ProjectPhase = active?.phase ?? "spec";
+  useEffect(() => {
+    if (activeId && room && active?.room?.id === room.id) onProject?.(activeId);
+  }, [activeId, active?.room?.id, room, onProject]);
   const create = useMutation(api.projects.create);
   const beginUpload = useMutation(api.images.beginUpload);
   function select(id: Id<"projects"> | null) {
@@ -249,6 +261,14 @@ export function ChatPanel({
         </Button>
       </ChatHeader>
       <PhaseStepper phase={phase} />
+      {activeId && onDesign && (
+        <DesignSyncBoundary
+          key={`sync-${activeId}`}
+          onDisconnect={() => onDesign(null)}
+        >
+          <DesignConnection projectId={activeId} onChange={onDesign} />
+        </DesignSyncBoundary>
+      )}
       {attachmentError && (
         <p
           className="shrink-0 text-xs text-rust [overflow-wrap:anywhere]"
@@ -263,6 +283,12 @@ export function ChatPanel({
           key={activeId}
           projectId={activeId}
           room={room}
+          selectedObjectId={selectedObjectId}
+          onPlaceProduct={onPlaceProduct}
+          productPlacementIssues={productPlacementIssues}
+          placedProductIds={placedProductIds}
+          placedZoneIds={placedZoneIds}
+          editing={editing}
           upload={upload}
           onNew={() => select(null)}
         />
@@ -286,12 +312,25 @@ export function ChatPanel({
               </small>
             )}
           </div>
+          {selectedObjectId &&
+            room?.objects.some((object) => object.id === selectedObjectId) && (
+              <p className="text-xs text-teal-deep">
+                About{" "}
+                {
+                  room.objects.find((object) => object.id === selectedObjectId)
+                    ?.name
+                }
+                . Ask to move, keep or replace it.
+              </p>
+            )}
           <Composer
+            disabled={editing}
             onSend={async (text) => {
               const id = await create({
                 title: text.slice(0, 80),
                 room,
                 firstMessage: text,
+                selectedObjectId: selectedObjectId ?? undefined,
               });
               select(id);
             }}
@@ -321,11 +360,23 @@ function Conversation({
   room,
   upload,
   onNew,
+  selectedObjectId,
+  onPlaceProduct,
+  productPlacementIssues,
+  placedProductIds,
+  placedZoneIds,
+  editing,
 }: {
   projectId: Id<"projects">;
   room?: CapturedRoom;
   upload: (id: Id<"projects">, file: File) => Promise<void>;
   onNew: () => void;
+  selectedObjectId?: string | null;
+  onPlaceProduct?: (productId: string, zoneId?: string) => Promise<void>;
+  productPlacementIssues?: Record<string, string | null>;
+  placedProductIds?: string[];
+  placedZoneIds?: string[];
+  editing?: boolean;
 }) {
   const context = useQuery(api.projects.context, { projectId });
   const { results, status, loadMore } = usePaginatedQuery(
@@ -367,7 +418,7 @@ function Conversation({
       </div>
     );
   const currentContext = context;
-  const needsUpdate = Boolean(room && !sameRoom(context.room, room));
+  const needsUpdate = Boolean(room && room.id !== context.room?.id);
   const differentRoom = context.room && room && context.room.id !== room.id;
   async function attachCurrent() {
     if (!room) return;
@@ -508,7 +559,15 @@ function Conversation({
           )
             return null;
           return (
-            <ChatMessage key={message._id} message={message}>
+            <ChatMessage
+              key={message._id}
+              message={message}
+              onPlaceProduct={onPlaceProduct}
+              productPlacementIssues={productPlacementIssues}
+              placedProductIds={placedProductIds}
+              placedZoneIds={placedZoneIds}
+              editing={editing}
+            >
               {message.status === "error" && message._id === newestId && (
                 <Button
                   size="sm"
@@ -548,12 +607,30 @@ function Conversation({
           {error}
         </p>
       )}
+      {selectedObjectId &&
+        room?.objects.some((object) => object.id === selectedObjectId) && (
+          <p className="rounded-ctrl bg-teal-tint px-2.5 py-2 text-xs text-teal-deep">
+            About{" "}
+            {
+              room.objects.find((object) => object.id === selectedObjectId)
+                ?.name
+            }
+            . Ask to move, keep or replace it.
+          </p>
+        )}
       <Composer
-        disabled={pending || updating}
+        disabled={pending || updating || editing}
         placeholder={pending ? "Rumi is thinking…" : "Tell Rumi what to change"}
         onSend={async (content) => {
           await prepare();
-          await send({ projectId, content });
+          await send({
+            projectId,
+            content,
+            selectedObjectId:
+              context.room?.id === room?.id
+                ? (selectedObjectId ?? undefined)
+                : undefined,
+          });
         }}
         onUpload={async (file) => {
           await prepare();

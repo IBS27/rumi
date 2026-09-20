@@ -5,6 +5,8 @@ import { sampleBrief, sampleProducts, sampleRoom } from "../shared/fixtures";
 import { syntheticRoomPlan } from "../shared/fixtures/roomplan";
 import { importRoomPlan, localCorners } from "../shared/capture/roomplan";
 import { placementIssue } from "../shared/geometry";
+import { sameCategory } from "../shared/planner/scope";
+import { designPlacementIssue, objectInZone } from "../shared/design/placement";
 import {
   SPACING_FACTOR,
   allocateBudget,
@@ -484,6 +486,42 @@ describe("accessories", () => {
 });
 
 describe("design plan", () => {
+  it("plans requested paintings despite an owned mirror classified as art", () => {
+    const room = {
+      ...sampleRoom,
+      objects: [...sampleRoom.objects, {
+        ...sampleRoom.objects[0], id: "vanity-mirror", name: "Vanity mirror",
+        category: "art" as const, dimensions: { width: 0.4, height: 0.6, depth: 0.03 },
+        position: { x: 4, y: 1.3, z: 4.16 },
+      }],
+    };
+    for (const category of ["art", "painting", "classic posters", "framed prints"]) {
+      const { plan } = buildDesignPlan({
+        room, brief: { ...sampleBrief, wants: [{ category: "art", notes: "16th century paintings" }] },
+        products: sampleProducts,
+        request: { ...request, zones: [{
+          ...lampZone, id: "art", category, query: "Renaissance painting poster",
+          mount: "floor", relatedObjectId: null,
+          desiredFootprint: { width: 0.5, depth: 0.03 }, desiredHeight: 0.7,
+        }] },
+      });
+      expect(plan.rejected).toEqual([]);
+      expect(plan.zones[0].mount).toBe("wall");
+      expect(plan.zones[0].suggested).toBe(false);
+      expect(plan.tasks[0].miscellaneous).toContain("16th century paintings");
+      const product = {
+        ...sampleProducts[0], category,
+        measurement: { ...sampleProducts[0].measurement, dimensions: { width: 0.5, height: 0.7, depth: 0.03 } },
+      };
+      const placed = objectInZone(room, product, "new-art", plan.zones[0]);
+      expect(placed.category).toBe("art");
+      expect(designPlacementIssue(room, placed)).toBeNull();
+    }
+    expect(sameCategory("art", "cart")).toBe(false);
+    expect(sameCategory("art", "vanity mirror")).toBe(false);
+    expect(sameCategory("", "art")).toBe(false);
+  });
+
   it("rejects duplicate categories and categories the room already has", () => {
     expect(() =>
       buildDesignPlan({

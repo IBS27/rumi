@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { postUserTurn } from "./messages";
 import { requireOwner } from "./ownership";
+import { ensureSampleDesign } from "./sampleDesign";
 import schema from "./schema";
 import { zodToConvex } from "convex-helpers/server/zod4";
 import { paginationOptsValidator } from "convex/server";
@@ -119,15 +120,18 @@ export const create = mutation({
     title: v.string(),
     room: v.optional(zodToConvex(roomSchema)),
     firstMessage: v.optional(v.string()),
+    selectedObjectId: v.optional(v.string()),
   },
   handler: async (
     ctx,
-    { title, room, firstMessage },
+    { title, room, firstMessage, selectedObjectId },
   ): Promise<Id<"projects">> => {
     const ownerId = await requireOwner(ctx);
     title = title.trim().slice(0, 80);
     if (!title) throw new Error("A project title is required.");
     const brief = emptyBrief();
+    if (room?.shape === "polygon" && room.capture.synthetic)
+      await ensureSampleDesign(ctx);
     const roomId = room
       ? await ctx.db.insert("rooms", {
           ownerId,
@@ -143,7 +147,13 @@ export const create = mutation({
       createdAt: Date.now(),
     });
     if (firstMessage !== undefined)
-      await postUserTurn(ctx, projectId, ownerId, firstMessage);
+      await postUserTurn(
+        ctx,
+        projectId,
+        ownerId,
+        firstMessage,
+        selectedObjectId,
+      );
     return projectId;
   },
 });
@@ -209,9 +219,20 @@ export const attachRoom = mutation({
     const existing = project.roomId ? await ctx.db.get(project.roomId) : null;
     if ((existing?.snapshot.revision ?? null) !== expectedRevision)
       throw new Error("The chat room changed. Refresh before updating it.");
+    if (
+      existing?.snapshot.id === snapshot.id &&
+      JSON.stringify(roomSchema.parse(existing.snapshot).objects) !==
+        JSON.stringify(snapshot.objects)
+    )
+      throw new Error(
+        "Use the room editor to change this design. Attaching an older snapshot would overwrite saved edits.",
+      );
+    if (snapshot.shape === "polygon" && snapshot.capture.synthetic)
+      await ensureSampleDesign(ctx);
     if (existing) {
       await ctx.db.patch(existing._id, {
         snapshot: { ...snapshot, revision: existing.snapshot.revision + 1 },
+        history: [],
       });
     } else {
       const roomId = await ctx.db.insert("rooms", {
@@ -250,7 +271,11 @@ export const updateBrief = internalMutation({
     purpose: v.optional(v.string()),
     wants: v.optional(zodToConvex(z.array(wantSchema))),
     accessories: v.optional(
-      v.union(v.literal("unspecified"), v.literal("include"), v.literal("skip")),
+      v.union(
+        v.literal("unspecified"),
+        v.literal("include"),
+        v.literal("skip"),
+      ),
     ),
     inspiration: v.optional(v.string()),
     decided: v.optional(zodToConvex(z.array(specTopicSchema))),

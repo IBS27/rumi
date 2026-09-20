@@ -1,6 +1,6 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Check, ExternalLink, LoaderCircle, X } from "lucide-react";
-import { MessageBubble, Pill } from "../../ui";
+import { Button, MessageBubble, Pill } from "../../ui";
 import type { PillTone } from "../../ui/Pill";
 import { RichText } from "./RichText";
 
@@ -86,7 +86,35 @@ function ActivityFeed({
   );
 }
 
-function ProductCard({ product }: { product: Recommendation }) {
+type PlacementActions = {
+  onPlaceProduct?: (id: string, zoneId?: string) => Promise<void>;
+  productPlacementIssues?: Record<string, string | null>;
+  placedProductIds?: string[];
+  placedZoneIds?: string[];
+  editing?: boolean;
+};
+function ProductCard({
+  product,
+  zoneId,
+  onPlaceProduct,
+  productPlacementIssues,
+  placedProductIds,
+  placedZoneIds,
+  editing,
+}: { product: Recommendation; zoneId?: string } & PlacementActions) {
+  const [error, setError] = useState("");
+  const [placing, setPlacing] = useState(false);
+  const placed = zoneId
+    ? placedZoneIds?.includes(zoneId)
+    : placedProductIds?.includes(product.id);
+
+  const placementIssue =
+    productPlacementIssues?.[product.id] === undefined
+      ? "Product details are unavailable. Ask Rumi to find this product again."
+      : productPlacementIssues[product.id];
+
+  if (onPlaceProduct && placementIssue && !placed) return null;
+
   const price = new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
@@ -122,6 +150,36 @@ function ProductCard({ product }: { product: Recommendation }) {
           View product
           <ExternalLink className="size-3 shrink-0" />
         </a>
+        {onPlaceProduct && (
+          <Button
+            className="mt-2 w-full"
+            size="sm"
+            variant={placed ? "quiet" : "primary"}
+            disabled={placed || placing || editing || Boolean(placementIssue)}
+            onClick={async () => {
+              setPlacing(true);
+              setError("");
+              try {
+                await onPlaceProduct(product.id, zoneId);
+              } catch (cause) {
+                setError(
+                  cause instanceof Error
+                    ? cause.message
+                    : "Could not place this item.",
+                );
+              } finally {
+                setPlacing(false);
+              }
+            }}
+          >
+            {placed ? "In your room" : placing ? "Placing…" : "Place in room"}
+          </Button>
+        )}
+        {error && (
+          <p role="alert" className="mt-2 text-xs text-rust">
+            {error}
+          </p>
+        )}
       </div>
     </article>
   );
@@ -143,7 +201,10 @@ const FIT: Record<ZoneCard["fits"], { tone: PillTone; label: string }> = {
 
 // One card per planned zone: the category it fills, the fit verdict, then the
 // product itself (or the reason nothing was found).
-function ZoneProductCard({ card }: { card: ZoneCard }) {
+function ZoneProductCard({
+  card,
+  ...actions
+}: { card: ZoneCard } & PlacementActions) {
   const fit = FIT[card.fits];
   return (
     <section aria-label={card.category}>
@@ -154,7 +215,7 @@ function ZoneProductCard({ card }: { card: ZoneCard }) {
         {card.product && <Pill tone={fit.tone}>{fit.label}</Pill>}
       </div>
       {card.product ? (
-        <ProductCard product={card.product} />
+        <ProductCard product={card.product} zoneId={card.zoneId} {...actions} />
       ) : (
         <div className="rounded-tile border border-dashed border-line px-3 py-2.5 text-[11px] text-mute">
           Nothing suitable found for this spot yet.
@@ -185,10 +246,11 @@ type ChatMessageData = {
 export function ChatMessage({
   message,
   children,
+  ...actions
 }: {
   message: ChatMessageData;
   children?: ReactNode;
-}) {
+} & PlacementActions) {
   const pending = message.status === "pending";
   const zoneCards = message.zoneCards ?? [];
   const productReply =
@@ -238,12 +300,12 @@ export function ChatMessage({
       {zoneCards.length > 0 ? (
         <div className="flex flex-col gap-3">
           {zoneCards.map((card) => (
-            <ZoneProductCard key={card.zoneId} card={card} />
+            <ZoneProductCard key={card.zoneId} card={card} {...actions} />
           ))}
         </div>
       ) : (
         message.recommendation && (
-          <ProductCard product={message.recommendation} />
+          <ProductCard product={message.recommendation} {...actions} />
         )
       )}
       {productReply &&

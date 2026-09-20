@@ -3,6 +3,9 @@ import { Box3, Euler, Matrix4, Quaternion, Vector3 } from "three";
 import {
   categorySchema,
   roomSchema,
+  productSchema,
+  assetSchema,
+  briefSchema,
   type CapturedRoom,
   type CapturedSurface,
 } from "../contracts";
@@ -278,6 +281,13 @@ export const savedRoomSchema = z
     room: roomSchema,
     original: roomPlanSchema.passthrough(),
     reconstructionObjectIds: z.array(z.string().min(1)).max(1000).optional(),
+    design: z
+      .object({
+        products: z.array(productSchema).max(100),
+        assets: z.array(assetSchema).max(100),
+        brief: briefSchema,
+      })
+      .optional(),
   })
   .superRefine((value, ctx) => {
     try {

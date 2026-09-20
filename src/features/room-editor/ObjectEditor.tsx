@@ -1,8 +1,11 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { EditControls, type EditControlProps } from "./EditControls";
+import { formatMoney } from "../../../shared/budget";
 import {
   categorySchema,
   roomObjectSchema,
   type RoomObject,
+  type ProductCandidate,
 } from "../../../shared/contracts";
 import {
   Button,
@@ -25,14 +28,35 @@ export function ObjectEditor({
   onSave,
   onReset,
   onRemove,
+  busy,
+  products = [],
+  onReplace,
+  onMove,
+  ...controls
 }: {
   object: RoomObject;
   canReset: boolean;
   onSave: (next: RoomObject) => void;
   onReset: () => void;
   onRemove: () => void;
-}) {
+  busy?: boolean;
+  products?: ProductCandidate[];
+  onReplace?: (productId: string) => Promise<void>;
+  onMove?: (object: RoomObject) => void;
+} & EditControlProps) {
+  const form = useRef<HTMLFormElement>(null);
+  useEffect(() => {
+    const node = form.current;
+    const dock = node?.closest<HTMLElement>('[aria-label="Scan details"]');
+    if (node && dock)
+      dock.scrollTop +=
+        node.getBoundingClientRect().top -
+        dock.getBoundingClientRect().top -
+        48;
+  }, []);
   const [error, setError] = useState("");
+  const product = products.find((item) => item.id === object.productId);
+  const [replacement, setReplacement] = useState("");
   const estimated = object.measurementSource !== "confirmed";
 
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -43,15 +67,22 @@ export function ObjectEditor({
       ...object,
       name: String(data.get("name") ?? object.name).trim(),
       category: data.get("category") ?? object.category,
-      dimensions: {
-        width: number("width"),
-        depth: number("depth"),
-        height: number("height"),
-      },
+      dimensions: object.productId
+        ? object.dimensions
+        : {
+            width: number("width"),
+            depth: number("depth"),
+            height: number("height"),
+          },
       position: { x: number("x"), y: number("y"), z: number("z") },
       rotation: { ...object.rotation, y: (number("yaw") * Math.PI) / 180 },
-      measurementSource: data.get("confirmed") ? "confirmed" : "estimated",
+      measurementSource: object.productId
+        ? object.measurementSource
+        : data.get("confirmed")
+          ? "confirmed"
+          : "estimated",
       locked: data.get("locked") === "on",
+      productLocked: data.get("productLocked") === "on",
     });
     if (!parsed.success || !parsed.data.name) {
       setError("Enter a name and positive sizes in meters.");
@@ -63,11 +94,38 @@ export function ObjectEditor({
 
   return (
     <form
+      ref={form}
       onSubmit={submit}
       aria-label={`Edit ${object.name}`}
       className="-mt-[1.5px] grid gap-1.5 rounded-b-tile border-[1.5px] border-t-0 border-teal bg-white px-2.5 pt-1.5 pb-2.5"
     >
-      <div className="flex items-center gap-2 text-[11px] font-medium text-[#4e5d69]">
+      {product && (
+        <div className="mt-2 text-xs">
+          <p className="font-medium">
+            {formatMoney(product.priceCents)} · {product.merchant}
+          </p>
+          {!product.synthetic && (
+            <a
+              href={product.sourceUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="text-teal-deep underline"
+            >
+              View exact product variant
+            </a>
+          )}
+          {product.synthetic && <Pill>sample product</Pill>}
+        </div>
+      )}
+      {onMove && (
+        <EditControls
+          object={object}
+          busy={busy}
+          onMove={onMove}
+          {...controls}
+        />
+      )}
+      <div className="flex items-center gap-2 text-[11px] font-medium text-mute">
         Size, m
         <Pill tone={estimated ? "estimated" : "ok"}>
           {estimated ? "estimated" : "confirmed"}
@@ -78,11 +136,12 @@ export function ObjectEditor({
           <Field key={key} label={key}>
             <NumberInput
               name={key}
+              readOnly={Boolean(object.productId)}
               step="0.001"
               min="0.001"
               max="100"
               required
-              defaultValue={Number(object.dimensions[key].toFixed(3))}
+              defaultValue={object.dimensions[key]}
             />
           </Field>
         ))}
@@ -91,6 +150,12 @@ export function ObjectEditor({
         name="confirmed"
         label="Measurements confirmed"
         defaultChecked={!estimated}
+        disabled={Boolean(product)}
+      />
+      <Checkbox
+        name="productLocked"
+        label="Keep this product"
+        defaultChecked={object.productLocked ?? false}
       />
       <Checkbox
         name="locked"
@@ -107,7 +172,11 @@ export function ObjectEditor({
             <TextInput name="name" defaultValue={object.name} maxLength={120} />
           </Field>
           <Field label="Category">
-            <Select name="category" defaultValue={object.category}>
+            <Select
+              name="category"
+              defaultValue={object.category}
+              disabled={Boolean(product)}
+            >
               {categorySchema.options.map((category) => (
                 <option key={category} value={category}>
                   {category}
@@ -122,7 +191,7 @@ export function ObjectEditor({
                   name={key}
                   step="0.001"
                   required
-                  defaultValue={Number(object.position[key].toFixed(3))}
+                  defaultValue={object.position[key]}
                 />
               </Field>
             ))}
@@ -132,9 +201,7 @@ export function ObjectEditor({
               name="yaw"
               step="0.1"
               required
-              defaultValue={Number(
-                ((object.rotation.y * 180) / Math.PI).toFixed(1),
-              )}
+              defaultValue={(object.rotation.y * 180) / Math.PI}
             />
           </Field>
         </div>
@@ -150,23 +217,68 @@ export function ObjectEditor({
           variant="primary"
           size="sm"
           className="col-span-2"
+          disabled={busy}
         >
           Save changes
         </Button>
         <Button
           variant="quiet"
           size="sm"
-          disabled={!canReset}
+          disabled={!canReset || busy}
           onClick={onReset}
         >
           {object.detectionSource === "photo"
             ? "Reset estimate"
             : "Reset to scan"}
         </Button>
-        <Button variant="danger" size="sm" onClick={onRemove}>
+        <Button
+          variant="danger"
+          size="sm"
+          disabled={busy || object.productLocked || object.locked}
+          onClick={onRemove}
+        >
           Remove
         </Button>
       </div>
+      {onReplace &&
+        !object.productLocked &&
+        products.some((item) => item.id !== object.productId) && (
+          <div className="mt-2 grid gap-1.5 border-t border-line pt-2">
+            <Field label="Replace with">
+              <Select
+                value={replacement}
+                onChange={(event) => setReplacement(event.target.value)}
+              >
+                <option value="">Choose a found product</option>
+                {products
+                  .filter((item) => item.id !== object.productId)
+                  .map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name} · {formatMoney(item.priceCents)}
+                    </option>
+                  ))}
+              </Select>
+            </Field>
+            <Button
+              size="sm"
+              disabled={busy || !replacement}
+              onClick={async () => {
+                setError("");
+                try {
+                  await onReplace(replacement);
+                } catch (cause) {
+                  setError(
+                    cause instanceof Error
+                      ? cause.message
+                      : "Could not replace this item.",
+                  );
+                }
+              }}
+            >
+              Replace item
+            </Button>
+          </div>
+        )}
     </form>
   );
 }

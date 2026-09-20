@@ -10,6 +10,7 @@ import {
   projectPhaseSchema,
   proposalSchema,
   roomSchema,
+  roomObjectSchema,
 } from "../shared/contracts";
 
 // Briefs stored before the Spec stage lack its fields. Storage allows their
@@ -70,6 +71,7 @@ export default defineSchema({
     ownerId: v.string(),
     snapshot: zodToConvex(roomSchema),
     brief: storedBrief,
+    history: v.optional(v.array(v.array(zodToConvex(roomObjectSchema)))),
   }).index("by_ownerId", ["ownerId"]),
   products: defineTable(zodToConvex(productSchema)).index("by_catalog_id", [
     "id",
@@ -104,6 +106,7 @@ export default defineSchema({
     // single-product replies.
     recommendations: v.optional(v.array(zoneRecommendation)),
     content: v.string(),
+    selectedObjectId: v.optional(v.string()),
     activity: v.optional(
       v.array(
         v.object({

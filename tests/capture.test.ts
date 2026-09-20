@@ -124,10 +124,14 @@ describe("RoomPlan import", () => {
     expect(area).toBeCloseTo(3.8 * 2.7 - 0.9 * 2.1, 4);
     geometry.dispose();
   });
-  it("does not apply rectangle fit checks to irregular scans", () => {
+  it("finds placements inside the captured polygon, not its bounding rectangle", () => {
     const room = importRoomPlan(syntheticRoomPlan);
-    expect(findPlacement(room, sampleProducts[0])).toBeNull();
-    expect(placementIssue(room, room.objects[0])).toContain("not available");
+    const placed = findPlacement(room, sampleProducts[0]);
+    expect(placed).not.toBeNull();
+    expect(placementIssue(room, placed!)).toBeNull();
+    expect(
+      placementIssue(room, { ...placed!, position: { x: 5, y: 0, z: 4 } }),
+    ).toContain("floor boundary");
   });
 });
 

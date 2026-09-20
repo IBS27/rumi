@@ -25,7 +25,11 @@ import {
 import { emptyBrief, normalizeBrief } from "./projects";
 import { proposeZones } from "./planner";
 import { selectionTotal } from "../shared/budget";
-import { findPlacement, placementIssue } from "../shared/geometry";
+import {
+  designPlacementIssue,
+  suggestPlacement,
+  designCommandsSchema,
+} from "../shared/design";
 import { evaluateFill } from "../shared/planner";
 import { freeArea } from "../shared/planner/space";
 import { choiceListToCard } from "../shared/chat/choices";
@@ -39,11 +43,16 @@ import {
 const SYSTEM_PROMPT = `You are the room designer for rumi. You build rooms from real web products.
 - Start with getRoomContext. Respect owned and locked objects.
 - A null room means no scan has been attached. Help establish the brief without inventing measurements, and invite the user to import a room when geometry is needed.
-- Polygon rooms are real irregular scans. You can discuss them and search products, but automatic placement is not supported. Do not promise to place or move furniture in them.
-- Work in meters and USD cents. Never infer dimensions that were not given.
+- Scanned polygon rooms support validated placement. Use reserved zones when adding planned products; never invent room boundaries or product dimensions. Edits are applied to the room on screen.
+- Work in meters and USD cents. Never infer dimensions that were not given. In layout coordinates, north/back decreases Z, south/front increases Z, west/left decreases X, east/right increases X. A relative move adjusts the existing position by the requested distance. For existing items use editDesign move with the exact object ID and adjusted position; keep its Y coordinate and rotation unless asked otherwise. Do not reconstruct dimensions or invent a new object to move an existing item.
 - Inspiration-image messages include a visual analysis from a specialist model. Use its style, palette, material, lighting, and furniture cues, but never treat it as verified room geometry or exact dimensions.
 - Save style, budget, and restrictions with updateBrief as soon as the user states them. A budget of 0 means no budget was specified.
 - Never invent a budget or use a giant number as an unlimited budget. Unless the user explicitly gives a price or budget, keep budgetCents and search maxPriceCents at 0.
+- Convert dollars to integer cents when saving a budget: $200 is 20000 cents, not 200.
+- The latest user request overrides earlier shopping requirements. In EVERY stage, if they drop or change an item, first call updateBrief with the complete revised wants list, preserving unrelated wants. "Without the painting" removes art/painting/poster wants. Save an exclusion in restrictions so it is not suggested again. If they say "leave it be", "never mind", or otherwise stop shopping, save the revised brief, acknowledge it, and END the turn. Do not call planSpace, fillZones, or ask for confirmation to stop. An empty wants list after cancellation is not permission to furnish the whole room.
+- "Remove art from the plan" changes shopping requirements, not existing room objects. Never remove a mirror or other owned object for that instruction. Retain other requests from the conversation, such as plants, even if a prior turn failed to save them. Continue planning those retained requests after saving the corrected brief.
+
+Editing an existing layout takes priority over the intake stages below. In EVERY stage, including Spec, immediately perform an explicit request to move, keep, remove, replace or place an existing/recommended item with getRoomContext and editDesign. Do not require purpose, style, accessories, a spec summary or a new plan to make these edits. Ask only if the requested edit itself is ambiguous or unsafe. End with the actual edit result; do not restart intake questions after a successful edit. The intake stages apply to planning and shopping for a new design.
 
 The project moves through stages. The current stage is given at the top of the conversation.
 
@@ -64,21 +73,30 @@ Stage 1, Spec. Build the brief; do not search or plan.
 - If the user picks Modify details, ask in one short sentence what they want to change (no card). If they type a change (for example "add a desk"), save it with updateBrief, then call showSpecSummary again.
 - Clicking Start planning on the summary card moves the stage to Plan by itself; you will see "Current stage: plan". If the user says "start planning" in words while still in Spec, call setPhase('plan'). Planning needs an attached room; if none, ask them to import one and stay in Spec.
 - Do not call showSpecSummary twice in a row without a change in between.
-- searchProducts, planSpace, and fillZones refuse to run in Spec.
+- Planning and shopping for a new design must wait until Spec is complete. Targeted replacement searches for existing selected products are allowed immediately; pass replacementObjectId when known, or search its existing category.
 
 Stage 2, Plan. Reserve space, show the plan, then shop what the user keeps.
+- Before planning, save any changed requested items with updateBrief. The planner reads the saved wants, not just your instruction. If a planner error mentions a canceled item, reconcile the brief before retrying. Never describe a category/scope/schema error as lack of physical space.
 - Call planSpace once with a one-sentence instruction. When the user named items, each gets a zone and the planner may add one floor piece plus accessories per their answer; when they left it to you, the planner chooses the pieces from the room's purpose, style, and free space, and sets spacing (airy, balanced, cozy) from the style.
 - planSpace shows the user a plan card listing every zone (what, where, footprint, suggested or not) and what did not fit. Your turn ends there; do not describe the zones in text and do not call fillZones in the same turn.
-- The user trims the card and confirms; their next message says which items to search. Then call fillZones with no arguments. It runs one search per kept item, all at once, and the interface shows one product card per zone with its fit (yes, no, unknown). Keep your text to caveats: unmet constraints, unknown dimensions, a next step.
+- The user trims the card and confirms; their next message says which items to search. Then call fillZones with no arguments. It runs one search per kept item, all at once, and the interface shows one product card per zone with its fit (yes, no, unknown). Keep your text to unmet constraints or a necessary next step. Products without dimensions are excluded.
 - planSpace may reject zones that do not fit. Never squeeze furniture into space the plan rejected; if the user asks about a rejected piece, explain the reason from the card.
 - Use searchProducts directly only when the user asks for one specific item outside the plan.
 - When every kept zone has a product, call setPhase('review'). If the user wants to change the brief, call setPhase('spec').
+- Products without complete dimensions must never be recommended. Search automatically tries alternatives; if it returns no candidates, explain that no suitable product was found and offer to broaden the search.
 - Only propose products that searchProducts or fillZones returned. Never invent ids, prices, or dimensions.
 - Search returns one best candidate. The interface renders its name, image, price, merchant, and link as a product card. Let the card carry the recommendation: do not repeat its name, price, merchant, URL, description, or features in text. Do not write product lists, Markdown images, generic introductions, or offers of further assistance. Any accompanying text appears in expandable notes; keep it to one or two short sentences only for meaningful caveats, unmet constraints (such as faux leather instead of real leather), fit limitations, or a necessary next step. Never claim a constraint is met when it is not.
 - If searchProducts reports that web search is not configured, say so and keep refining the brief instead of proposing products.
 - Check the budget with checkBudget before proposeDesign.
 - Validate each addition with validatePlacement before calling proposeDesign.
-- proposeDesign applies additions atomically. A rejection returns an error you can fix and retry.`;
+- proposeDesign applies additions atomically. A rejection returns an error you can fix and retry.
+- For changes to the existing room, use editDesign. It supports add, move, remove, replace and lock in one atomic batch. Do not call correct; it is reserved for user measurement corrections. Use product IDs from search or current recommendations. Use unique instance IDs for additions and the complete reserved zone from getRoomContext where available.
+- getRoomContext includes the selected object. Resolve "this" or "that lamp" to its exact ID. If ambiguous, ask. Keep productLocked products and locked placements unchanged. You may lock a choice when asked; never unlock it. Preserve owned objects unless the user explicitly asks to move or remove them.
+- If the user asks to save an amount, call checkBudget first, compute a target from the current selection total minus that amount, then search replacements with ceilings that meet that target. Set maxTotalCents on editDesign to enforce it. Explain savings from actual prices. Batch replacements together so intermediate budgets do not reject a valid final design.
+- Once products are found, offer placing them. When the user asks to furnish or apply the found design, call editDesign to add them at their reserved zones. Never say an item is placed until the mutation succeeds. A failed change leaves the room intact; explain the issue, refresh context and retry only a suitable alternative.
+- For natural-language placement such as "put it in a good spot near the bed", use editDesign add with nearObjectId and NO position for an unplaced product, or arrange with objectId and optional nearObjectId for a product already in the room. Code chooses a validated location and puts small plants and tabletop decor on a supporting surface. Do not ask the user for coordinates or invent them. Use move only for an explicit precise movement. Never lock a product or its placement unless the user explicitly asks to keep or lock it. Placing an item does not authorize a lock. Do not describe a size preview as a finished model.
+- For a requested replacement, searchProducts accepts replacementObjectId. Supply the existing unkept object ID; this targeted replacement search is allowed in any stage.
+- A product's variant fixes its appearance and measurements. To make a design warmer, search appropriate replacement finishes/products while preserving kept choices.`;
 
 interface State<T> {
   get: () => T;
@@ -231,6 +249,8 @@ function buildAgentTools(
   phase: State<ProjectPhase>,
   fills: State<ZoneFill[] | null>,
   report: Reporter,
+  messageId: Id<"messages"> | null,
+  selectedObjectId: string | null,
 ): ToolSet {
   const specGate = () =>
     phase.get() === "spec"
@@ -247,7 +267,9 @@ function buildAgentTools(
       inputSchema: z.object({
         instruction: z
           .string()
-          .describe("What the user wants for the room, in one or two sentences."),
+          .describe(
+            "What the user wants for the room, in one or two sentences.",
+          ),
       }),
       execute: async ({ instruction }) => {
         const gated = specGate();
@@ -261,9 +283,16 @@ function buildAgentTools(
         const ids = room.objects
           .map((object) => object.productId)
           .filter((id): id is string => id !== null);
-        const products = await ctx.runQuery(internal.products.getByIds, { ids });
+        const products = await ctx.runQuery(internal.products.getByIds, {
+          ids,
+        });
         try {
-          const result = await proposeZones(room, brief.get(), products, instruction);
+          const result = await proposeZones(
+            room,
+            brief.get(),
+            products,
+            instruction,
+          );
           plan.set(result.plan);
           if (projectId)
             await ctx.runMutation(internal.plans.propose, {
@@ -326,7 +355,9 @@ function buildAgentTools(
         let selectedIds = zoneIds ?? [];
         let planId: Id<"plans"> | null = null;
         if (projectId) {
-          const stored = await ctx.runQuery(internal.plans.active, { projectId });
+          const stored = await ctx.runQuery(internal.plans.active, {
+            projectId,
+          });
           if (stored) {
             current = stored.plan;
             planId = stored._id;
@@ -341,13 +372,20 @@ function buildAgentTools(
           }
         }
         if (!current)
-          return { ok: false as const, error: "Call planSpace before fillZones." };
-        if (!selectedIds.length) selectedIds = current.zones.map((zone) => zone.id);
+          return {
+            ok: false as const,
+            error: "Call planSpace before fillZones.",
+          };
+        if (!selectedIds.length)
+          selectedIds = current.zones.map((zone) => zone.id);
         const selected = current.zones
           .map((zone, index) => ({ zone, task: current!.tasks[index] }))
           .filter(({ zone }) => selectedIds.includes(zone.id));
         if (selected.length === 0)
-          return { ok: false as const, error: "No reserved zones match those ids." };
+          return {
+            ok: false as const,
+            error: "No reserved zones match those ids.",
+          };
         try {
           // One search action per item, all at once. Each runAction has its
           // own memory, so the searches do not share one action's limit, and
@@ -465,11 +503,56 @@ function buildAgentTools(
           }),
         }
       : {}),
+    editDesign: tool({
+      description:
+        "Apply additions, moves, replacements, removals and locks to the visible room atomically. Include reserved zones for planned products. maxTotalCents enforces an explicit savings target. Locked choices cannot be changed. Errors leave the room unchanged.",
+      inputSchema: z.object({
+        commands: designCommandsSchema,
+        maxTotalCents: z.number().int().nonnegative().optional(),
+      }),
+      execute: async ({ commands, maxTotalCents }) => {
+        const room = state.get();
+        if (!projectId || !messageId || !room)
+          return { ok: false, error: "Attach a room first." };
+        try {
+          const next = await ctx.runMutation(internal.design.editByAgent, {
+            projectId,
+            messageId,
+            expectedRevision: room.revision,
+            commands,
+            maxTotalCents,
+          });
+          state.set(next);
+          return { ok: true, revision: next.revision, objects: next.objects };
+        } catch (error) {
+          return {
+            ok: false,
+            error:
+              error instanceof Error ? error.message : "The edit was rejected.",
+          };
+        }
+      },
+    }),
     getRoomContext: tool({
       description:
         "Return the room snapshot (dimensions, openings, placed objects) and the design brief.",
       inputSchema: z.object({}),
-      execute: async () => ({ room: state.get(), brief: brief.get() }),
+      execute: async () => {
+        const design = projectId
+          ? await ctx.runQuery(internal.design.getForAgent, { projectId })
+          : null;
+        if (design) {
+          state.set(design.room);
+          brief.set(design.brief);
+        }
+        return {
+          room: state.get(),
+          brief: brief.get(),
+          selectedObjectId,
+          products: design?.products ?? [],
+          recommendations: design?.recommendations ?? [],
+        };
+      },
     }),
     setPhase: tool({
       description:
@@ -508,7 +591,9 @@ function buildAgentTools(
           ),
         materials: z.array(z.string()).max(12).optional(),
         purpose: z.string().max(80).optional(),
-        wants: z.array(wantSchema).max(12).optional(),
+        wants: z.array(wantSchema).max(12).optional().describe(
+          "The complete current shopping list. Remove canceled items immediately, including art when the user says without the painting. An empty array clears all previous wants.",
+        ),
         accessories: z.enum(["unspecified", "include", "skip"]).optional(),
         inspiration: z.string().max(1200).optional(),
         decided: z
@@ -537,9 +622,30 @@ function buildAgentTools(
     searchProducts: tool({
       description:
         "Search the web for one concrete furniture item. Returns the best candidate with price, dimensions, source URL, score breakdown, and extraction failures. Use maxPriceCents 0 unless the user explicitly stated a budget. Derive footprint, height, style, and palette from the room and brief. Put any other requested specifications into miscellaneous as short phrases.",
-      inputSchema: searchTaskSchema,
-      execute: async (task): Promise<SearchTaskResult> => {
-        const gated = specGate();
+      inputSchema: searchTaskSchema.extend({
+        replacementObjectId: z
+          .string()
+          .optional()
+          .describe(
+            "The existing object being replaced, for targeted edits during any stage.",
+          ),
+      }),
+      execute: async ({
+        replacementObjectId,
+        ...task
+      }): Promise<SearchTaskResult> => {
+        const replacement = state
+          .get()
+          ?.objects.find(
+            (object) =>
+              !object.productLocked &&
+              (replacementObjectId
+                ? object.id === replacementObjectId
+                : Boolean(object.productId) &&
+                  object.category === task.category),
+          );
+        const gated =
+          replacement && !replacement.productLocked ? null : specGate();
         if (gated)
           return {
             category: task.category,
@@ -618,13 +724,9 @@ function buildAgentTools(
         const room = state.get();
         if (!room)
           return { issue: "Import a room scan before checking placement." };
-        const issue = placementIssue(room, object);
+        const issue = designPlacementIssue(room, object);
         if (!issue) return { issue: null };
-        if (!object.productId) return { issue };
-        const products = await ctx.runQuery(internal.products.getByIds, {
-          ids: [object.productId],
-        });
-        const suggested = products[0] ? findPlacement(room, products[0]) : null;
+        const suggested = suggestPlacement(room, object);
         return { issue, suggested };
       },
     }),
@@ -647,10 +749,24 @@ function buildAgentTools(
           additions,
         };
         try {
-          const next = await ctx.runMutation(
-            internal.rooms.applyDesignProposal,
-            { roomId, proposal },
-          );
+          const next =
+            projectId && messageId
+              ? await ctx.runMutation(internal.design.editByAgent, {
+                  projectId,
+                  messageId,
+                  expectedRevision: room.revision,
+                  commands: additions.map((object) => ({
+                    type: "add" as const,
+                    productId: object.productId ?? "",
+                    instanceId: object.id,
+                    position: object.position,
+                    rotationY: object.rotation.y,
+                  })),
+                })
+              : await ctx.runMutation(internal.rooms.applyDesignProposal, {
+                  roomId,
+                  proposal,
+                });
           state.set(next);
           return { ok: true as const, revision: next.revision };
         } catch (error) {
@@ -681,6 +797,7 @@ async function runAgent(
       status: "running",
     },
   ],
+  selectedObjectId: string | null = null,
 ): Promise<{
   text: string;
   room: RoomSnapshot | null;
@@ -744,6 +861,8 @@ async function runAgent(
     { get: () => currentPhase, set: (next) => (currentPhase = next) },
     { get: () => zoneFills, set: (next) => (zoneFills = next) },
     report,
+    project?.activeMessageId ?? null,
+    selectedObjectId,
   );
   const result = streamText({
     model: openai(process.env.RUMI_AGENT_MODEL ?? "gpt-4o"),
@@ -902,6 +1021,7 @@ export const runForProject = internalAction({
           });
         },
         reply?.activity ?? undefined,
+        reply?.selectedObjectId ?? null,
       );
       // A choice written as a text list is not clickable. Turn it into the
       // card the model should have used.

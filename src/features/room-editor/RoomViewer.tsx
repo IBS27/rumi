@@ -1,9 +1,11 @@
+import { clearFurnitureSurfaces } from "../../../shared/reconstruction/cleanup";
 import {
   Component,
   Suspense,
   useEffect,
   useMemo,
   useState,
+  useRef,
   type ReactNode,
   type RefObject,
 } from "react";
@@ -15,13 +17,9 @@ import {
   OrbitControls,
   OrthographicCamera,
   PerspectiveCamera,
+  TransformControls,
 } from "@react-three/drei";
-import {
-  DoubleSide,
-  Matrix4,
-  Vector3,
-  PCFShadowMap,
-} from "three";
+import { DoubleSide, Matrix4, Vector3, PCFShadowMap, Group } from "three";
 import type {
   CapturedRoom,
   CapturedSurface,
@@ -78,20 +76,27 @@ function Furniture({
   model,
   selected,
   onSelect,
+  groupRef,
+  invalid = false,
+  modelStatus,
 }: {
   object: RoomObject;
   model?: Pick<ParametricModelData, "label" | "parts" | "dimensions">;
   selected: boolean;
   onSelect: (id: string) => void;
+  groupRef?: RefObject<Group>;
+  invalid?: boolean;
+  modelStatus?: "ready" | "pending" | "failed" | "placeholder";
 }) {
   const { width, height, depth } = object.dimensions;
   return (
     <group
+      ref={groupRef}
       position={[object.position.x, object.position.y, object.position.z]}
       rotation={[object.rotation.x, object.rotation.y, object.rotation.z]}
       onClick={(event) => {
         event.stopPropagation();
-        onSelect(object.id);
+        if (event.delta < 5) onSelect(object.id);
       }}
     >
       {model ? (
@@ -102,8 +107,34 @@ function Furniture({
           <meshStandardMaterial
             color={selected ? "#1e6b63" : object.color}
             roughness={0.85}
+            transparent={Boolean(object.productId)}
+            opacity={object.productId ? 0.3 : 1}
           />
           <Edges color={selected ? "#124f49" : "#5a5044"} />
+        </mesh>
+      )}
+      {!model && object.productId && !selected && (
+        <Html
+          position={[0, height + 0.12, 0]}
+          center
+          style={{ pointerEvents: "none" }}
+          className="rounded-lg bg-chalk px-2 py-1 text-[10px] whitespace-nowrap text-mute shadow-lift"
+        >
+          {modelStatus === "failed"
+            ? "Model failed · size preview"
+            : "Preparing model · size preview"}
+        </Html>
+      )}
+      {selected && (
+        <mesh position={[0, height / 2, 0]}>
+          <boxGeometry args={[width + 0.015, height + 0.015, depth + 0.015]} />
+          <meshBasicMaterial
+            color={invalid ? "#a94e37" : "#1e6b63"}
+            wireframe
+            transparent
+            opacity={0.8}
+            depthTest={false}
+          />
         </mesh>
       )}
       {selected && (
@@ -113,7 +144,14 @@ function Furniture({
           className="rounded-lg bg-chalk px-2.5 py-1.5 text-xs whitespace-nowrap text-teal-deep shadow-lift"
           style={{ pointerEvents: "none" }}
         >
-          <span className="block font-semibold">{object.name}</span>
+          <span className="block max-w-[260px] truncate font-semibold" title={object.name}>{object.name}</span>
+          {!model && object.productId && (
+            <small className="block text-mute">
+              {modelStatus === "failed"
+                ? "Model failed. Retry from Products."
+                : "Preparing model. Showing size preview."}
+            </small>
+          )}
           <small className="block text-[10px] text-mute tabular-nums">
             {width.toFixed(2)} × {depth.toFixed(2)} × {height.toFixed(2)} m
           </small>
@@ -231,8 +269,15 @@ export function RoomViewer({
   walkInput,
   walkSession,
   assetScenes = {},
+  assetStates = {},
   reconstruction,
   cutaway = true,
+  preview,
+  previewInvalid = false,
+  editMode = "select",
+  snap = true,
+  onPreview,
+  onCommit,
 }: {
   room: CapturedRoom;
   selected: string | null;
@@ -247,13 +292,37 @@ export function RoomViewer({
   walkSession: number;
   /** Validated scenes keyed by RoomObject.assetId. Missing scenes use a box. */
   assetScenes?: Readonly<Record<string, ParametricModelData>>;
+  assetStates?: Readonly<
+    Record<string, "ready" | "pending" | "failed" | "placeholder">
+  >;
   reconstruction?: ReconstructedScene;
   cutaway?: boolean;
+  preview?: RoomObject | null;
+  previewInvalid?: boolean;
+  editMode?: "select" | "move" | "rotate";
+  snap?: boolean;
+  onPreview?: (object: RoomObject) => void;
+  onCommit?: (object: RoomObject) => void;
 }) {
+  const selectedGroup = useRef(new Group());
+  const selectedObject = room.objects.find((object) => object.id === selected);
+  function transformedObject() {
+    if (!selectedObject) return null;
+    const group = selectedGroup.current;
+    return {
+      ...selectedObject,
+      position: {
+        x: group.position.x,
+        y: group.position.y,
+        z: group.position.z,
+      },
+      rotation: { ...selectedObject.rotation, y: group.rotation.y },
+    };
+  }
   const reconstructed = useMemo(
     () =>
       new Map(
-        reconstruction?.objects.map((object) => [object.objectId, object]) ??
+        reconstruction?.objects.map((object) => [object.objectId, clearFurnitureSurfaces(object)]) ??
           [],
       ),
     [reconstruction],
@@ -265,7 +334,7 @@ export function RoomViewer({
         frameloop={walkthrough ? "always" : "demand"}
         dpr={[1, 1.75]}
         onPointerMissed={() => {
-          if (!walkthrough) onSelect(null);
+          if (editMode === "select") onSelect(null);
         }}
         style={{ touchAction: walkthrough ? "none" : "auto" }}
         aria-label={
@@ -396,10 +465,43 @@ export function RoomViewer({
                     })}
                   </>
                 )}
+                {selectedObject &&
+                  !selectedObject.locked &&
+                  !walkthrough &&
+                  editMode !== "select" && (
+                    <TransformControls
+                      key={`${selected}-${editMode}`}
+                      object={selectedGroup}
+                      mode={editMode === "move" ? "translate" : "rotate"}
+                      space="world"
+                      showX={editMode === "move"}
+                      showY={
+                        editMode === "rotate" || selectedObject.mount === "wall"
+                      }
+                      showZ={editMode === "move"}
+                      translationSnap={snap ? 0.1 : null}
+                      rotationSnap={snap ? Math.PI / 12 : null}
+                      onObjectChange={() => {
+                        const next = transformedObject();
+                        if (next) onPreview?.(next);
+                      }}
+                      onMouseUp={() => {
+                        const next = transformedObject();
+                        if (next) onCommit?.(next);
+                      }}
+                    />
+                  )}
                 {room.objects.map((object) => (
                   <Furniture
                     key={object.id}
-                    object={object}
+                    object={preview?.id === object.id ? preview : object}
+                    modelStatus={
+                      object.assetId ? assetStates[object.assetId] : undefined
+                    }
+                    groupRef={
+                      selected === object.id ? selectedGroup : undefined
+                    }
+                    invalid={selected === object.id && previewInvalid}
                     model={
                       reconstructed.has(object.id)
                         ? {
@@ -411,9 +513,7 @@ export function RoomViewer({
                           : undefined
                     }
                     selected={selected === object.id}
-                    onSelect={(id) => {
-                      if (!walkthrough) onSelect(id);
-                    }}
+                    onSelect={onSelect}
                   />
                 ))}
               </>

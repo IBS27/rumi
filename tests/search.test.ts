@@ -335,7 +335,7 @@ describe("resolving dimensions until enough candidates fit", () => {
     expect(result.failures[0].detail).toContain("larger than the space");
   });
 
-  it("returns unresolved candidates rather than nothing", async () => {
+  it("never returns unresolved candidates, including when the resolution budget is exhausted", async () => {
     const result = await resolveToFit({
       candidates: [
         makeProduct({ id: "a", measurement: unknownDimensions }),
@@ -346,7 +346,7 @@ describe("resolving dimensions until enough candidates fit", () => {
       maxResolutions: 1,
       resolve: async (product) => ({ product, failures: [] }),
     });
-    expect(result.kept.map((product) => product.id)).toEqual(["a", "b"]);
+    expect(result.kept).toEqual([]);
   });
 
   it("respects the resolution budget", async () => {

@@ -1,3 +1,4 @@
+import { appendHistory } from "../shared/design/history";
 import { v } from "convex/values";
 import { z } from "zod";
 import { zodToConvex } from "convex-helpers/server/zod4";
@@ -40,7 +41,11 @@ export const patchBrief = internalMutation({
     purpose: v.optional(v.string()),
     wants: v.optional(zodToConvex(z.array(wantSchema))),
     accessories: v.optional(
-      v.union(v.literal("unspecified"), v.literal("include"), v.literal("skip")),
+      v.union(
+        v.literal("unspecified"),
+        v.literal("include"),
+        v.literal("skip"),
+      ),
     ),
     inspiration: v.optional(v.string()),
     decided: v.optional(zodToConvex(z.array(specTopicSchema))),
@@ -69,7 +74,7 @@ export const applyDesignProposal = internalMutation({
     const proposal = proposalSchema.parse(args.proposal);
     const doc = await ctx.db.get(args.roomId);
     if (!doc) throw new Error("This room does not exist.");
-    const productIds = proposal.additions
+    const productIds = [...doc.snapshot.objects, ...proposal.additions]
       .map((object) => object.productId)
       .filter((id): id is string => id !== null);
     const products = await ctx.runQuery(internal.products.getByIds, {
@@ -81,7 +86,10 @@ export const applyDesignProposal = internalMutation({
       products,
       briefSchema.parse(doc.brief),
     );
-    await ctx.db.patch(doc._id, { snapshot: next });
+    await ctx.db.patch(doc._id, {
+      snapshot: next,
+      history: appendHistory(doc.history ?? [], doc.snapshot.objects),
+    });
     await ctx.db.insert("proposals", { ownerId: doc.ownerId, proposal });
     return next;
   },

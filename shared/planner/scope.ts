@@ -37,7 +37,12 @@ export function sameCategory(a: string, b: string): boolean {
   const norm = (value: string) => value.toLowerCase().replace(/s\b/g, "").trim();
   const x = norm(a),
     y = norm(b);
-  return x === y || x.includes(y) || y.includes(x);
+  if (!x || !y) return false;
+  // Shopping terms for wall art differ from the scan's broad "art" category.
+  // Match words, not substrings ("art" must not match "cart").
+  const artwork = /\b(?:art|artwork|painting|poster|print)\b/;
+  if (artwork.test(x) && artwork.test(y)) return true;
+  return x === y || ` ${x} `.includes(` ${y} `) || ` ${y} `.includes(` ${x} `);
 }
 
 // The style's density becomes a clearance multiplier. Safety minimums (door

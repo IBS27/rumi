@@ -141,8 +141,10 @@ export function buildDesignPlan({
   const occupied = room.objects
     .filter((object) => object.owned || object.locked)
     .map((object) => object.category.toLowerCase());
+  const scope = planScope(brief);
   const duplicate = parsed.zones.find((zone) =>
-    occupied.includes(zone.category.toLowerCase()),
+    occupied.includes(zone.category.toLowerCase()) &&
+    !scope.required.some((category) => sameCategory(category, zone.category)),
   );
   if (duplicate)
     throw new Error(
@@ -151,7 +153,6 @@ export function buildDesignPlan({
   // The scope says what the model may add. Every required item needs a zone.
   // In directed mode, extra floor furniture is capped; accessories follow the
   // user's answer. In delegated mode the count is the model's judgment.
-  const scope = planScope(brief);
   const missing = scope.required.filter(
     (category) =>
       !parsed.zones.some((zone) => sameCategory(zone.category, category)),

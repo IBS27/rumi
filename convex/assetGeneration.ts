@@ -1,4 +1,4 @@
-import { generateObject, type LanguageModel } from "ai";
+import { generateObject, NoObjectGeneratedError, type LanguageModel } from "ai";
 import { z } from "zod";
 import type { Dimensions } from "../shared/contracts";
 import {
@@ -27,7 +27,17 @@ const imageSelectionSchema = z.object({
 
 const modelDraftSchema = z.object({
   label: z.string().trim().min(1).max(160),
-  parts: z.array(parametricPartSchema).min(1).max(64),
+  // The renderer's optional material-detail shape includes permissive unions
+  // that strict structured output cannot express. Product geometry only needs
+  // the base material and color; validate that smaller wire shape here.
+  parts: z
+    .array(
+      parametricPartSchema.omit({ detail: true }).extend({
+        rotation: z.object({ x: z.number(), y: z.number(), z: z.number() }),
+      }),
+    )
+    .min(1)
+    .max(64),
   confidence: z.number().min(0).max(1),
   notes: z.array(z.string().trim().min(1).max(240)).max(8),
 });
@@ -51,6 +61,7 @@ async function loadImage(
 ): Promise<LoadedImage | null> {
   try {
     const response = await fetchImpl(url, {
+      signal: AbortSignal.timeout(15000),
       headers: {
         accept: "image/*",
         "user-agent":
@@ -85,6 +96,8 @@ async function selectProductViews(
   const { object } = await generateObject({
     model,
     schema: imageSelectionSchema,
+    abortSignal: AbortSignal.timeout(45000),
+    providerOptions: { openai: { strictJsonSchema: true } },
     messages: [
       {
         role: "user",
@@ -152,56 +165,87 @@ export async function generateParametricModel(
   const selected = await selectProductViews(model, loaded);
 
   const { width, height, depth } = input.dimensions;
-  const { object } = await generateObject({
-    model,
-    schema: modelDraftSchema,
-    messages: [
-      {
-        role: "user",
-        content: [
+  let correction = "";
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const { object } = await generateObject({
+        model,
+        schema: modelDraftSchema,
+        providerOptions: { openai: { strictJsonSchema: true } },
+        abortSignal: AbortSignal.timeout(100000),
+        messages: [
           {
-            type: "text",
-            text: [
-              `Build a compact parametric Three.js description of this ${input.category}: ${input.name}.`,
-              `Its application-provided outer size is ${width} m wide, ${height} m high, and ${depth} m deep.`,
-              "All photos show the same product. Represent only visible structural parts with boxes, cylinders, and spheres.",
-              "Coordinates are normalized to the verified outer size: X is width from -0.5 to 0.5, Y is height from 0 at the floor to 1 at the top, and Z is depth from -0.5 to 0.5.",
-              "Part sizes and positions use those normalized coordinates. A part resting on the floor has position.y equal to half its size.y.",
-              "Three.js cylinders point along Y before rotation. Rotations are XYZ Euler radians in normalized space: scale the primitive by its normalized size, rotate it, then translate it. The application applies the outer size to the entire scene afterward.",
-              "Match the silhouette, proportions, visible openings, legs, supports, doors, drawers, cushions, and main material colors.",
-              "Do not invent hidden interiors, branding, tiny hardware, text, or decorative detail that the photos do not establish.",
-              "Use as few parts as possible while keeping the object recognizable. Keep the entire rotated geometry of every part inside X/Z [-0.5, 0.5] and Y [0, 1]; no overhang or below-floor parts are allowed.",
-            ].join(" "),
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: [
+                  `Build a compact parametric Three.js description of this ${input.category}: ${input.name}.`,
+                  `Its application-provided outer size is ${width} m wide, ${height} m high, and ${depth} m deep.`,
+                  "All photos show the same product. Represent only visible structural parts with boxes, cylinders, and spheres.",
+                  "Coordinates are normalized to the verified outer size: X is width from -0.5 to 0.5, Y is height from 0 at the floor to 1 at the top, and Z is depth from -0.5 to 0.5.",
+                  "Part sizes and positions use those normalized coordinates. A part resting on the floor has position.y equal to half its size.y.",
+                  "Three.js cylinders point along Y before rotation. Rotations are XYZ Euler radians in normalized space: scale the primitive by its normalized size, rotate it, then translate it. The application applies the outer size to the entire scene afterward.",
+                  "Match the silhouette, proportions, visible openings, legs, supports, doors, drawers, cushions, and main material colors.",
+                  "Plants need recognizable pots, stems and foliage. Use flattened, rotated spheres for visible leaf clusters and cylinders for stems. Do not represent a plant as a single box. For a multi-item set, show all the included items visible in the photos within the overall supplied dimensions.",
+                  "Allowed shapes are exactly box, cylinder and sphere. Allowed materials are exactly matte, wood, metal, glass and fabric. Foliage and ceramics use matte. Each part needs id, name, shape, positive size {x,y,z}, position {x,y,z}, rotation {x,y,z} in radians, a six-digit hex color, and material.",
+                  "Do not invent hidden interiors, branding, tiny hardware, text, or decorative detail that the photos do not establish.",
+                  "Use as few parts as possible while keeping the object recognizable. Keep the entire rotated geometry of every part inside X/Z [-0.5, 0.5] and Y [0, 1]; no overhang or below-floor parts are allowed.",
+                  correction,
+                ].join(" "),
+              },
+              ...selected.flatMap((image) => [
+                {
+                  type: "text" as const,
+                  text: `Selected ${image.role} view`,
+                },
+                {
+                  type: "image" as const,
+                  image: image.data,
+                  mediaType: image.mediaType,
+                },
+              ]),
+            ],
           },
-          ...selected.flatMap((image) => [
-            {
-              type: "text" as const,
-              text: `Selected ${image.role} view`,
-            },
-            {
-              type: "image" as const,
-              image: image.data,
-              mediaType: image.mediaType,
-            },
-          ]),
         ],
-      },
-    ],
-  });
+      });
 
-  // Dimensions and source URLs come from validated application data, never from the
-  // model. The final parse enforces bounds and unique part IDs before rendering.
-  return parametricModelSchema.parse({
-    version: 1,
-    label: object.label,
-    dimensions: input.dimensions,
-    sourceImages: selected.map((image) => image.url),
-    sourceViews: selected.map((image) => ({
-      url: image.url,
-      role: image.role,
-    })),
-    parts: object.parts,
-    confidence: object.confidence,
-    notes: object.notes,
-  });
+      // Dimensions and source URLs come from validated application data, never from the
+      // model. The final parse enforces bounds and unique part IDs before rendering.
+      return parametricModelSchema.parse({
+        version: 1,
+        label: object.label,
+        dimensions: input.dimensions,
+        sourceImages: selected.map((image) => image.url),
+        sourceViews: selected.map((image) => ({
+          url: image.url,
+          role: image.role,
+        })),
+        parts: object.parts,
+        confidence: object.confidence,
+        notes: object.notes,
+      });
+    } catch (error) {
+      if (
+        attempt > 0 ||
+        !(
+          NoObjectGeneratedError.isInstance(error) ||
+          error instanceof z.ZodError
+        )
+      )
+        throw error;
+      const reason = NoObjectGeneratedError.isInstance(error)
+        ? error.cause instanceof Error
+          ? error.cause.message
+          : error.message
+        : error.message;
+      correction = `The previous model failed validation: ${reason.slice(0, 3000)}. Correct these errors. Return a complete model using only the allowed shapes and materials, and keep every rotated part within the bounds.`;
+      console.warn(
+        "Retrying invalid product model",
+        input.name,
+        reason.slice(0, 1200),
+      );
+    }
+  }
+  throw new Error("The product model could not be validated.");
 }

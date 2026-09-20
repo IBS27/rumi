@@ -230,12 +230,14 @@ export function buildExaQuery(task: SearchTask): string {
   const lower = base.toLowerCase();
   // A modifier the query already says would only be repeated back at the index.
   const seen = new Set<string>();
-  const modifiers = [...task.styleTerms, ...task.miscellaneous].filter((term) => {
-    const normalized = term.toLowerCase();
-    if (lower.includes(normalized) || seen.has(normalized)) return false;
-    seen.add(normalized);
-    return true;
-  });
+  const modifiers = [...task.styleTerms, ...task.miscellaneous].filter(
+    (term) => {
+      const normalized = term.toLowerCase();
+      if (lower.includes(normalized) || seen.has(normalized)) return false;
+      seen.add(normalized);
+      return true;
+    },
+  );
   const parts = [...modifiers, base];
   if (task.maxPriceCents > 0)
     parts.push(`under ${formatMoney(task.maxPriceCents)}`);
@@ -286,7 +288,7 @@ function includesTermPrefix(text: string, term: string): boolean {
 }
 
 // Hard constraints only. A product whose dimensions are still unknown survives here:
-// it is resolved later, and ranked last if it stays unknown.
+// it is resolved later and dropped from recommendations if it stays unknown.
 export function filterCandidates(
   products: ProductCandidate[],
   task: SearchTask,
@@ -378,14 +380,16 @@ export async function resolveToFit({
 }> {
   const failures: SearchFailure[] = [];
   const fitting: ProductCandidate[] = [];
-  const unknown: ProductCandidate[] = [];
   let resolutions = 0;
   for (const candidate of candidates) {
     if (fitting.length >= target) break;
     let product = candidate;
     if (!product.measurement.dimensions) {
       if (resolutions >= maxResolutions) {
-        unknown.push(product);
+        failures.push({
+          stage: "dimensions",
+          detail: `Skipped ${product.name}: dimension lookup limit reached.`,
+        });
         continue;
       }
       resolutions++;
@@ -395,7 +399,10 @@ export async function resolveToFit({
     }
     const dimensions = product.measurement.dimensions;
     if (!dimensions) {
-      unknown.push(product);
+      failures.push({
+        stage: "dimensions",
+        detail: `Skipped ${product.name}: complete dimensions could not be extracted.`,
+      });
       continue;
     }
     if (!fitsTask(dimensions, task)) {
@@ -407,8 +414,7 @@ export async function resolveToFit({
     }
     fitting.push(product);
   }
-  const shortfall = Math.max(0, target - fitting.length);
-  return { kept: [...fitting, ...unknown.slice(0, shortfall)], failures };
+  return { kept: fitting, failures };
 }
 
 export function taskResult(
