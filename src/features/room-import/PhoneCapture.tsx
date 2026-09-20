@@ -79,6 +79,8 @@ export function PhoneCapture({
   }, [isOpen]);
   async function start() {
     setIsOpen(true);
+    // Reopening an accepted scan must preserve its download or retry state.
+    if (session?.state === "uploaded" && !received) return;
     setError("");
     setBusy(true);
     setReceived(false);
@@ -109,6 +111,9 @@ export function PhoneCapture({
       }
     }
     setIsOpen(false);
+    // The accepted upload still belongs to this workspace after dismissal.
+    // Keep its query alive until delivery succeeds, including on retry.
+    if (session?.state === "uploaded" && !received) return;
     setPairing(null);
     setError("");
   }
