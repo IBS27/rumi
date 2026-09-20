@@ -115,8 +115,13 @@ export const sampleProducts = catalog.map((item) =>
     merchant: "Studio sample catalog",
     sourceUrl: `https://example.com/products/${item.id}`,
     imageUrl: null,
+    images: [],
     currency: "USD",
-    measurement: { dimensions: item.dimensions, source: "confirmed" },
+    measurement: {
+      dimensions: item.dimensions,
+      source: "confirmed",
+      evidence: { kind: "structured", detail: "Sample catalog record" },
+    },
     availability: "available",
     assetId: `${item.id}-asset`,
     synthetic: true,
@@ -160,12 +165,17 @@ export const edgeCaseProducts = {
     measurement: {
       dimensions: { width: 6, height: 1, depth: 1 },
       source: "confirmed",
+      evidence: { kind: "structured", detail: "Sample catalog record" },
     },
   }),
   unknownDimensions: productSchema.parse({
     ...sampleProducts[0],
     id: "unknown",
-    measurement: { dimensions: null, source: "unknown" },
+    measurement: {
+      dimensions: null,
+      source: "unknown",
+      evidence: { kind: "none", detail: null },
+    },
   }),
   overBudget: productSchema.parse({
     ...sampleProducts[0],

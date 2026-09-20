@@ -108,14 +108,16 @@ function buildAgentTools(
     }),
     searchProducts: tool({
       description:
-        "Search the web for one furniture category. Returns validated products with prices, dimensions, and source URLs, plus failures for dropped candidates. Derive maxPriceCents and maxFootprint from the room and budget, not guesses.",
+        "Search the web for one concrete furniture item. Returns ranked candidates with prices, dimensions, source URLs, score breakdowns, and extraction failures. Derive price, footprint, height, style, and palette constraints from the room and brief.",
       inputSchema: searchTaskSchema,
       execute: async (task): Promise<SearchTaskResult> => {
         try {
           return await ctx.runAction(internal.search.searchProducts, { task });
         } catch (error) {
           return {
-            products: [],
+            category: task.category,
+            query: task.query,
+            candidates: [],
             explanation: process.env.EXA_API_KEY
               ? "Product search is unavailable right now. Please try again later."
               : "Web search is not configured in this deployment yet.",
