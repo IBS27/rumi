@@ -79,12 +79,28 @@ function insideFloor(room: RoomSnapshot, footprint: Ring, model: SpaceModel) {
   }
 }
 
+// Scanned walls and floors are estimates. A footprint may cross the measured
+// line by this much and still count as inside the room and clear of the wall;
+// otherwise the scan's own furniture fails its own boundary.
+const SCAN_TOLERANCE = 0.15;
+
+function toleratedFootprint(object: RoomObject): Ring {
+  const { width, depth } = object.dimensions;
+  return rectangleRing(
+    { x: object.position.x, z: object.position.z },
+    Math.max(0.05, width - 2 * SCAN_TOLERANCE),
+    Math.max(0.05, depth - 2 * SCAN_TOLERANCE),
+    object.rotation.y,
+  );
+}
+
 export function designPlacementIssue(
   room: RoomSnapshot,
   object: RoomObject,
   model = buildSpaceModel(room),
 ): string | null {
   const body = objectObstacle(object);
+  const tolerated = toleratedFootprint(object);
   if (
     body.bottom < model.floorY - EPS ||
     body.top > model.floorY + room.dimensions.height + EPS
@@ -92,7 +108,7 @@ export function designPlacementIssue(
     return "This item extends below the floor or above the ceiling.";
   if (room.shape === "polygon" && !room.floors.length)
     return "This scan has no measured floor. Import a scan with a floor before placing furniture.";
-  if (!insideFloor(room, body.footprint, model))
+  if (!insideFloor(room, tolerated, model))
     return "This item extends outside the room's floor boundary.";
 
   if (object.mount === "surface") {
@@ -128,7 +144,7 @@ export function designPlacementIssue(
       0.008,
       yaw,
     );
-    if (overlap(body.footprint, strip)) return "This placement crosses a wall.";
+    if (overlap(tolerated, strip)) return "This placement crosses a wall.";
     if (object.mount === "wall") {
       const distance =
         Math.abs(
@@ -258,17 +274,17 @@ export function objectInZone(
   object.position = { ...zone.position };
   object.rotation.y = zone.rotationY;
   const { width, depth, height } = object.dimensions;
+  // The reservation is where the piece goes, not a box it must fit. A piece
+  // larger than the reservation is turned if that helps, then placed there;
+  // the room check below decides whether it truly fits, and a piece that
+  // overruns is slid to the nearest clear spot around the reservation.
   if (
     zone.mount !== "wall" &&
-    (width > zone.footprint.width + EPS || depth > zone.footprint.depth + EPS)
-  ) {
-    if (
-      depth <= zone.footprint.width + EPS &&
-      width <= zone.footprint.depth + EPS
-    )
-      object.rotation.y += Math.PI / 2;
-    else throw new Error(`${product.name} is too large for this spot.`);
-  }
+    (width > zone.footprint.width + EPS || depth > zone.footprint.depth + EPS) &&
+    depth <= zone.footprint.width + EPS &&
+    width <= zone.footprint.depth + EPS
+  )
+    object.rotation.y += Math.PI / 2;
   if (zone.maxHeight !== null && height > zone.maxHeight + EPS)
     throw new Error(`${product.name} is too tall for this spot.`);
   if (zone.mount === "wall") {
@@ -287,10 +303,50 @@ export function objectInZone(
     if (!host) throw new Error("Place the supporting table or cabinet first.");
     object.supportId = host.id;
     object.position.y = objectObstacle(host).top;
-  } else if (zone.mount !== "wall")
-    object.position.y = buildSpaceModel(room).floorY;
+  } else if (zone.mount !== "wall") {
+    const model = buildSpaceModel(room);
+    object.position.y = model.floorY;
+    if (designPlacementIssue(room, object, model)) {
+      // Slide the piece around the reservation until it is clear: toward the
+      // room first (off a wall it overruns), then sideways, in 5 cm steps up
+      // to half a metre, keeping the zone's rotation.
+      const c = Math.cos(zone.rotationY), s = Math.sin(zone.rotationY);
+      const start = { ...object.position };
+      const found = SLIDE_STEPS.some((step) => {
+        object.position = {
+          ...start,
+          x: start.x + step.forward * s + step.side * c,
+          z: start.z + step.forward * c - step.side * s,
+        };
+        return !designPlacementIssue(room, object, model);
+      });
+      if (!found) {
+        object.position = start;
+        const nearby = suggestPlacement(room, object);
+        if (!nearby)
+          throw new Error(
+            `${product.name} does not fit at its reserved spot or nearby.`,
+          );
+        object.position = nearby.position;
+        object.rotation = nearby.rotation;
+      }
+    }
+  }
   return object;
 }
+
+// Offsets from the reservation, nearest first: along the piece's facing
+// (forward = away from the wall behind it) and across it.
+const SLIDE_STEPS: { forward: number; side: number }[] = (() => {
+  const steps: { forward: number; side: number }[] = [];
+  for (let distance = 0.05; distance <= 0.5; distance += 0.05)
+    for (const [forward, side] of [
+      [distance, 0], [0, distance], [0, -distance], [distance, distance],
+      [distance, -distance], [-distance, 0],
+    ])
+      steps.push({ forward, side });
+  return steps;
+})();
 
 /** Find a nearby valid placement without changing a locked object's position. */
 export function suggestPlacement(
