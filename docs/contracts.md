@@ -11,7 +11,7 @@
 - USD prices use integer cents. Product price is per instance; owned furniture costs zero in the new selection.
 - Product IDs identify one purchasable variant in the normalized catalog. Object IDs identify instances, allowing future multiple quantities. Asset IDs are independent.
 - Unknown product dimensions are `null` with source `unknown`. Never infer a physical fit from an unscaled image. Synthetic data is explicitly marked.
-- GLB assets use meters after applying their normalization scale/rotation. `ready` requires a URL; placeholders need no external asset. Geometry accuracy and availability are independent.
+- GLB assets use meters after applying their normalization scale/rotation. A `ready` asset requires either a URL or a validated parametric scene. Parametric scenes use normalized part coordinates and carry their physical dimensions in meters; placeholders need no external asset. Geometry accuracy and availability are independent.
 
 ## Boundaries
 
@@ -38,6 +38,14 @@ The live path is two levels. `convex/agent.ts` runs the main agent, which plans 
 3. Validate proposal revision, product availability, exact variant dimensions, room bounds, collisions, doorway clearance, and budget.
 4. Apply atomically. Keep existing/locked objects unchanged.
 5. Render a placeholder immediately. Asset generation/loading is a separate job.
+
+The initial image-to-3D path creates an approximate parametric scene rather than an
+arbitrary triangle mesh. Astra reviews up to eight gallery photos, selects a dimension
+drawing plus distinct viewing angles when available, and sends only those selected four
+images into reconstruction. It describes visible parts using bounded boxes, cylinders,
+and spheres. The application owns the product's
+physical dimensions and scales the scene to them; the model cannot change the room
+footprint. See [image-to-3D assets](asset-generation.md).
 
 `shared/geometry` supplies deterministic validation and a simple placement scan. It is a starter, not an interior-design optimizer. Rug overlaps are allowed; a door uses a conservative square clearance. Electrical, installation, delivery-fit, and ergonomic checks remain future work.
 
