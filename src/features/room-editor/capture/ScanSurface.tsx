@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   BufferAttribute,
   BufferGeometry,
@@ -23,10 +23,12 @@ export function ScanSurface({
   scan,
   wallsVisible,
   onError,
+  fallback,
 }: {
   scan: TexturedScan;
   wallsVisible: boolean;
   onError: (message: string) => void;
+  fallback: ReactNode;
 }) {
   const [resources, setResources] = useState<Resources | null>(null);
   useEffect(() => {
@@ -110,7 +112,7 @@ export function ScanSurface({
       bitmaps.forEach((bitmap) => bitmap.close());
     };
   }, [scan, onError]);
-  if (resources?.scan !== scan) return null;
+  if (resources?.scan !== scan) return fallback;
   return resources.items.map((item, index) => (
     <mesh
       key={index}

@@ -108,6 +108,7 @@ export const roomObjectSchema = z.object({
   measurementSource: z.enum(["confirmed", "estimated"]).optional(),
   detectionConfidence: z.enum(["high", "medium", "low", "unknown"]).optional(),
   sourceCategory: z.string().optional(),
+  detectionSource: z.literal("photo").optional(),
 });
 export const capturedSurfaceSchema = z.object({
   id: idSchema,

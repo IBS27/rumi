@@ -36,6 +36,36 @@ export const zoneRecommendation = v.object({
 
 // Zod refinements must also run at function boundaries; Convex validates storage shapes.
 export default defineSchema({
+  roomReconstructions: defineTable({
+    ownerId: v.string(),
+    digest: v.string(),
+    inputId: v.id("_storage"),
+    planId: v.optional(v.id("_storage")),
+    batches: v.optional(
+      v.array(
+        v.object({
+          storageId: v.id("_storage"),
+          objectIds: v.array(v.string()),
+        }),
+      ),
+    ),
+    step: v.optional(v.number()),
+    stage: v.union(
+      v.literal("queued"),
+      v.literal("analyzing"),
+      v.literal("modeling"),
+      v.literal("ready"),
+      v.literal("failed"),
+    ),
+    completed: v.number(),
+    total: v.number(),
+    attempt: v.number(),
+    sceneJson: v.optional(v.string()),
+    error: v.optional(v.string()),
+  })
+    .index("by_ownerId_digest", ["ownerId", "digest"])
+    .index("by_ownerId_stage", ["ownerId", "stage"])
+    .index("by_ownerId", ["ownerId"]),
   rooms: defineTable({
     ownerId: v.string(),
     snapshot: zodToConvex(roomSchema),

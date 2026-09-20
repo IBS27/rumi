@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes } from "react";
+import type { ComponentPropsWithRef } from "react";
 import { cx } from "./cx";
 
 export type ButtonVariant = "primary" | "soft" | "quiet" | "danger";
@@ -23,7 +23,7 @@ export function Button({
   className,
   type = "button",
   ...rest
-}: ButtonHTMLAttributes<HTMLButtonElement> & {
+}: ComponentPropsWithRef<"button"> & {
   variant?: ButtonVariant;
   size?: ButtonSize;
 }) {

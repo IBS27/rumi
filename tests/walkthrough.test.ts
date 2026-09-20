@@ -39,6 +39,79 @@ const rightPatch = [
 ];
 
 describe("first-person navigation", () => {
+  test("walks through internal doors and passages in both directions, including rotated walls", () => {
+    for (const yaw of [0, Math.PI / 4])
+      for (const kind of ["door", "opening"] as const) {
+        const room = sample();
+        room.objects = [];
+        const c = Math.cos(yaw),
+          s = Math.sin(yaw);
+        const wall = {
+          ...room.walls[0],
+          id: "partition",
+          dimensions: { width: 2.5, height: 2.7, depth: 0 },
+          transform: [c, 0, -s, 0, 0, 1, 0, 0, s, 0, c, 0, 2.9, 1.35, 1.6, 1],
+        };
+        const door = {
+          ...wall,
+          id: "passage",
+          kind,
+          parentId: wall.id,
+          dimensions: { width: 0.9, height: 2.1, depth: 0 },
+          transform: [...wall.transform],
+        };
+        door.transform[13] = 1.05;
+        room.walls = [wall];
+        room.openings = [door];
+        const model = createWalkthrough(room);
+        const start = { x: 2.9 - s * 0.5, y: 0, z: 1.6 - c * 0.5 };
+        const across = moveWalk(model, start, s, c);
+        expect(across.x).toBeCloseTo(start.x + s);
+        expect(across.z).toBeCloseTo(start.z + c);
+        const back = moveWalk(model, across, -s, -c);
+        expect(back.x).toBeCloseTo(start.x);
+        expect(back.z).toBeCloseTo(start.z);
+        // A path beside the doorway still hits its jamb.
+        const beside = { x: start.x + c * 0.8, y: 0, z: start.z - s * 0.8 };
+        const blocked = moveWalk(model, beside, s, c);
+        expect(
+          Math.hypot(blocked.x - beside.x, blocked.z - beside.z),
+        ).toBeLessThan(0.6);
+      }
+  });
+
+  test("does not pass through windows, narrow gaps or low openings", () => {
+    for (const [kind, width, height] of [
+      ["window", 0.9, 2.1],
+      ["door", 0.35, 2.1],
+      ["opening", 0.9, 1.5],
+    ] as const) {
+      const room = sample();
+      room.objects = [];
+      const wall = {
+        ...room.walls[0],
+        id: "partition",
+        transform: [...room.walls[0].transform],
+      };
+      wall.transform[14] = 1.6;
+      const opening = {
+        ...wall,
+        id: "gap",
+        kind,
+        parentId: wall.id,
+        dimensions: { width, height, depth: 0 },
+        transform: [...wall.transform],
+      };
+      opening.transform[13] = height / 2;
+      room.walls = [wall];
+      room.openings = [opening];
+      const model = createWalkthrough(room);
+      expect(
+        moveWalk(model, { x: wall.transform[12], y: 0, z: 1 }, 0, 1.2).z,
+      ).toBeLessThan(1.6);
+    }
+  });
+
   test("crosses shared floor edges in both directions, including small steps", () => {
     for (const y of [0, 0.1, 0.18]) {
       const model = createWalkthrough(

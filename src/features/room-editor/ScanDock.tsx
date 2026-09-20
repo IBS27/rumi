@@ -72,6 +72,9 @@ function ObjectRow({
       </span>
       <span className="min-w-0">
         <strong className="block truncate font-semibold">{object.name}</strong>
+        {object.detectionSource === "photo" && (
+          <Muted className="block text-[11px]">From photos</Muted>
+        )}
         <Muted className="block text-[11px] tabular-nums">
           {selected && estimated
             ? "Not yet confirmed"
@@ -89,7 +92,13 @@ function ObjectRow({
   );
 }
 
-function DockToggle({ open, onToggle }: { open: boolean; onToggle: () => void }) {
+function DockToggle({
+  open,
+  onToggle,
+}: {
+  open: boolean;
+  onToggle: () => void;
+}) {
   const label = open ? "Hide scan details" : "Show scan details";
   const Icon = open ? X : Info;
   return (
@@ -145,88 +154,88 @@ export function ScanDock({
           <DockToggle open={false} onToggle={() => setOpen(true)} />
         </FloatingPanel>
       )}
-    <FloatingPanel
-      aria-label="Scan details"
-      inert={away}
-      aria-hidden={away}
-      className={cx(
-        "top-28 lg:top-4 left-4 flex max-h-[calc(100%-128px)] lg:max-h-[calc(100%-32px)] w-[252px] flex-col overflow-auto transition-[translate,opacity] duration-400 ease-in-out motion-reduce:transition-none",
-        away &&
-          "-translate-x-[calc(100%+32px)] opacity-0 pointer-events-none",
-      )}
-    >
-      <div className="flex items-center justify-between gap-2">
-        <Heading>Scan details</Heading>
-        <DockToggle open onToggle={() => setOpen(false)} />
-      </div>
-      {captureWarnings?.map((warning, index) => (
-        <Muted key={index} className="mt-2 text-xs">
-          {warning}
-        </Muted>
-      ))}
-      <div className="mt-1.5 grid gap-px text-xs text-[#5a5044]">
-        <div>
-          <b className="font-semibold text-ink">{room.walls.length}</b> wall
-          segments,{" "}
-          <b className="font-semibold text-ink">{room.objects.length}</b>{" "}
-          objects, {confirmed} confirmed
+      <FloatingPanel
+        aria-label="Scan details"
+        inert={away}
+        aria-hidden={away}
+        className={cx(
+          "top-28 lg:top-4 left-4 flex max-h-[calc(100%-128px)] lg:max-h-[calc(100%-32px)] w-[252px] flex-col overflow-auto transition-[translate,opacity] duration-400 ease-in-out motion-reduce:transition-none",
+          away &&
+            "-translate-x-[calc(100%+32px)] opacity-0 pointer-events-none",
+        )}
+      >
+        <div className="flex items-center justify-between gap-2">
+          <Heading>Scan details</Heading>
+          <DockToggle open onToggle={() => setOpen(false)} />
         </div>
-        <div>
-          <b className="font-semibold text-ink">
-            {room.floors.length
-              ? `${floorArea(room.floors).toFixed(1)} m²`
-              : "Unknown"}
-          </b>{" "}
-          of floor
-        </div>
-        <div>
-          <b className="font-semibold text-ink tabular-nums">
-            {room.dimensions.width.toFixed(2)} ×{" "}
-            {room.dimensions.depth.toFixed(2)} ×{" "}
-            {room.dimensions.height.toFixed(2)} m
-          </b>{" "}
-          at the widest
-        </div>
-      </div>
-
-      <ul className="mt-2.5 grid gap-0.5">
-        {room.objects.map((object) => (
-          <li key={object.id}>
-            <ObjectRow
-              object={object}
-              selected={selected === object.id}
-              onSelect={() =>
-                onSelect(selected === object.id ? null : object.id)
-              }
-            />
-            {selected === object.id && (
-              <ObjectEditor
-                key={`${object.id}-${room.revision}`}
-                object={object}
-                canReset={!!originalObject(object.id)}
-                onSave={onSave}
-                onReset={() => onReset(object.id)}
-                onRemove={() => onRemove(object.id)}
-              />
-            )}
-          </li>
+        {captureWarnings?.map((warning, index) => (
+          <Muted key={index} className="mt-2 text-xs">
+            {warning}
+          </Muted>
         ))}
-      </ul>
-      {room.objects.length === 0 && (
-        <Muted className="mt-2 text-xs">
-          The scan found no furniture. Add items later from the design.
-        </Muted>
-      )}
+        <div className="mt-1.5 grid gap-px text-xs text-[#5a5044]">
+          <div>
+            <b className="font-semibold text-ink">{room.walls.length}</b> wall
+            segments,{" "}
+            <b className="font-semibold text-ink">{room.objects.length}</b>{" "}
+            objects, {confirmed} confirmed
+          </div>
+          <div>
+            <b className="font-semibold text-ink">
+              {room.floors.length
+                ? `${floorArea(room.floors).toFixed(1)} m²`
+                : "Unknown"}
+            </b>{" "}
+            of floor
+          </div>
+          <div>
+            <b className="font-semibold text-ink tabular-nums">
+              {room.dimensions.width.toFixed(2)} ×{" "}
+              {room.dimensions.depth.toFixed(2)} ×{" "}
+              {room.dimensions.height.toFixed(2)} m
+            </b>{" "}
+            at the widest
+          </div>
+        </div>
 
-      <div className="mt-2.5 flex gap-3 text-[11px] text-mute">
-        <span className="inline-flex items-center gap-1.5">
-          <i className="size-2 rounded-full bg-teal" /> confirmed
-        </span>
-        <span className="inline-flex items-center gap-1.5">
-          <i className="size-2 rounded-full bg-[#d9b84b]" /> estimated
-        </span>
-      </div>
-    </FloatingPanel>
+        <ul className="mt-2.5 grid gap-0.5">
+          {room.objects.map((object) => (
+            <li key={object.id}>
+              <ObjectRow
+                object={object}
+                selected={selected === object.id}
+                onSelect={() =>
+                  onSelect(selected === object.id ? null : object.id)
+                }
+              />
+              {selected === object.id && (
+                <ObjectEditor
+                  key={`${object.id}-${room.revision}`}
+                  object={object}
+                  canReset={!!originalObject(object.id)}
+                  onSave={onSave}
+                  onReset={() => onReset(object.id)}
+                  onRemove={() => onRemove(object.id)}
+                />
+              )}
+            </li>
+          ))}
+        </ul>
+        {room.objects.length === 0 && (
+          <Muted className="mt-2 text-xs">
+            The scan found no furniture. Add items later from the design.
+          </Muted>
+        )}
+
+        <div className="mt-2.5 flex gap-3 text-[11px] text-mute">
+          <span className="inline-flex items-center gap-1.5">
+            <i className="size-2 rounded-full bg-teal" /> confirmed
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <i className="size-2 rounded-full bg-[#d9b84b]" /> estimated
+          </span>
+        </div>
+      </FloatingPanel>
     </>
   );
 }

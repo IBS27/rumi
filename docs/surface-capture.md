@@ -2,6 +2,10 @@
 
 Rumi Capture now runs RoomPlan and ARKit scene reconstruction in one world-tracking session. The room layout, furniture categories, surface mesh, camera poses, photos, depth maps, and depth confidence share the ARKit coordinate frame. The browser blends overlapping photographs onto the measured geometry. Furniture segmentation, inferred hidden surfaces, image-based category refinement, and coverage heatmaps are not implemented.
 
+An optional [simulated room reconstruction](room-reconstruction-simulation.md)
+uses Astra to generate solid finishes and furniture assemblies from this evidence.
+It is separate from the measured, photo-textured surface view described here.
+
 ## User flow
 
 On a LiDAR iPhone, scan one room slowly and show the sides of furniture. Finish once. RoomPlan presents its layout preview while a serial background queue packages the measured surfaces and selected photos. **Export scan** shares a single ZIP. **Export layout JSON** still shares Apple's final `CapturedRoom` bytes unchanged. If detailed capture fails, the layout remains available and **Retry saving detailed scan** retries packaging from retained session data. A successful ZIP survives relaunch alongside the layout JSON. Starting another scan deletes both only after confirmation.

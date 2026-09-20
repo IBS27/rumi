@@ -159,7 +159,9 @@ export function ObjectEditor({
           disabled={!canReset}
           onClick={onReset}
         >
-          Reset to scan
+          {object.detectionSource === "photo"
+            ? "Reset estimate"
+            : "Reset to scan"}
         </Button>
         <Button variant="danger" size="sm" onClick={onRemove}>
           Remove
