@@ -36,7 +36,11 @@ results while 3D previews are being prepared.
 - X is width, Y is height, and Z is depth.
 - Part positions and sizes are normalized against the product's outer dimensions.
 - X and Z are centered around zero; Y starts at the floor.
-- Rotations are Euler radians. A Three.js cylinder points along Y before rotation.
+- Rotations are XYZ Euler radians in normalized space. A Three.js cylinder points along Y before rotation.
+- Scale each primitive by its normalized size, rotate it, then translate it. Apply
+  the catalog width, height, and depth to the enclosing group last.
+- The rotated geometry must stay within X/Z [-0.5, 0.5] and Y [0, 1]. Bounds use
+  each primitive's rotated extents with only a 0.000001 roundoff tolerance.
 - The application-provided dimensions are authoritative for scale. Astra cannot replace
   them with dimensions inferred from a photograph.
 

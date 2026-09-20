@@ -3,6 +3,8 @@ import { MockLanguageModelV2 } from "ai/test";
 import { generateParametricModel } from "../convex/assetGeneration";
 import { parametricModelSchema } from "../shared/assets/model";
 import { assetSchema } from "../shared/contracts";
+import { Box3, BoxGeometry, Group, Mesh, Vector3 } from "three";
+import { ParametricModel } from "../src/features/room-editor/ParametricModel";
 
 function model(...answers: unknown[]) {
   const prompts: unknown[] = [];
@@ -55,7 +57,117 @@ const imageFetch = (async () =>
     headers: { "content-type": "image/png" },
   })) as unknown as typeof fetch;
 
+function sceneWith(part: Partial<(typeof answer.parts)[number]> = {}) {
+  return {
+    ...answer,
+    version: 1,
+    dimensions: { width: 2, height: 1, depth: 0.5 },
+    sourceImages: ["https://shop.test/front.png"],
+    sourceViews: [{ url: "https://shop.test/front.png", role: "front" }],
+    parts: [{ ...answer.parts[0], ...part }],
+  };
+}
+
 describe("image-to-3D assets", () => {
+  it.each([
+    { size: { x: 1.5, y: 1, z: 1 } },
+    { size: { x: 1, y: 1.01, z: 1 } },
+    { size: { x: 1, y: 1, z: 1.01 } },
+    { position: { x: 0.001, y: 0.5, z: 0 } },
+    { position: { x: 0, y: 0.499, z: 0 } },
+    { position: { x: 0, y: 0.501, z: 0 } },
+    { rotation: { x: 0, y: Math.PI / 4, z: 0 } },
+    { rotation: { x: Math.PI / 4, y: 0, z: 0 } },
+    { rotation: { x: 0, y: 0, z: Math.PI / 4 } },
+  ])("rejects geometry outside the catalog bounds: %j", (part) => {
+    expect(parametricModelSchema.safeParse(sceneWith(part)).success).toBe(
+      false,
+    );
+  });
+
+  it("accepts boundary contact and rotations that keep geometry inside", () => {
+    expect(parametricModelSchema.safeParse(sceneWith()).success).toBe(true);
+    expect(
+      parametricModelSchema.safeParse(
+        sceneWith({
+          size: { x: 0.2, y: 1, z: 0.2 },
+          rotation: { x: 0, y: 0, z: Math.PI / 2 },
+        }),
+      ).success,
+    ).toBe(true);
+    // Rounded shapes need their own extents, not the corners of a rotated box.
+    expect(
+      parametricModelSchema.safeParse(
+        sceneWith({
+          shape: "sphere",
+          rotation: { x: 0.3, y: 0.5, z: 0.7 },
+        }),
+      ).success,
+    ).toBe(true);
+    expect(
+      parametricModelSchema.safeParse(
+        sceneWith({
+          shape: "cylinder",
+          rotation: { x: 0, y: Math.PI / 4, z: 0 },
+        }),
+      ).success,
+    ).toBe(true);
+  });
+
+  it.each(["sphere", "cylinder"])("checks rotated %s extents", (shape) => {
+    expect(
+      parametricModelSchema.safeParse(
+        sceneWith({
+          shape,
+          size: { x: 0.2, y: 1, z: 0.2 },
+          position: { x: 0.2, y: 0.5, z: 0 },
+          rotation: { x: 0, y: 0, z: Math.PI / 2 },
+        }),
+      ).success,
+    ).toBe(false);
+  });
+
+  it("renders rotated parts at catalog scale and honors resized objects", () => {
+    const scene = parametricModelSchema.parse(
+      sceneWith({
+        size: { x: 0.2, y: 1, z: 0.2 },
+        rotation: { x: 0, y: 0, z: Math.PI / 2 },
+      }),
+    );
+    for (const dimensions of [
+      scene.dimensions,
+      { width: 3, height: 2, depth: 1 },
+    ]) {
+      // Measure the actual transforms and geometry emitted by the component.
+      const element = ParametricModel({ model: scene, dimensions });
+      const rendered = element.props as {
+        scale?: [number, number, number];
+        children: Array<{
+          props: {
+            position: [number, number, number];
+            rotation: [number, number, number];
+            children: Array<{ props: { args: [number, number, number] } }>;
+          };
+        }>;
+      };
+      const part = rendered.children[0].props;
+      const group = new Group();
+      if (rendered.scale) group.scale.fromArray(rendered.scale);
+      const geometry = new BoxGeometry(...part.children[0].props.args);
+      const mesh = new Mesh(geometry);
+      mesh.position.fromArray(part.position);
+      mesh.rotation.set(...part.rotation);
+      group.add(mesh);
+      const bounds = new Box3().setFromObject(group);
+      const size = bounds.getSize(new Vector3());
+      expect(size.x).toBeCloseTo(dimensions.width);
+      expect(size.y).toBeCloseTo(0.2 * dimensions.height);
+      expect(size.z).toBeCloseTo(0.2 * dimensions.depth);
+      expect(bounds.min.y).toBeCloseTo(0.4 * dimensions.height);
+      geometry.dispose();
+    }
+  });
+
   it("keeps verified dimensions outside the model's control", async () => {
     const vision = model(oneImageSelection, answer);
     const scene = await generateParametricModel(

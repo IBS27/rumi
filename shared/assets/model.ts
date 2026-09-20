@@ -14,7 +14,7 @@ const rotationSchema = z.object({
 
 // Astra describes an object as a small assembly of safe Three.js primitives. Positions
 // and sizes are normalized against the product's verified outer dimensions, so a model
-// always occupies the same physical footprint as the catalog item in the room editor.
+// stays inside the catalog item's physical footprint in the room editor.
 export const primitiveShapeSchema = z.enum(["box", "cylinder", "sphere"]);
 export const materialKindSchema = z.enum([
   "matte",
@@ -41,9 +41,9 @@ const normalizedSizeSchema = z.object({
 });
 
 const normalizedPositionSchema = z.object({
-  x: z.number().min(-0.75).max(0.75),
-  y: z.number().min(-0.25).max(1.25),
-  z: z.number().min(-0.75).max(0.75),
+  x: z.number().min(-0.5).max(0.5),
+  y: z.number().min(0).max(1),
+  z: z.number().min(-0.5).max(0.5),
 });
 
 export const parametricPartSchema = z.object({
@@ -59,6 +59,30 @@ export const parametricPartSchema = z.object({
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
   material: materialKindSchema,
 });
+
+// Rows of Three.js's XYZ Euler rotation. Compute the support of each primitive
+// along the room axes after rotation, before applying the outer catalog scale.
+function rotatedHalfExtents(part: z.infer<typeof parametricPartSchema>) {
+  const cx = Math.cos(part.rotation.x),
+    sx = Math.sin(part.rotation.x);
+  const cy = Math.cos(part.rotation.y),
+    sy = Math.sin(part.rotation.y);
+  const cz = Math.cos(part.rotation.z),
+    sz = Math.sin(part.rotation.z);
+  const rows = [
+    [cy * cz, -cy * sz, sy],
+    [cx * sz + sx * sy * cz, cx * cz - sx * sy * sz, -sx * cy],
+    [sx * sz - cx * sy * cz, sx * cz + cx * sy * sz, cx * cy],
+  ];
+  return rows.map(([x, y, z]) => {
+    const hx = (x * part.size.x) / 2;
+    const hy = (y * part.size.y) / 2;
+    const hz = (z * part.size.z) / 2;
+    if (part.shape === "sphere") return Math.hypot(hx, hy, hz);
+    if (part.shape === "cylinder") return Math.hypot(hx, hz) + Math.abs(hy);
+    return Math.abs(hx) + Math.abs(hy) + Math.abs(hz);
+  });
+}
 
 export const parametricModelSchema = z
   .object({
@@ -111,24 +135,25 @@ export const parametricModelSchema = z
         });
       ids.add(part.id);
 
-      // Allow a little overlap and trim for angled/rounded parts, but reject a model
-      // whose declared pieces sit substantially outside its normalized product bounds.
-      const halfX = part.size.x / 2;
-      const halfY = part.size.y / 2;
-      const halfZ = part.size.z / 2;
-      if (Math.abs(part.position.x) + halfX > 0.9)
+      // Tolerance covers floating-point roundoff, not visible overhang.
+      const epsilon = 1e-6;
+      const [halfX, halfY, halfZ] = rotatedHalfExtents(part);
+      if (Math.abs(part.position.x) + halfX > 0.5 + epsilon)
         ctx.addIssue({
           code: "custom",
           path: ["parts", index, "position", "x"],
           message: "Part exceeds the normalized width",
         });
-      if (part.position.y - halfY < -0.2 || part.position.y + halfY > 1.2)
+      if (
+        part.position.y - halfY < -epsilon ||
+        part.position.y + halfY > 1 + epsilon
+      )
         ctx.addIssue({
           code: "custom",
           path: ["parts", index, "position", "y"],
           message: "Part exceeds the normalized height",
         });
-      if (Math.abs(part.position.z) + halfZ > 0.9)
+      if (Math.abs(part.position.z) + halfZ > 0.5 + epsilon)
         ctx.addIssue({
           code: "custom",
           path: ["parts", index, "position", "z"],

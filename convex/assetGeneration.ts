@@ -167,10 +167,10 @@ export async function generateParametricModel(
               "All photos show the same product. Represent only visible structural parts with boxes, cylinders, and spheres.",
               "Coordinates are normalized to the verified outer size: X is width from -0.5 to 0.5, Y is height from 0 at the floor to 1 at the top, and Z is depth from -0.5 to 0.5.",
               "Part sizes and positions use those normalized coordinates. A part resting on the floor has position.y equal to half its size.y.",
-              "Three.js cylinders point along Y before rotation. Rotations are Euler radians.",
+              "Three.js cylinders point along Y before rotation. Rotations are XYZ Euler radians in normalized space: scale the primitive by its normalized size, rotate it, then translate it. The application applies the outer size to the entire scene afterward.",
               "Match the silhouette, proportions, visible openings, legs, supports, doors, drawers, cushions, and main material colors.",
               "Do not invent hidden interiors, branding, tiny hardware, text, or decorative detail that the photos do not establish.",
-              "Use as few parts as possible while keeping the object recognizable. Keep every part inside the normalized bounds.",
+              "Use as few parts as possible while keeping the object recognizable. Keep the entire rotated geometry of every part inside X/Z [-0.5, 0.5] and Y [0, 1]; no overhang or below-floor parts are allowed.",
             ].join(" "),
           },
           ...selected.flatMap((image) => [

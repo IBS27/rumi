@@ -21,17 +21,17 @@ export interface ParametricModelProps {
 export function ParametricModel({ model, dimensions }: ParametricModelProps) {
   const { width, height, depth } = dimensions ?? model.dimensions;
   return (
-    <group name={model.label}>
+    <group name={model.label} scale={[width, height, depth]}>
       {model.parts.map((part) => {
         const size: [number, number, number] = [
-          part.size.x * width,
-          part.size.y * height,
-          part.size.z * depth,
+          part.size.x,
+          part.size.y,
+          part.size.z,
         ];
         const position: [number, number, number] = [
-          part.position.x * width,
-          part.position.y * height,
-          part.position.z * depth,
+          part.position.x,
+          part.position.y,
+          part.position.z,
         ];
         const rotation: [number, number, number] = [
           part.rotation.x,
