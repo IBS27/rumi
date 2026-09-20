@@ -189,13 +189,8 @@ export function ChatPanel({
           {attachmentError}
         </p>
       )}
-      {history ? (
-        <ChatHistory
-          activeId={activeId}
-          onSelect={select}
-          onClose={() => setHistory(false)}
-        />
-      ) : activeId ? (
+      {history && <ChatHistory activeId={activeId} onSelect={select} />}
+      {activeId ? (
         <Conversation
           key={activeId}
           projectId={activeId}

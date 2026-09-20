@@ -1,18 +1,16 @@
 import { Button, TextInput } from "../../ui";
 import { useState } from "react";
 import { useMutation, usePaginatedQuery } from "convex/react";
-import { Pencil, Trash2, Plus, ArrowLeft } from "lucide-react";
+import { Pencil, Trash2, Plus } from "lucide-react";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 
 export function ChatHistory({
   activeId,
   onSelect,
-  onClose,
 }: {
   activeId: Id<"projects"> | null;
   onSelect: (id: Id<"projects"> | null) => void;
-  onClose: () => void;
 }) {
   const { results, status, loadMore } = usePaginatedQuery(
     api.projects.list,
@@ -42,22 +40,11 @@ export function ChatHistory({
     }
   }
   return (
-    <div className="min-h-0 overflow-y-auto text-[12.5px]">
-      <div className="mb-3 flex items-center gap-2 [&>h3]:font-display [&>h3]:text-base">
-        <Button
-          size="sm"
-          variant="quiet"
-          className="size-7 shrink-0 p-1 text-mute"
-          aria-label="Back to chat"
-          onClick={onClose}
-        >
-          <ArrowLeft size={17} />
-        </Button>
-        <h3>Your conversations</h3>
-      </div>
+    <div className="max-h-[45%] shrink-0 overflow-y-auto border-b border-line pb-2.5 text-[12.5px]">
       <Button
         size="sm"
-        className="mb-3 w-full justify-start"
+        variant="quiet"
+        className="mb-1 w-full justify-start text-mute"
         onClick={() => onSelect(null)}
       >
         <Plus size={17} /> New conversation
@@ -78,10 +65,11 @@ export function ChatHistory({
       )}
       {results.map((project) => (
         <div className="min-w-0" key={project._id}>
-          <div className="flex items-center gap-0.5 border-b border-line py-1">
+          <div className="group flex items-center gap-0.5 py-px">
             <Button
               size="sm"
-              className="min-w-0 flex-1 justify-start whitespace-normal text-left font-normal [overflow-wrap:anywhere] aria-[current=true]:bg-teal-tint aria-[current=true]:font-semibold"
+              variant="quiet"
+              className="min-w-0 flex-1 justify-start truncate text-left font-normal aria-[current=true]:bg-teal-tint aria-[current=true]:font-semibold"
               aria-current={activeId === project._id ? "true" : undefined}
               onClick={() => onSelect(project._id)}
             >
@@ -90,7 +78,7 @@ export function ChatHistory({
             <Button
               size="sm"
               variant="quiet"
-              className="size-7 shrink-0 p-1 text-mute"
+              className="size-7 shrink-0 p-1 text-mute opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
               aria-label={`Rename ${project.title}`}
               disabled={busy}
               onClick={() => {
@@ -104,7 +92,7 @@ export function ChatHistory({
             <Button
               size="sm"
               variant="quiet"
-              className="size-7 shrink-0 p-1 text-mute"
+              className="size-7 shrink-0 p-1 text-mute opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
               aria-label={`Delete ${project.title}`}
               disabled={busy}
               onClick={() => {
