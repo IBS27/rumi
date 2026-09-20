@@ -102,7 +102,12 @@ function Cameras({ room, top }: { room: CapturedRoom; top: boolean }) {
     8,
     Math.min(viewport.width / (width + 2), viewport.height / (depth + 2)),
   );
-  const center = new Vector3(width / 2, top ? 0 : height / 2, depth / 2);
+  // OrbitControls owns the live camera transform. Keep these defaults stable
+  // so unrelated renders do not copy them back over the user's view.
+  const center = useMemo(
+    () => new Vector3(width / 2, top ? 0 : height / 2, depth / 2),
+    [width, height, depth, top],
+  );
   const verticalFov = (42 * Math.PI) / 180;
   const horizontalFov =
     2 *
@@ -110,12 +115,16 @@ function Cameras({ room, top }: { room: CapturedRoom; top: boolean }) {
   const radius = Math.hypot(width, height, depth) / 2;
   const distance =
     (radius / Math.sin(Math.min(verticalFov, horizontalFov) / 2)) * 1.05;
-  const position = top
-    ? new Vector3(width / 2, size * 2, depth / 2)
-    : new Vector3(0.95, 1.1, 1.15)
-        .normalize()
-        .multiplyScalar(distance)
-        .add(center);
+  const position = useMemo(
+    () =>
+      top
+        ? new Vector3(width / 2, size * 2, depth / 2)
+        : new Vector3(0.95, 1.1, 1.15)
+            .normalize()
+            .multiplyScalar(distance)
+            .add(center),
+    [top, width, size, depth, distance, center],
+  );
   return (
     <>
       {top ? (

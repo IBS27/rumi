@@ -178,6 +178,8 @@ export function RoomWorkspace({
     setSelected(null);
   }
   function receive(text: string) {
+    ++importRequest.current;
+    setBusy(false);
     try {
       loadText(text, "My scanned room");
     } catch (cause) {
@@ -250,6 +252,7 @@ export function RoomWorkspace({
               onSample={sample}
               scan={
                 scan ? (
+                  // eslint-disable-next-line react-hooks/refs -- scan renders a control; receive runs only when a scan arrives.
                   scan("start", receive)
                 ) : (
                   <ScanAction
@@ -291,7 +294,10 @@ export function RoomWorkspace({
             <Button onClick={download}>
               <Download /> Download room
             </Button>
-            {scan?.("bar", receive)}
+            {
+              // eslint-disable-next-line react-hooks/refs -- scan renders a control; receive runs only when a scan arrives.
+              scan?.("bar", receive)
+            }
             <Button
               variant="primary"
               disabled={busy}
