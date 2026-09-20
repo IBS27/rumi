@@ -17,11 +17,7 @@ const activityValidator = v.object({
   tool: v.string(),
   label: v.string(),
   detail: v.optional(v.string()),
-  status: v.union(
-    v.literal("running"),
-    v.literal("done"),
-    v.literal("error"),
-  ),
+  status: v.union(v.literal("running"), v.literal("done"), v.literal("error")),
 });
 
 const planningActivity = () => [
@@ -218,7 +214,7 @@ export const updateProgress = internalMutation({
     messageId: v.id("messages"),
     content: v.string(),
     activity: v.array(activityValidator),
-    recommendationProductId: v.optional(v.string()),
+    recommendationProductId: v.optional(v.union(v.string(), v.null())),
   },
   handler: async (
     ctx,
@@ -231,7 +227,10 @@ export const updateProgress = internalMutation({
     await ctx.db.patch(messageId, {
       content: content.slice(0, 16000),
       activity: activity.slice(-20),
-      ...(recommendationProductId ? { recommendationProductId } : {}),
+      // Omission preserves the card; null explicitly clears a previous result.
+      ...(recommendationProductId !== undefined
+        ? { recommendationProductId: recommendationProductId ?? undefined }
+        : {}),
     });
   },
 });

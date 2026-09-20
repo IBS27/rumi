@@ -1,11 +1,5 @@
 import { openai } from "@ai-sdk/openai";
-import {
-  streamText,
-  stepCountIs,
-  hasToolCall,
-  tool,
-  type ToolSet,
-} from "ai";
+import { streamText, stepCountIs, hasToolCall, tool, type ToolSet } from "ai";
 import { z } from "zod";
 import { v } from "convex/values";
 import { zodToConvex } from "convex-helpers/server/zod4";
@@ -62,7 +56,7 @@ interface AgentActivity {
 type ProgressSink = (
   content: string,
   activity: AgentActivity[],
-  recommendationProductId?: string,
+  recommendationProductId: string | null,
 ) => Promise<void>;
 
 function inputRecord(input: unknown): Record<string, unknown> {
@@ -79,9 +73,19 @@ function toolActivity(
   const value = inputRecord(input);
   switch (toolName) {
     case "getRoomContext":
-      return { id, tool: toolName, label: "Reading room context", status: "running" };
+      return {
+        id,
+        tool: toolName,
+        label: "Reading room context",
+        status: "running",
+      };
     case "updateBrief":
-      return { id, tool: toolName, label: "Saving your preferences", status: "running" };
+      return {
+        id,
+        tool: toolName,
+        label: "Saving your preferences",
+        status: "running",
+      };
     case "searchProducts": {
       const query = typeof value.query === "string" ? value.query : "products";
       return {
@@ -96,19 +100,28 @@ function toolActivity(
       return {
         id,
         tool: toolName,
-        label: count ? `Reviewing ${count} product${count === 1 ? "" : "s"}` : "Reviewing product details",
+        label: count
+          ? `Reviewing ${count} product${count === 1 ? "" : "s"}`
+          : "Reviewing product details",
         status: "running",
       };
     }
     case "checkBudget":
-      return { id, tool: toolName, label: "Checking the budget", status: "running" };
+      return {
+        id,
+        tool: toolName,
+        label: "Checking the budget",
+        status: "running",
+      };
     case "validatePlacement": {
       const object = inputRecord(value.object);
       const name = typeof object.name === "string" ? object.name : null;
       return {
         id,
         tool: toolName,
-        label: name ? `Checking placement for ${name.slice(0, 80)}` : "Checking room placement",
+        label: name
+          ? `Checking placement for ${name.slice(0, 80)}`
+          : "Checking room placement",
         status: "running",
       };
     }
@@ -117,12 +130,19 @@ function toolActivity(
       return {
         id,
         tool: toolName,
-        label: count ? `Applying ${count} design item${count === 1 ? "" : "s"}` : "Applying the design",
+        label: count
+          ? `Applying ${count} design item${count === 1 ? "" : "s"}`
+          : "Applying the design",
         status: "running",
       };
     }
     case "askOptions":
-      return { id, tool: toolName, label: "Preparing a follow-up question", status: "running" };
+      return {
+        id,
+        tool: toolName,
+        label: "Preparing a follow-up question",
+        status: "running",
+      };
     default:
       return {
         id,
@@ -210,6 +230,7 @@ function buildAgentTools(
           recommendation.set(result.candidates[0]?.product.id ?? null);
           return result;
         } catch (error) {
+          recommendation.set(null);
           return {
             category: task.category,
             query: task.query,
@@ -381,11 +402,7 @@ async function runAgent(
     const now = Date.now();
     if (!force && now - lastPublished < 150) return;
     lastPublished = now;
-    await progress(
-      streamedText,
-      activity,
-      recommendationProductId ?? undefined,
-    );
+    await progress(streamedText, activity, recommendationProductId);
   };
   for await (const part of result.fullStream) {
     switch (part.type) {
@@ -404,7 +421,11 @@ async function runAgent(
         break;
       case "text-delta":
         finish((item) => item.tool === "planning");
-        if (!activity.some((item) => item.tool === "responding" && item.status === "running"))
+        if (
+          !activity.some(
+            (item) => item.tool === "responding" && item.status === "running",
+          )
+        )
           activity.push({
             id: `responding-${step}`,
             tool: "responding",
@@ -415,10 +436,10 @@ async function runAgent(
         await publish();
         break;
       case "tool-call":
-        finish((item) => item.tool === "planning" || item.tool === "responding");
-        activity.push(
-          toolActivity(part.toolCallId, part.toolName, part.input),
+        finish(
+          (item) => item.tool === "planning" || item.tool === "responding",
         );
+        activity.push(toolActivity(part.toolCallId, part.toolName, part.input));
         await publish(true);
         break;
       case "tool-result":

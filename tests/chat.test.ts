@@ -59,6 +59,56 @@ async function setup(firstMessage?: string) {
 }
 
 describe("live chat boundaries", () => {
+  it("clears a previous recommendation after an empty search and keeps it cleared", async () => {
+    const { t, owner, projectId } = await setup("Find a lamp");
+    const context = await owner.query(api.projects.context, { projectId });
+    const messageId = context!.project.activeMessageId!;
+    await t.mutation(internal.products.upsertProducts, {
+      products: [sampleProducts[0]],
+    });
+    const listed = async () =>
+      (
+        await owner.query(api.messages.list, {
+          projectId,
+          paginationOpts: { numItems: 20, cursor: null },
+        })
+      ).page[0];
+    await t.mutation(internal.messages.updateProgress, {
+      messageId,
+      content: "Found a lamp",
+      activity: [],
+      recommendationProductId: sampleProducts[0].id,
+    });
+    expect((await listed()).recommendation?.id).toBe(sampleProducts[0].id);
+    await t.mutation(internal.messages.updateProgress, {
+      messageId,
+      content: "Checking another constraint",
+      activity: [],
+    });
+    expect((await listed()).recommendation?.id).toBe(sampleProducts[0].id);
+    await t.mutation(internal.messages.updateProgress, {
+      messageId,
+      content: "No matching product",
+      activity: [],
+      recommendationProductId: null,
+    });
+    expect((await listed()).recommendation).toBeNull();
+    await t.mutation(internal.messages.complete, {
+      messageId,
+      content: "No matching product",
+      status: "done",
+    });
+    expect((await listed()).recommendation).toBeNull();
+    // Late progress must not restore a card after the reply is complete.
+    await t.mutation(internal.messages.updateProgress, {
+      messageId,
+      content: "Late result",
+      activity: [],
+      recommendationProductId: sampleProducts[0].id,
+    });
+    expect((await listed()).recommendation).toBeNull();
+  });
+
   it("starts without invented measurements and saves a brief before a scan exists", async () => {
     const { t, owner, projectId } = await setup("Help me warm up my room.");
     const context = await owner.query(api.projects.context, { projectId });
