@@ -1,4 +1,11 @@
-import { Component, Suspense, useEffect, useMemo, type ReactNode } from "react";
+import {
+  Component,
+  Suspense,
+  useEffect,
+  useMemo,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { Canvas, useThree } from "@react-three/fiber";
 import {
   Edges,
@@ -15,6 +22,8 @@ import type {
   RoomObject,
 } from "../../../shared/contracts";
 import { localCorners, worldCorners } from "../../../shared/capture/roomplan";
+import type { Walkthrough } from "../../../shared/capture/walkthrough";
+import { FirstPersonCamera, type WalkInput } from "./FirstPersonCamera";
 import { surfaceShape } from "../../../shared/capture/surfaces";
 
 function Surface({
@@ -188,6 +197,9 @@ export function RoomViewer({
   top,
   wallsVisible,
   dimensionsVisible,
+  walkthrough,
+  walkInput,
+  walkSession,
 }: {
   room: CapturedRoom;
   selected: string | null;
@@ -195,14 +207,24 @@ export function RoomViewer({
   top: boolean;
   wallsVisible: boolean;
   dimensionsVisible: boolean;
+  walkthrough: Walkthrough | null;
+  walkInput: RefObject<WalkInput>;
+  walkSession: number;
 }) {
   return (
     <ViewerBoundary key={room.id}>
       <Canvas
         shadows
         dpr={[1, 2]}
-        onPointerMissed={() => onSelect(null)}
-        aria-label="Interactive 3D room. Use the object list to select furniture with the keyboard."
+        onPointerMissed={() => {
+          if (!walkthrough) onSelect(null);
+        }}
+        style={{ touchAction: walkthrough ? "none" : "auto" }}
+        aria-label={
+          walkthrough
+            ? "First-person room. Drag to look, WASD or arrow keys to walk, Q and E to turn. Escape to exit."
+            : "Interactive 3D room. Use the object list to select furniture with the keyboard."
+        }
         fallback={
           <div className="grid h-full place-items-center p-8 text-center text-mute">
             WebGL is unavailable. Room measurements are still available in the
@@ -223,7 +245,17 @@ export function RoomViewer({
           shadow-camera-bottom={-12}
         />
         <Suspense fallback={null}>
-          <Cameras room={room} top={top} />
+          {walkthrough ? (
+            <FirstPersonCamera
+              key={walkSession}
+              model={walkthrough}
+              input={walkInput}
+              width={room.dimensions.width}
+              depth={room.dimensions.depth}
+            />
+          ) : (
+            <Cameras room={room} top={top} />
+          )}
           {room.floors.map((floor) => (
             <Surface key={floor.id} value={floor} openings={[]} />
           ))}
@@ -248,7 +280,9 @@ export function RoomViewer({
               key={object.id}
               object={object}
               selected={selected === object.id}
-              onSelect={onSelect}
+              onSelect={(id) => {
+                if (!walkthrough) onSelect(id);
+              }}
             />
           ))}
           {dimensionsVisible &&
