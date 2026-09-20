@@ -49,7 +49,9 @@ export interface SpaceModel {
   warnings: string[];
 }
 
-export const DOOR_CLEARANCE = 0.9;
+// Only the strip the door needs to open. Walking room beyond that is the
+// user's call, not the planner's.
+export const DOOR_CLEARANCE = 0.3;
 export const WALK_PATH = 0.6;
 export const FURNITURE_GAP = 0.2;
 
@@ -322,15 +324,15 @@ function rectangleDoorClearances(
     .filter((opening) => opening.kind === "door")
     .map((door) => {
       const { width, depth } = room.dimensions;
-      const clearance = Math.max(DOOR_CLEARANCE, door.width);
+      const clearance = DOOR_CLEARANCE;
       const ring: Ring =
         door.wall === "north"
-          ? rectangleRing({ x: door.offset + door.width / 2, z: clearance / 2 }, door.width + clearance, clearance)
+          ? rectangleRing({ x: door.offset + door.width / 2, z: clearance / 2 }, door.width, clearance)
           : door.wall === "south"
-            ? rectangleRing({ x: door.offset + door.width / 2, z: depth - clearance / 2 }, door.width + clearance, clearance)
+            ? rectangleRing({ x: door.offset + door.width / 2, z: depth - clearance / 2 }, door.width, clearance)
             : door.wall === "west"
-              ? rectangleRing({ x: clearance / 2, z: door.offset + door.width / 2 }, clearance, door.width + clearance)
-              : rectangleRing({ x: width - clearance / 2, z: door.offset + door.width / 2 }, clearance, door.width + clearance);
+              ? rectangleRing({ x: clearance / 2, z: door.offset + door.width / 2 }, clearance, door.width)
+              : rectangleRing({ x: width - clearance / 2, z: door.offset + door.width / 2 }, clearance, door.width);
       return {
         id: `door-${door.id}`,
         kind: "door" as const,
@@ -402,7 +404,7 @@ export function buildSpaceModel(room: RoomSnapshot): SpaceModel {
         return {
           id: `door-${door.id}`,
           kind: "door" as const,
-          footprint: rectangleRing(center, door.dimensions.width + DOOR_CLEARANCE, DOOR_CLEARANCE * 2),
+          footprint: rectangleRing(center, door.dimensions.width, DOOR_CLEARANCE * 2),
           reason: `Keep ${DOOR_CLEARANCE.toFixed(2)} m clear around door ${door.id}.`,
         };
       });
