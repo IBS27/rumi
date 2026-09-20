@@ -462,6 +462,58 @@ describe("zone reservation", () => {
       },
     }).fits).toBe("no");
   });
+
+  it("retries with minimal clearances when a small room cannot spare full walkways", () => {
+    // A 2.2 m room leaves < 0.6 m between a bed and the dresser, so every
+    // candidate fails at standard margins even though the frame itself fits.
+    const room = {
+      ...sampleRoom,
+      dimensions: { width: 2.2, height: 2.7, depth: 3 },
+      openings: [],
+      objects: [
+        {
+          id: "owned-dresser",
+          name: "Your dresser",
+          category: "storage",
+          productId: null,
+          assetId: null,
+          dimensions: { width: 0.5, height: 0.9, depth: 1.2 },
+          position: { x: 1.95, y: 0, z: 1.5 },
+          rotation: { x: 0, y: 0, z: 0 },
+          color: "#997659",
+          owned: true,
+          locked: true,
+        },
+      ],
+    };
+    const { zones, rejected } = reserveZones(room, buildSpaceModel(room), [
+      {
+        ...lampZone,
+        id: "bed",
+        category: "bed",
+        query: "queen bed",
+        anchor: "wall",
+        relatedObjectId: null,
+        desiredFootprint: { width: 1.65, depth: 2.15 },
+        desiredHeight: null,
+      },
+    ]);
+    expect(rejected).toEqual([]);
+    const zone = zones[0];
+    expect(zone.margins.sides).toBeLessThan(0.6);
+    expect(zone.clearanceRules).toContain(
+      `Keep ${zone.margins.sides} m on each side.`,
+    );
+    expect(
+      designPlacementIssue(room, {
+        ...sampleRoom.objects[0],
+        owned: false,
+        position: zone.position,
+        rotation: { x: 0, y: zone.rotationY, z: 0 },
+        dimensions: { ...zone.footprint, height: 1 },
+      }),
+    ).toBeNull();
+  });
 });
 
 describe("accessories", () => {

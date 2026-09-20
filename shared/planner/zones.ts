@@ -127,6 +127,26 @@ export function marginsFor(category: string): Margins {
 const MIN_FRONT = 0.6;
 const MIN_SIDES = 0.1;
 
+// Small rooms cannot always spare a full walkway. The last-resort tier keeps
+// a squeezable strip in front and a minimal gap beside furniture; walls may
+// still cut side clearance. The zone records the honest margins it used.
+const TIGHT_FRONT = 0.45;
+const TIGHT_BACK = 0.02;
+
+function marginTiers(margins: Margins, mount: ZoneMount): Margins[] {
+  if (mount !== "floor") return [margins];
+  const tight: Margins = {
+    front: Math.min(margins.front, TIGHT_FRONT),
+    back: Math.min(margins.back, TIGHT_BACK),
+    sides: Math.min(margins.sides, MIN_SIDES),
+  };
+  return tight.front < margins.front ||
+    tight.back < margins.back ||
+    tight.sides < margins.sides
+    ? [margins, tight]
+    : [margins];
+}
+
 export function scaleMargins(margins: Margins, spacing: Spacing): Margins {
   const factor = SPACING_FACTOR[spacing];
   const round = (value: number) => Math.round(value * 100) / 100;
@@ -676,17 +696,20 @@ export function reserveZones(
     ) ?? null;
     const issues = new Map<string, number>();
     let lastIssue = "no free floor space";
-    outer: for (const option of footprintOptions(request)) {
-      const width = cm(option.width), depth = cm(option.depth);
-      for (const candidate of candidatePositions(
-        model,
-        request,
-        width,
-        depth,
-        margins,
-        zones,
-        placementHint,
-      )) {
+    // Comfortable clearances first; if no size fits, retighten and retry so a
+    // small room rejects only when the piece truly cannot fit.
+    outer: for (const active of marginTiers(margins, mount)) {
+      for (const option of footprintOptions(request)) {
+        const width = cm(option.width), depth = cm(option.depth);
+        for (const candidate of candidatePositions(
+          model,
+          request,
+          width,
+          depth,
+          active,
+          zones,
+          placementHint,
+        )) {
         // Validate exactly the coordinates that will be persisted/searched.
         candidate.position = { x: cm(candidate.position.x), z: cm(candidate.position.z) };
         const ring = reservationRing(
@@ -694,10 +717,10 @@ export function reserveZones(
           width,
           depth,
           candidate.rotationY,
-          margins,
+          active,
         );
         const body = rectangleRing(candidate.position, width, depth, candidate.rotationY);
-        const front = frontRing(candidate.position, width, depth, candidate.rotationY, margins);
+        const front = frontRing(candidate.position, width, depth, candidate.rotationY, active);
         const issue = fits(model, body, front, ring, reserved, mount, request.relatedObjectId);
         if (issue) {
           issues.set(issue, (issues.get(issue) ?? 0) + 1);
@@ -724,10 +747,10 @@ export function reserveZones(
           // The room is the only hard height ceiling. A desired height is a
           // hint for search, not a limit that would reject a taller product.
           maxHeight: Math.round((maxRoomHeight - 0.1) * 100) / 100,
-          margins,
+          margins: active,
           clearanceRules: [
-            `Keep ${margins.front} m in front for use and walking.`,
-            ...(margins.sides > 0 ? [`Keep ${margins.sides} m on each side.`] : []),
+            `Keep ${active.front} m in front for use and walking.`,
+            ...(active.sides > 0 ? [`Keep ${active.sides} m on each side.`] : []),
             ...model.clearances.map((zone) => zone.reason),
           ],
           miscellaneous: [
@@ -745,6 +768,7 @@ export function reserveZones(
           suggested: false,
         };
         break outer;
+        }
       }
     }
     if (placed) zones.push(placed);
