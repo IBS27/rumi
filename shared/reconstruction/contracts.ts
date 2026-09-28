@@ -345,7 +345,7 @@ export function validateDiscoveredObjects(
   }
 }
 
-/** Apply once per ID so cached generations cannot overwrite edits or undo removals. */
+/** Retire obsolete photo detections; apply current IDs once to preserve cached edits/removals. */
 export function mergeDiscoveredObjects(
   room: CapturedRoom,
   scene: ReconstructedScene,
@@ -353,18 +353,42 @@ export function mergeDiscoveredObjects(
 ) {
   if (room.id !== scene.roomId)
     throw new Error("Reconstruction belongs to another room.");
+  const previous = new Set(appliedIds);
+  const modeled = new Set(scene.objects.map((object) => object.objectId));
+  const supports = new Set(room.objects.map((object) => object.supportId));
+  const removedObjectIds = room.objects
+    .filter(
+      (object) =>
+        previous.has(object.id) &&
+        !modeled.has(object.id) &&
+        object.detectionSource === "photo" &&
+        object.owned &&
+        !object.productId &&
+        !object.assetId &&
+        !object.locked &&
+        !object.productLocked &&
+        object.measurementSource !== "confirmed" &&
+        !supports.has(object.id),
+    )
+    .map((object) => object.id);
+  const removed = new Set(removedObjectIds);
   const seen = new Set([...appliedIds, ...room.objects.map((o) => o.id)]);
   const additions = (scene.discoveredObjects ?? [])
     .filter((o) => !seen.has(o.objectId))
     .map(discoveredRoomObject);
   return {
-    room: additions.length
-      ? {
-          ...room,
-          revision: room.revision + 1,
-          objects: [...room.objects, ...additions],
-        }
-      : room,
+    room:
+      additions.length || removed.size
+        ? {
+            ...room,
+            revision: room.revision + 1,
+            objects: [
+              ...room.objects.filter((object) => !removed.has(object.id)),
+              ...additions,
+            ],
+          }
+        : room,
+    removedObjectIds,
     reconstructionObjectIds: [
       ...new Set([
         ...appliedIds,
