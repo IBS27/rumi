@@ -1,3 +1,4 @@
+import { assetKey, catalogKey, digest } from "../shared/catalog/identity";
 import { v } from "convex/values";
 import { zodToConvex } from "convex-helpers/server/zod4";
 import { internalMutation, internalQuery } from "./_generated/server";
@@ -10,11 +11,39 @@ export const upsertProducts = internalMutation({
     const inserted: string[] = [];
     for (const input of args.products) {
       const product = productSchema.parse(input);
+      const fingerprint = digest(
+        JSON.stringify({
+          ...product,
+          observedAt: undefined,
+          assetId: undefined,
+        }),
+      );
+      if (!product.synthetic) product.assetId = assetKey(product);
+      const observation = await ctx.db
+        .query("offerObservations")
+        .withIndex("by_productId_digest", (q) =>
+          q.eq("productId", product.id).eq("digest", fingerprint),
+        )
+        .unique();
+      if (!observation)
+        await ctx.db.insert("offerObservations", {
+          productId: product.id,
+          digest: fingerprint,
+          observedAt: product.observedAt ?? Date.now(),
+          product,
+        });
       const existing = await ctx.db
         .query("products")
         .withIndex("by_catalog_id", (q) => q.eq("id", product.id))
         .unique();
       if (existing) {
+        if (
+          catalogKey(existing.sourceUrl, existing.variantId) !==
+          catalogKey(product.sourceUrl, product.variantId)
+        )
+          throw new Error(
+            "Catalog identity collision. Existing selections were preserved.",
+          );
         await ctx.db.replace(existing._id, {
           ...product,
           assetId: product.assetId ?? existing.assetId,

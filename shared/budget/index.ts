@@ -5,7 +5,9 @@ export function selectionTotal(
 ): number {
   return room.objects.reduce((total, object) => {
     if (object.owned || object.productId === null) return total;
-    const product = products.find((item) => item.id === object.productId);
+    const product =
+      object.productSnapshot ??
+      products.find((item) => item.id === object.productId);
     if (!product) throw new Error(`Missing price for ${object.name}`);
     return total + product.priceCents;
   }, 0);

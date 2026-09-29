@@ -1,7 +1,7 @@
 import Foundation
 import CryptoKit
 
-struct CapturePairing: Decodable, Equatable, Sendable {
+struct CapturePairing: Codable, Equatable, Sendable {
     let type: String
     let version: Int
     let baseUrl: String
@@ -10,7 +10,20 @@ struct CapturePairing: Decodable, Equatable, Sendable {
     let expiresAt: String
 
     // Add reviewed deployments here, never a wildcard or an origin learned from a QR.
-    static let allowedOrigins: Set<String> = ["https://utmost-cow-946.convex.site"]
+    static let allowedOrigins: Set<String> = {
+        if let origin = Bundle.main.object(forInfoDictionaryKey: "RumiCaptureOrigin") as? String,
+           let url = URL(string: origin), url.scheme == "https", url.host != nil,
+           url.user == nil, url.password == nil, url.query == nil, url.fragment == nil,
+           url.path.isEmpty, url.port == nil {
+            return [origin]
+        }
+        #if DEBUG
+        return ["https://utmost-cow-946.convex.site"]
+        #else
+        // An unconfigured release must never accept a development QR code.
+        return []
+        #endif
+    }()
 
     static func parse(_ text: String, now: Date = Date()) throws -> Self {
         guard text.utf8.count <= 4096,
@@ -39,7 +52,7 @@ private func validToken(_ value: String) -> Bool {
     value.utf8.count == 64 && value.utf8.allSatisfy { (48...57).contains($0) || (97...102).contains($0) }
 }
 
-struct CaptureGrant: Decodable, Sendable {
+struct CaptureGrant: Codable, Sendable {
     let sessionId: String
     let uploadToken: String
     let expiresAt: String

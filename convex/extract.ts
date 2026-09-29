@@ -1,3 +1,4 @@
+import { boundedBody } from "../shared/network/policy";
 import { generateObject, type LanguageModel } from "ai";
 import { z } from "zod";
 import type { SearchTask } from "../shared/contracts";
@@ -17,6 +18,12 @@ const listingSchema = z.object({
     .nullable()
     .describe("The purchasable variant: size or finish, as the page names it."),
   priceUsd: z.number().nonnegative().nullable(),
+  currency: z
+    .string()
+    .nullable()
+    .describe(
+      "Explicit ISO currency from the page. Never infer USD from a dollar sign alone.",
+    ),
   colorText: z
     .string()
     .nullable()
@@ -32,6 +39,8 @@ export async function extractListing(
 ): Promise<Partial<ListingFacts>> {
   const { object } = await generateObject({
     model,
+    abortSignal: AbortSignal.timeout(30000),
+    maxRetries: 1,
     schema: listingSchema,
     prompt: [
       `Read this product page for one purchasable ${task.category}.`,
@@ -53,6 +62,7 @@ export async function extractListing(
     variant: object.variant,
     priceCents:
       object.priceUsd === null ? null : Math.round(object.priceUsd * 100),
+    currency: object.currency,
     colorText: object.colorText,
     availability: object.availability,
     tags: object.tags,
@@ -86,10 +96,14 @@ const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 // the bytes removes both failures before a model call is spent.
 async function loadImage(
   url: string,
-  fetchImpl: typeof fetch,
+  fetchImpl: (
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ) => Promise<Response>,
 ): Promise<{ data: Uint8Array; mediaType: string } | null> {
   try {
     const response = await fetchImpl(url, {
+      signal: AbortSignal.timeout(15000),
       headers: {
         "user-agent":
           "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
@@ -101,7 +115,7 @@ async function loadImage(
       .split(";")[0]
       .trim();
     if (!/^image\/(jpeg|png|webp|gif)$/.test(mediaType)) return null;
-    const data = new Uint8Array(await response.arrayBuffer());
+    const data = await boundedBody(response, MAX_IMAGE_BYTES);
     if (data.byteLength === 0 || data.byteLength > MAX_IMAGE_BYTES) return null;
     return { data, mediaType };
   } catch {
@@ -112,7 +126,10 @@ async function loadImage(
 export async function readDiagram(
   model: LanguageModel,
   images: ImageRef[],
-  fetchImpl: typeof fetch = fetch,
+  fetchImpl: (
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ) => Promise<Response> = fetch,
 ): Promise<{ readings: AxisReading[]; imageUrl: string | null }> {
   const targets = diagramReadTargets(images);
   const loaded = (
@@ -131,6 +148,8 @@ export async function readDiagram(
   if (loaded.length === 0) return { readings: [], imageUrl: null };
   const { object } = await generateObject({
     model,
+    abortSignal: AbortSignal.timeout(30000),
+    maxRetries: 1,
     schema: diagramSchema,
     messages: [
       {

@@ -1,3 +1,5 @@
+import { specStatus } from "../shared/chat/spec";
+import { requireTurn } from "./turns";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { postUserTurn } from "./messages";
@@ -104,7 +106,44 @@ export const cleanup = internalMutation({
       await ctx.storage.delete(image.storageId);
       await ctx.db.delete(image._id);
     }
-    if (messages.length === 100 || images.length === 100)
+    let more = messages.length === 100 || images.length === 100;
+    for (const table of [
+      "plans",
+      "imageUploads",
+      "designCommands",
+      "recommendations",
+      "agentSteps",
+      "fileTickets",
+    ] as const) {
+      const rows = await ctx.db
+        .query(table)
+        .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
+        .take(50);
+      for (const row of rows) await ctx.db.delete(row._id);
+      more ||= rows.length === 50;
+    }
+    const files = await ctx.db
+      .query("files")
+      .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
+      .take(10);
+    for (const file of files) {
+      for (const chunk of file.chunks) await ctx.storage.delete(chunk);
+      await ctx.db.delete(file._id);
+    }
+    const jobs = await ctx.db
+      .query("roomReconstructions")
+      .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
+      .take(10);
+    for (const job of jobs) {
+      for (const storageId of [
+        job.inputId,
+        job.planId,
+        ...(job.batches ?? []).map((batch) => batch.storageId),
+      ])
+        if (storageId) await ctx.storage.delete(storageId);
+      await ctx.db.delete(job._id);
+    }
+    if (more || files.length === 10 || jobs.length === 10)
       await ctx.scheduler.runAfter(0, internal.projects.cleanup, { projectId });
   },
 });
@@ -119,15 +158,25 @@ export const create = mutation({
   returns: v.id("projects"),
   args: {
     title: v.string(),
+    importKey: v.optional(v.string()),
     room: v.optional(zodToConvex(roomSchema)),
     firstMessage: v.optional(v.string()),
     selectedObjectId: v.optional(v.string()),
   },
   handler: async (
     ctx,
-    { title, room, firstMessage, selectedObjectId },
+    { title, room, firstMessage, selectedObjectId, importKey },
   ): Promise<Id<"projects">> => {
     const ownerId = await requireOwner(ctx);
+    if (importKey) {
+      const previous = await ctx.db
+        .query("projects")
+        .withIndex("by_owner_import", (q) =>
+          q.eq("ownerId", ownerId).eq("importKey", importKey),
+        )
+        .unique();
+      if (previous) return previous._id;
+    }
     title = title.trim().slice(0, 80);
     if (!title) throw new Error("A project title is required.");
     const brief = inferBriefPurpose(
@@ -147,6 +196,7 @@ export const create = mutation({
     const projectId = await ctx.db.insert("projects", {
       ownerId,
       title,
+      importKey,
       roomId,
       brief,
       createdAt: Date.now(),
@@ -254,11 +304,37 @@ export const setPhase = internalMutation({
   args: {
     projectId: v.id("projects"),
     phase: zodToConvex(projectPhaseSchema),
+    messageId: v.optional(v.id("messages")),
   },
   returns: v.null(),
-  handler: async (ctx, { projectId, phase }) => {
-    const project = await ctx.db.get(projectId);
-    if (!project) throw new Error("This project does not exist.");
+  handler: async (ctx, { projectId, phase, messageId }) => {
+    const project = await requireTurn(ctx, projectId, messageId);
+    if (messageId && phase === "plan" && (project.phase ?? "spec") === "spec") {
+      const messages = await ctx.db
+        .query("messages")
+        .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
+        .order("desc")
+        .take(20);
+      const latest = messages.find((message) => message.role === "user");
+      const room = project.roomId && (await ctx.db.get(project.roomId));
+      if (
+        !room ||
+        !specStatus(normalizeBrief(room.brief)).complete ||
+        !/^(start planning|yes(?:[,.! ]|$)|go ahead|plan (it|the room))/i.test(
+          latest?.content ?? "",
+        )
+      )
+        throw new Error("Confirm the completed brief before planning.");
+    }
+    if (messageId && phase === "review") {
+      const plan = await ctx.db
+        .query("plans")
+        .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
+        .order("desc")
+        .first();
+      if (plan?.status !== "searched")
+        throw new Error("Finish the confirmed plan before reviewing.");
+    }
     await ctx.db.patch(projectId, { phase });
     return null;
   },
@@ -267,6 +343,7 @@ export const setPhase = internalMutation({
 export const updateBrief = internalMutation({
   args: {
     projectId: v.id("projects"),
+    messageId: v.optional(v.id("messages")),
     prompt: v.optional(v.string()),
     styles: v.optional(v.array(v.string())),
     budgetCents: v.optional(v.number()),
@@ -287,8 +364,8 @@ export const updateBrief = internalMutation({
     decided: v.optional(zodToConvex(z.array(specTopicSchema))),
   },
   returns: zodToConvex(briefSchema),
-  handler: async (ctx, { projectId, ...patch }) => {
-    const project = await ctx.db.get(projectId);
+  handler: async (ctx, { projectId, messageId, ...patch }) => {
+    const project = await requireTurn(ctx, projectId, messageId);
     if (!project) throw new Error("This project does not exist.");
     const room = project.roomId ? await ctx.db.get(project.roomId) : null;
     const brief = briefSchema.parse({

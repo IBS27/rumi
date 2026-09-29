@@ -15,6 +15,9 @@ export interface ListingFacts {
   name: string | null;
   variant: string | null;
   priceCents: number | null;
+  currency: string | null;
+  variantKey?: string | null;
+  sourceUrl?: string;
   availability: "available" | "unavailable" | "unknown";
   colorText: string | null;
   colorHex: string | null;
@@ -27,6 +30,7 @@ export const NO_FACTS: ListingFacts = {
   name: null,
   variant: null,
   priceCents: null,
+  currency: null,
   availability: "unknown",
   colorText: null,
   colorHex: null,
@@ -49,8 +53,14 @@ export function pickFacts(sources: Partial<ListingFacts>[]): ListingFacts {
       facts.priceCents === null &&
       typeof source.priceCents === "number" &&
       Number.isFinite(source.priceCents)
-    )
+    ) {
       facts.priceCents = Math.round(source.priceCents);
+      facts.currency = source.currency?.toUpperCase() ?? null;
+    }
+    if (!facts.variantKey && source.variantKey)
+      facts.variantKey = source.variantKey;
+    if (!facts.sourceUrl && source.sourceUrl)
+      facts.sourceUrl = source.sourceUrl;
     if (facts.colorText === null && source.colorText)
       facts.colorText = source.colorText;
     if (facts.colorHex === null && source.colorHex)
@@ -117,9 +127,19 @@ export function buildCandidate({
   if (!facts.name) return { product: null, issue: "The listing has no name." };
   if (facts.priceCents === null)
     return { product: null, issue: "The listing has no price." };
-  const variant = facts.variant ?? "default";
+  if (facts.currency !== "USD")
+    return {
+      product: null,
+      issue: "The listing does not have a verified USD price.",
+    };
+  sourceUrl = facts.sourceUrl ?? sourceUrl;
+  if (!z.url().safeParse(sourceUrl).success)
+    return { product: null, issue: "The listing has no usable source URL." };
+  const variant = facts.variantKey ?? facts.variant ?? "default";
   const parsed = productSchema.safeParse({
     id: productIdFor(sourceUrl, variant),
+    observedAt: Date.now(),
+    variantLabel: facts.variant ?? undefined,
     variantId: variant,
     name: facts.name,
     category,

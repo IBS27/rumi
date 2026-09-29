@@ -17,10 +17,7 @@ import {
   taskResult,
 } from "../shared/search";
 import { rankCandidates } from "../shared/search/rank";
-import {
-  isStorefrontUrl,
-  validateProductUrl,
-} from "../shared/search/page";
+import { isStorefrontUrl, validateProductUrl } from "../shared/search/page";
 import { makeProduct, makeTask } from "./helpers";
 
 const unknownDimensions = {
@@ -38,11 +35,9 @@ function fakeFetch(
     const body = init?.body ? JSON.parse(String(init.body)) : null;
     calls.push({ url, body });
     const response = handler(url, body);
-    return {
-      ok: response.ok ?? true,
+    return Response.json(response.json, {
       status: response.ok === false ? 500 : 200,
-      json: async () => response.json,
-    } as Response;
+    });
   }) as typeof fetch;
   return { impl, calls };
 }
@@ -447,15 +442,29 @@ describe("search hits", () => {
       false,
     );
     // Country in the path, one shared host.
-    expect(isUnsupportedMerchant("https://www.ikea.com/at/en/p/tidtabell-rug/")).toBe(true);
-    expect(isUnsupportedMerchant("https://www.ikea.com/gb/en/p/rug/")).toBe(true);
+    expect(
+      isUnsupportedMerchant("https://www.ikea.com/at/en/p/tidtabell-rug/"),
+    ).toBe(true);
+    expect(isUnsupportedMerchant("https://www.ikea.com/gb/en/p/rug/")).toBe(
+      true,
+    );
     // A single language segment is not a country.
-    expect(isUnsupportedMerchant("https://shop.example.com/en/products/rug")).toBe(false);
+    expect(
+      isUnsupportedMerchant("https://shop.example.com/en/products/rug"),
+    ).toBe(false);
     // A .com that names its country in the host.
-    expect(isUnsupportedMerchant("https://www.gallerycanada.com/products/bench")).toBe(true);
-    expect(isUnsupportedMerchant("https://furniture-australia.com/p/1")).toBe(true);
-    expect(isUnsupportedMerchant("https://www.canadianbrand-usa.com/p/1")).toBe(false);
-    expect(isUnsupportedMerchant("https://www.wayfair.com/rugs/pdp/rug-w1.html")).toBe(false);
+    expect(
+      isUnsupportedMerchant("https://www.gallerycanada.com/products/bench"),
+    ).toBe(true);
+    expect(isUnsupportedMerchant("https://furniture-australia.com/p/1")).toBe(
+      true,
+    );
+    expect(isUnsupportedMerchant("https://www.canadianbrand-usa.com/p/1")).toBe(
+      false,
+    );
+    expect(
+      isUnsupportedMerchant("https://www.wayfair.com/rugs/pdp/rug-w1.html"),
+    ).toBe(false);
     expect(
       dedupeHits([
         { url: "https://www.amazon.com/dp/B08Z8GHPFV", title: "Lamp" },

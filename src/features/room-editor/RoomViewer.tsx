@@ -1,7 +1,10 @@
+import { FloorPlan } from "./FloorPlan";
+import { AdaptiveQuality } from "./AdaptiveQuality";
 import { furnitureModel } from "./furnitureModel";
 import { clearFurnitureSurfaces } from "../../../shared/reconstruction/cleanup";
 import {
   Component,
+  lazy,
   Suspense,
   useEffect,
   useMemo,
@@ -41,7 +44,11 @@ import {
   MaterialResources,
 } from "./reconstruction/SurfaceMaterial";
 import { SceneLighting } from "./reconstruction/SceneLighting";
-import { SceneEffects } from "./reconstruction/SceneEffects";
+const SceneEffects = lazy(() =>
+  import("./reconstruction/SceneEffects").then((module) => ({
+    default: module.SceneEffects,
+  })),
+);
 
 function Surface({
   value,
@@ -145,7 +152,12 @@ function Furniture({
           className="rounded-lg bg-chalk px-2.5 py-1.5 text-xs whitespace-nowrap text-teal-deep shadow-lift"
           style={{ pointerEvents: "none" }}
         >
-          <span className="block max-w-[260px] truncate font-semibold" title={object.name}>{object.name}</span>
+          <span
+            className="block max-w-[260px] truncate font-semibold"
+            title={object.name}
+          >
+            {object.name}
+          </span>
           {!model && object.productId && (
             <small className="block text-mute">
               {modelStatus === "failed"
@@ -235,7 +247,7 @@ function Cameras({ room, top }: { room: CapturedRoom; top: boolean }) {
 }
 
 class ViewerBoundary extends Component<
-  { children: ReactNode },
+  { children: ReactNode; fallback: ReactNode },
   { failed: boolean }
 > {
   state = { failed: false };
@@ -243,17 +255,7 @@ class ViewerBoundary extends Component<
     return { failed: true };
   }
   render() {
-    return this.state.failed ? (
-      <div
-        className="grid h-full place-items-center p-8 text-center text-mute"
-        role="alert"
-      >
-        The 3D view could not start. Enable WebGL or try another browser. Your
-        room measurements remain available in the object list.
-      </div>
-    ) : (
-      this.props.children
-    );
+    return this.state.failed ? this.props.fallback : this.props.children;
   }
 }
 
@@ -305,6 +307,10 @@ export function RoomViewer({
   onPreview?: (object: RoomObject) => void;
   onCommit?: (object: RoomObject) => void;
 }) {
+  const [lowQuality, setLowQuality] = useState(false);
+  const fallback = (
+    <FloorPlan room={room} selected={selected} onSelect={onSelect} />
+  );
   const selectedGroup = useRef(new Group());
   const selectedObject = room.objects.find((object) => object.id === selected);
   function transformedObject() {
@@ -323,17 +329,19 @@ export function RoomViewer({
   const reconstructed = useMemo(
     () =>
       new Map(
-        reconstruction?.objects.map((object) => [object.objectId, clearFurnitureSurfaces(object)]) ??
-          [],
+        reconstruction?.objects.map((object) => [
+          object.objectId,
+          clearFurnitureSurfaces(object),
+        ]) ?? [],
       ),
     [reconstruction],
   );
   return (
-    <ViewerBoundary key={room.id}>
+    <ViewerBoundary key={room.id} fallback={fallback}>
       <Canvas
-        shadows={{ type: PCFShadowMap }}
+        shadows={lowQuality ? false : { type: PCFShadowMap }}
         frameloop={walkthrough ? "always" : "demand"}
-        dpr={[1, 1.75]}
+        dpr={lowQuality ? 1 : [1, 1.75]}
         onPointerMissed={() => {
           if (editMode === "select") onSelect(null);
         }}
@@ -343,19 +351,15 @@ export function RoomViewer({
             ? "First-person room. Drag to look, WASD or arrow keys to walk, Q and E to turn. Escape to exit."
             : "Interactive 3D room. Use the object list to select furniture with the keyboard."
         }
-        fallback={
-          <div className="grid h-full place-items-center p-8 text-center text-mute">
-            WebGL is unavailable. Room measurements are still available in the
-            object list.
-          </div>
-        }
+        fallback={fallback}
       >
+        <AdaptiveQuality onSlow={() => setLowQuality(true)} />
         <MaterialResources>
           <color
             attach="background"
             args={[reconstruction ? "#e9e2d6" : "#dce6dd"]}
           />
-          {reconstruction && <MaterialEnvironment />}
+          {reconstruction && !lowQuality && <MaterialEnvironment />}
           {reconstruction ? (
             <SceneLighting
               room={room}
@@ -383,7 +387,7 @@ export function RoomViewer({
             </>
           )}
           <Suspense fallback={null}>
-            {(reconstruction || scan) && (
+            {(reconstruction || scan) && !lowQuality && (
               <SceneEffects ambientOcclusion={!!reconstruction && !scan} />
             )}
             {walkthrough ? (

@@ -221,7 +221,9 @@ export function applyDesignCommands(
         changed.add(id);
       }
       next.objects = next.objects.map((item) =>
-        item.id === id ? corrected : item,
+        item.id === id
+          ? { ...corrected, productSnapshot: object.productSnapshot }
+          : item,
       );
     } else {
       if (object.locked) throw new Error(`${object.name} is locked in place.`);

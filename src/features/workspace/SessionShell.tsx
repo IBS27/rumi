@@ -1,3 +1,4 @@
+import { deleteScan } from "../room-editor/capture/storage";
 import { useRef, useState, type ComponentProps } from "react";
 import { RoomWorkspace } from "../room-editor/RoomWorkspace";
 import { SessionMenu } from "./SessionMenu";
@@ -62,7 +63,13 @@ export function SessionShell({ identity = "local", ...rest }: WorkspaceProps) {
           activeId={session.id}
           onNew={() => save(startSession(store))}
           onSelect={(id) => save(selectSession(store, id))}
-          onRemove={(id) => save(removeSession(store, id))}
+          onRemove={(id) => {
+            const scanId = store.sessions.find((session) => session.id === id)
+              ?.workspace?.scanId;
+            if (scanId)
+              void deleteScan(identity, scanId).catch(() => undefined);
+            save(removeSession(store, id));
+          }}
         />
       }
       {...rest}

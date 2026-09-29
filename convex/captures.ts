@@ -1,5 +1,12 @@
 import { ConvexError, v } from "convex/values";
-import { action, internalMutation, mutation, query } from "./_generated/server";
+import { requireActiveOwner } from "./ownership";
+import {
+  action,
+  internalMutation,
+  internalQuery,
+  mutation,
+  query,
+} from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
@@ -20,6 +27,13 @@ export const reserve = internalMutation({
   args: { ownerId: v.string(), pairingHash: v.string() },
   returns: v.object({ sessionId: v.id("captures"), expiresAt: v.number() }),
   handler: async (ctx, args) => {
+    if (
+      await ctx.db
+        .query("accountDeletions")
+        .withIndex("by_ownerId", (q) => q.eq("ownerId", args.ownerId))
+        .unique()
+    )
+      throw new Error("Account is being deleted.");
     const now = Date.now();
     const recent = await ctx.db
       .query("captures")
@@ -90,6 +104,7 @@ export const claim = internalMutation({
     const session = id ? await ctx.db.get(id) : null;
     if (!session || session.pairingHash !== args.pairingHash)
       return fail("UNAUTHORIZED");
+    await requireActiveOwner(ctx, session.ownerId);
     if (session.state === "canceled" || session.pairingExpiresAt <= Date.now())
       return fail("TOKEN_EXPIRED");
     if (session.claimId) {
@@ -119,6 +134,7 @@ export const authorizeUpload = internalMutation({
       session.uploadHash !== args.uploadHash
     )
       return fail("UNAUTHORIZED");
+    await requireActiveOwner(ctx, session.ownerId);
     if (session.state === "canceled" || session.expiresAt <= Date.now())
       return fail("TOKEN_EXPIRED");
     if (session.uploadAttempts >= 20) return fail("RATE_LIMITED");
@@ -144,6 +160,7 @@ export const complete = internalMutation({
     const session = id ? await ctx.db.get(id) : null;
     if (!session || session.uploadHash !== args.uploadHash)
       return fail("UNAUTHORIZED");
+    await requireActiveOwner(ctx, session.ownerId);
     if (session.state === "canceled" || session.expiresAt <= Date.now())
       return fail("TOKEN_EXPIRED");
     if (session.state === "uploaded") {
@@ -189,6 +206,7 @@ export const get = query({
       ),
       expiresAt: v.number(),
       fileUrl: v.union(v.string(), v.null()),
+      available: v.boolean(),
       format: v.union(v.literal("json"), v.literal("zip")),
     }),
   ),
@@ -201,10 +219,8 @@ export const get = query({
       state: session.state,
       expiresAt: session.expiresAt,
       format: session.format ?? "json",
-      fileUrl:
-        session.state === "uploaded" && session.storageId
-          ? await ctx.storage.getUrl(session.storageId)
-          : null,
+      fileUrl: null,
+      available: session.state === "uploaded" && Boolean(session.storageId),
     };
   },
 });
@@ -264,6 +280,14 @@ export const removeExpired = internalMutation({
     for (const id of new Set([session.storageId, session.scanStorageId])) {
       if (id && (await ctx.db.system.get(id))) await ctx.storage.delete(id);
     }
+    const chunks = await ctx.db
+      .query("captureChunks")
+      .withIndex("by_capture_index", (q) => q.eq("captureId", sessionId))
+      .collect();
+    for (const chunk of chunks) {
+      await ctx.storage.delete(chunk.storageId);
+      await ctx.db.delete(chunk._id);
+    }
     await ctx.db.delete(sessionId);
     return null;
   },
@@ -290,6 +314,7 @@ async function scanSession(
   const session = id ? await ctx.db.get(id) : null;
   if (!session || !session.uploadHash || session.uploadHash !== uploadHash)
     return fail("UNAUTHORIZED");
+  await requireActiveOwner(ctx, session.ownerId);
   if (session.state === "canceled" || session.expiresAt <= Date.now())
     return fail("TOKEN_EXPIRED");
   if (session.state !== "paired" && session.state !== "uploaded")
@@ -409,5 +434,53 @@ export const attachScanUpload = internalMutation({
       scanValidationAttempts: (session.scanValidationAttempts ?? 0) + 1,
     });
     return { uploaded: false, storageId, digest: pending.digest };
+  },
+});
+
+export const storeChunk = internalMutation({
+  args: {
+    sessionId: v.string(),
+    uploadHash: v.string(),
+    index: v.number(),
+    storageId: v.id("_storage"),
+  },
+  handler: async (ctx, { sessionId, uploadHash, index, storageId }) => {
+    const id = ctx.db.normalizeId("captures", sessionId);
+    const capture = id && (await ctx.db.get(id));
+    if (
+      !capture ||
+      capture.uploadHash !== uploadHash ||
+      capture.state === "canceled"
+    )
+      throw new Error("Capture expired.");
+    await requireActiveOwner(ctx, capture.ownerId);
+    const old = await ctx.db
+      .query("captureChunks")
+      .withIndex("by_capture_index", (q) =>
+        q.eq("captureId", capture._id).eq("index", index),
+      )
+      .unique();
+    if (old) {
+      await ctx.storage.delete(storageId);
+      return;
+    }
+    await ctx.db.insert("captureChunks", {
+      captureId: capture._id,
+      index,
+      storageId,
+    });
+  },
+});
+
+export const downloadSource = internalQuery({
+  args: { sessionId: v.id("captures") },
+  handler: async (ctx, { sessionId }) => {
+    const session = await ctx.db.get(sessionId);
+    return session?.state === "uploaded" &&
+      session.format === "zip" &&
+      session.storageId &&
+      session.uploadHash
+      ? { storageId: session.storageId, uploadHash: session.uploadHash }
+      : null;
   },
 });

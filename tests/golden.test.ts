@@ -53,7 +53,7 @@ describe("a live Shopify listing", () => {
     const { product } = buildCandidate({
       sourceUrl: theBlock.url,
       category: "storage",
-      facts: pickFacts([facts]),
+      facts: pickFacts([{ ...facts, currency: "USD" }]),
       // This storefront states no size, so the candidate is honest about it.
       measurement: {
         dimensions: completeDimensions(
@@ -65,7 +65,8 @@ describe("a live Shopify listing", () => {
     });
     expect(product?.merchant).toBe("floydhome.com");
     expect(product?.priceCents).toBeGreaterThan(0);
-    expect(product?.availability).not.toBe("unknown");
+    // This endpoint omits stock; it must remain unknown.
+    expect(product?.availability).toBe("unknown");
   });
 
   it("states no dimensions, which is why the drawing stage exists", () => {

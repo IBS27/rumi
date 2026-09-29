@@ -1,3 +1,4 @@
+import { boundedBody } from "../network/policy";
 import { stripHtml } from "./shopify";
 import type { ImageRef } from "./images";
 
@@ -25,10 +26,7 @@ const ASSET_HOST = /^(static|cdn|images?|assets?|media|files)\./i;
 export function isStorefrontUrl(raw: string): boolean {
   try {
     const url = new URL(raw);
-    return (
-      (url.protocol === "https:" || url.protocol === "http:") &&
-      !ASSET_HOST.test(url.hostname)
-    );
+    return url.protocol === "https:" && !ASSET_HOST.test(url.hostname);
   } catch {
     return false;
   }
@@ -36,7 +34,10 @@ export function isStorefrontUrl(raw: string): boolean {
 
 export async function validateProductUrl(
   raw: string,
-  fetchImpl: typeof fetch = fetch,
+  fetchImpl: (
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ) => Promise<Response> = fetch,
 ): Promise<string | null> {
   if (!isStorefrontUrl(raw)) return null;
   try {
@@ -118,7 +119,10 @@ export function titleOf(html: string): string | null {
 
 export async function fetchPage(
   url: string,
-  fetchImpl: typeof fetch = fetch,
+  fetchImpl: (
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ) => Promise<Response> = fetch,
 ): Promise<PageContent | null> {
   if (!isStorefrontUrl(url)) return null;
   try {
@@ -136,7 +140,9 @@ export async function fetchPage(
       !contentType.includes("application/xhtml+xml")
     )
       return null;
-    const html = await response.text();
+    const html = new TextDecoder().decode(
+      await boundedBody(response, 2 * 1024 * 1024),
+    );
     if (!html) return null;
     return {
       url: finalUrl,

@@ -279,7 +279,7 @@ export const savedRoomSchema = z
     format: z.literal("rumi.room"),
     version: z.literal(1),
     room: roomSchema,
-    original: roomPlanSchema.passthrough(),
+    original: roomPlanSchema.passthrough().optional(),
     reconstructionObjectIds: z.array(z.string().min(1)).max(1000).optional(),
     design: z
       .object({
@@ -291,7 +291,7 @@ export const savedRoomSchema = z
   })
   .superRefine((value, ctx) => {
     try {
-      importRoomPlan(value.original);
+      if (value.original) importRoomPlan(value.original);
     } catch {
       ctx.addIssue({
         code: "custom",

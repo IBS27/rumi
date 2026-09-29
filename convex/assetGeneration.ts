@@ -1,3 +1,4 @@
+import { boundedBody } from "../shared/network/policy";
 import { generateObject, NoObjectGeneratedError, type LanguageModel } from "ai";
 import { z } from "zod";
 import type { Dimensions } from "../shared/contracts";
@@ -57,7 +58,10 @@ interface LoadedImage {
 
 async function loadImage(
   url: string,
-  fetchImpl: typeof fetch,
+  fetchImpl: (
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ) => Promise<Response>,
 ): Promise<LoadedImage | null> {
   try {
     const response = await fetchImpl(url, {
@@ -73,7 +77,7 @@ async function loadImage(
       .split(";")[0]
       .trim();
     if (!/^image\/(jpeg|png|webp)$/.test(mediaType)) return null;
-    const data = new Uint8Array(await response.arrayBuffer());
+    const data = await boundedBody(response, MAX_IMAGE_BYTES);
     if (data.byteLength === 0 || data.byteLength > MAX_IMAGE_BYTES) return null;
     return { url, data, mediaType };
   } catch {
@@ -153,7 +157,10 @@ async function selectProductViews(
 export async function generateParametricModel(
   model: LanguageModel,
   input: AssetGenerationInput,
-  fetchImpl: typeof fetch = fetch,
+  fetchImpl: (
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ) => Promise<Response> = fetch,
 ): Promise<ParametricModel> {
   const uniqueUrls = [...new Set(input.imageUrls)].slice(0, MAX_GALLERY_IMAGES);
   const loaded = (

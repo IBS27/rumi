@@ -50,9 +50,9 @@ flowchart TD
 | Contracts and validation | Zod, shared geometry and budget functions, Bun tests                                  |
 | Furniture visualization  | Product photos → OpenAI → validated parametric geometry, scaled to catalog dimensions |
 
-Original scans and editor history stay browser-local; authenticated conversations and their room snapshots persist in Convex. The asset pipeline produces approximate previews and is separate from live search; missing assets render as dimensioned boxes.
+Signed-in projects, room edits, conversations, and original scan files persist in Convex. Browser-only sessions migrate when their owner returns; guest rooms remain local. The asset pipeline produces approximate previews and is separate from live search; missing assets render as dimensioned boxes.
 
-**Current scope:** automatic placement supports rectangular rooms. Polygon scans can inform chat and search. Listed, estimated, and unknown dimensions remain distinct. Budgets use listed product prices before shipping and tax; checkout is not implemented.
+**Current scope:** placement supports rectangular rooms and captured polygon floors, including wall and surface mounts. Listed, estimated, and unknown dimensions remain distinct. Budgets use listed product prices before shipping and tax; checkout is not implemented.
 
 ## Run locally
 
@@ -74,7 +74,7 @@ bun run lint
 bun test
 ```
 
-Full checks require `convex/_generated` bindings from a configured deployment. `bun run typecheck:shared` checks shared code and offline test dependencies without them.
+Generated Convex bindings are committed, so full checks run without deployment credentials. `bun run typecheck:shared` checks shared code and offline test dependencies separately. The [production rollout guide](docs/production-rollout.md) covers staging configuration, migrations, recovery, deletion, and release acceptance.
 
 ## Explore the code
 

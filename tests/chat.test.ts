@@ -273,11 +273,15 @@ describe("live chat boundaries", () => {
     });
     const summary = await t.mutation(internal.messages.ask, {
       projectId,
-      question: "Here is the brief so far.\nPurpose: bedroom\nStyle: cozy\n\nReady to start planning?",
+      question:
+        "Here is the brief so far.\nPurpose: bedroom\nStyle: cozy\n\nReady to start planning?",
       options: [...SPEC_SUMMARY_OPTIONS],
       multiSelect: false,
     });
-    await owner.mutation(api.messages.answer, { messageId: summary, choice: ["Start planning"] });
+    await owner.mutation(api.messages.answer, {
+      messageId: summary,
+      choice: ["Start planning"],
+    });
     const context = await owner.query(api.projects.context, { projectId });
     expect(context?.phase).toBe("plan");
     const history = await t.query(internal.messages.history, { projectId });
@@ -296,11 +300,14 @@ describe("live chat boundaries", () => {
       options: ["Scandinavian", "Industrial"],
       multiSelect: false,
     });
-    await owner.mutation(api.messages.answer, { messageId: style, choice: ["Industrial"] });
+    await owner.mutation(api.messages.answer, {
+      messageId: style,
+      choice: ["Industrial"],
+    });
     const after = await t.query(internal.messages.history, { projectId });
-    expect(after.filter((message) => message.role === "user").at(-1)!.content).toBe(
-      "Which style direction appeals to you? — Industrial",
-    );
+    expect(
+      after.filter((message) => message.role === "user").at(-1)!.content,
+    ).toBe("Which style direction appeals to you? — Industrial");
   });
 
   it("shows a plan card, lets the owner keep some zones, then renders one product card per zone", async () => {
@@ -310,7 +317,9 @@ describe("live chat boundaries", () => {
       room: sampleRoom,
       expectedRevision: null,
     });
-    const roomId = (await t.run(async (ctx) => (await ctx.db.get(projectId))!.roomId))!;
+    const roomId = (await t.run(
+      async (ctx) => (await ctx.db.get(projectId))!.roomId,
+    ))!;
     const { plan } = buildDesignPlan({
       room: sampleRoom,
       brief: { ...sampleBrief, wants: [{ category: "floor lamp", notes: "" }] },
@@ -320,19 +329,39 @@ describe("live chat boundaries", () => {
         spacing: "balanced",
         zones: [
           {
-            id: "lamp", purpose: "reading light", category: "floor lamp", query: "arc floor lamp",
-            mount: "floor", anchor: "near-object", relatedObjectId: "owned-bed",
-            desiredFootprint: { width: 0.5, depth: 0.5 }, desiredHeight: 1.8, miscellaneous: [], priority: 1,
+            id: "lamp",
+            purpose: "reading light",
+            category: "floor lamp",
+            query: "arc floor lamp",
+            mount: "floor",
+            anchor: "near-object",
+            relatedObjectId: "owned-bed",
+            desiredFootprint: { width: 0.5, depth: 0.5 },
+            desiredHeight: 1.8,
+            miscellaneous: [],
+            priority: 1,
           },
           {
-            id: "rug", purpose: "soft landing", category: "rug", query: "wool rug",
-            mount: "under", anchor: "center", relatedObjectId: null,
-            desiredFootprint: { width: 1.6, depth: 2.2 }, desiredHeight: null, miscellaneous: [], priority: 2,
+            id: "rug",
+            purpose: "soft landing",
+            category: "rug",
+            query: "wool rug",
+            mount: "under",
+            anchor: "center",
+            relatedObjectId: null,
+            desiredFootprint: { width: 1.6, depth: 2.2 },
+            desiredHeight: null,
+            miscellaneous: [],
+            priority: 2,
           },
         ],
       },
     });
-    const planId = await t.mutation(internal.plans.propose, { projectId, roomId, plan });
+    const planId = await t.mutation(internal.plans.propose, {
+      projectId,
+      roomId,
+      plan,
+    });
     const page = async () =>
       (
         await owner.query(api.messages.list, {
@@ -343,38 +372,65 @@ describe("live chat boundaries", () => {
     const card = (await page())[0];
     expect(card.kind).toBe("plan");
     expect(card.plan?.planId).toBe(planId);
-    expect(card.plan?.zones.map((zone) => [zone.category, zone.suggested, zone.where])).toEqual([
+    expect(
+      card.plan?.zones.map((zone) => [
+        zone.category,
+        zone.suggested,
+        zone.where,
+      ]),
+    ).toEqual([
       ["floor lamp", false, "beside the bed"],
       ["rug", true, "on the floor"],
     ]);
     // Only the owner may confirm, and at least one zone must stay.
     await expect(
-      other.mutation(api.plans.confirm, { messageId: card._id, zoneIds: ["lamp"] }),
+      other.mutation(api.plans.confirm, {
+        messageId: card._id,
+        zoneIds: ["lamp"],
+      }),
     ).rejects.toThrow();
     await expect(
-      owner.mutation(api.plans.confirm, { messageId: card._id, zoneIds: ["nope"] }),
+      owner.mutation(api.plans.confirm, {
+        messageId: card._id,
+        zoneIds: ["nope"],
+      }),
     ).rejects.toThrow("Keep at least one");
-    await owner.mutation(api.plans.confirm, { messageId: card._id, zoneIds: ["lamp"] });
+    await owner.mutation(api.plans.confirm, {
+      messageId: card._id,
+      zoneIds: ["lamp"],
+    });
     const active = await t.query(internal.plans.active, { projectId });
     expect(active?.status).toBe("searching");
     expect(active?.selectedZoneIds).toEqual(["lamp"]);
     const after = await page();
-    expect(after.find((message) => message._id === card._id)?.answer).toEqual(["lamp"]);
+    expect(after.find((message) => message._id === card._id)?.answer).toEqual([
+      "lamp",
+    ]);
     expect(after[1].role).toBe("user");
     expect(after[1].content).toContain("floor lamp");
     // A second confirm is refused; a new proposal supersedes the old plan.
     await expect(
-      owner.mutation(api.plans.confirm, { messageId: card._id, zoneIds: ["lamp"] }),
+      owner.mutation(api.plans.confirm, {
+        messageId: card._id,
+        zoneIds: ["lamp"],
+      }),
     ).rejects.toThrow();
     // The agent's reply carries one recommendation per searched zone.
     const replyId = after[0]._id;
-    await t.mutation(internal.products.upsertProducts, { products: [sampleProducts[0]] });
+    await t.mutation(internal.products.upsertProducts, {
+      products: [sampleProducts[0]],
+    });
     await t.mutation(internal.messages.updateProgress, {
       messageId: replyId,
       content: "",
       activity: [],
       recommendations: [
-        { zoneId: "lamp", productId: sampleProducts[0].id, fits: "yes", issues: [] },
+        {
+          zoneId: "lamp",
+          productId: sampleProducts[0].id,
+          fits: "yes",
+          issues: [],
+        },
       ],
     });
     const reply = (await page())[0];
@@ -387,84 +443,183 @@ describe("live chat boundaries", () => {
         product: expect.objectContaining({ id: sampleProducts[0].id }),
       },
     ]);
-    const second = await t.mutation(internal.plans.propose, { projectId, roomId, plan });
-    expect((await t.query(internal.plans.get, { planId }))?.status).toBe("searching");
-    expect((await t.query(internal.plans.get, { planId: second }))?.status).toBe("proposed");
+    const second = await t.mutation(internal.plans.propose, {
+      projectId,
+      roomId,
+      plan,
+    });
+    expect((await t.query(internal.plans.get, { planId }))?.status).toBe(
+      "searching",
+    );
+    expect(
+      (await t.query(internal.plans.get, { planId: second }))?.status,
+    ).toBe("proposed");
   });
 
   it("persists cap explanations and searches only the pieces retained on the plan card", async () => {
     const { t, owner, projectId } = await setup();
-    const room = { ...sampleRoom, objects: [], openings: [], dimensions: { width: 6, depth: 5, height: 2.7 } };
-    await owner.mutation(api.projects.attachRoom, { projectId, room, expectedRevision: null });
-    const roomId = (await t.run(async (ctx) => (await ctx.db.get(projectId))!.roomId))!;
-    const categories = ["bed", "desk", "chair", "floor lamp", "nightstand", "rug"];
-    const { plan } = buildDesignPlan({
-      room, products: [], brief: { ...sampleBrief, budgetCents: 0, purpose: "bedroom", wants: [] },
-      request: { summary: "Start with the essentials.", spacing: "balanced", zones: categories.map((category, index) => ({
-        id: category, category, query: category, purpose: category,
-        mount: category === "rug" ? "under" : "floor", anchor: "wall", relatedObjectId: null,
-        desiredFootprint: { width: 0.5, depth: 0.5 }, desiredHeight: null, miscellaneous: [], priority: index + 1,
-      })) },
+    const room = {
+      ...sampleRoom,
+      objects: [],
+      openings: [],
+      dimensions: { width: 6, depth: 5, height: 2.7 },
+    };
+    await owner.mutation(api.projects.attachRoom, {
+      projectId,
+      room,
+      expectedRevision: null,
     });
-    const planId = await t.mutation(internal.plans.propose, { projectId, roomId, plan });
-    const page = () => owner.query(api.messages.list, { projectId, paginationOpts: { numItems: 20, cursor: null } });
-    const card = (await page()).page.find((message) => message.plan?.planId === planId)!;
+    const roomId = (await t.run(
+      async (ctx) => (await ctx.db.get(projectId))!.roomId,
+    ))!;
+    const categories = [
+      "bed",
+      "desk",
+      "chair",
+      "floor lamp",
+      "nightstand",
+      "rug",
+    ];
+    const { plan } = buildDesignPlan({
+      room,
+      products: [],
+      brief: { ...sampleBrief, budgetCents: 0, purpose: "bedroom", wants: [] },
+      request: {
+        summary: "Start with the essentials.",
+        spacing: "balanced",
+        zones: categories.map((category, index) => ({
+          id: category,
+          category,
+          query: category,
+          purpose: category,
+          mount: category === "rug" ? "under" : "floor",
+          anchor: "wall",
+          relatedObjectId: null,
+          desiredFootprint: { width: 0.5, depth: 0.5 },
+          desiredHeight: null,
+          miscellaneous: [],
+          priority: index + 1,
+        })),
+      },
+    });
+    const planId = await t.mutation(internal.plans.propose, {
+      projectId,
+      roomId,
+      plan,
+    });
+    const page = () =>
+      owner.query(api.messages.list, {
+        projectId,
+        paginationOpts: { numItems: 20, cursor: null },
+      });
+    const card = (await page()).page.find(
+      (message) => message.plan?.planId === planId,
+    )!;
     expect(card.plan?.zones).toHaveLength(5);
     expect(card.plan?.rejected[0].reason).toContain("Left out nightstand");
     const kept = plan.zones.map((zone) => zone.id);
-    await owner.mutation(api.plans.confirm, { messageId: card._id, zoneIds: [...kept, "nightstand"] });
+    await owner.mutation(api.plans.confirm, {
+      messageId: card._id,
+      zoneIds: [...kept, "nightstand"],
+    });
     const active = await t.query(internal.plans.active, { projectId });
     expect(active?.selectedZoneIds).toEqual(kept);
-    const reloaded = (await page()).page.find((message) => message._id === card._id)!;
+    const reloaded = (await page()).page.find(
+      (message) => message._id === card._id,
+    )!;
     expect(reloaded.answer).toEqual(kept);
     expect(reloaded.plan?.rejected).toEqual(card.plan?.rejected);
   });
 
-  it.each([false, true])("rejects stale plans before confirmation or search (confirmed=%s)", async (confirmed) => {
-    const { t, owner, projectId } = await setup();
-    await owner.mutation(api.projects.attachRoom, {
-      projectId, room: sampleRoom, expectedRevision: null,
-    });
-    const roomId = (await t.run(async (ctx) => (await ctx.db.get(projectId))!.roomId))!;
-    const { plan } = buildDesignPlan({
-      room: sampleRoom, brief: sampleBrief, products: sampleProducts,
-      request: {
-        summary: "A reading lamp.", spacing: "balanced",
-        zones: [{
-          id: "lamp", purpose: "reading light", category: "floor lamp", query: "floor lamp",
-          mount: "floor", anchor: "near-object", relatedObjectId: "owned-bed",
-          desiredFootprint: { width: 0.5, depth: 0.5 }, desiredHeight: 1.8,
-          miscellaneous: [], priority: 1,
-        }],
-      },
-    });
-    const planId = await t.mutation(internal.plans.propose, { projectId, roomId, plan });
-    const card = (await owner.query(api.messages.list, {
-      projectId, paginationOpts: { numItems: 20, cursor: null },
-    })).page[0];
-    if (confirmed) {
-      const replyId = await owner.mutation(api.plans.confirm, {
-        messageId: card._id, zoneIds: ["lamp"],
+  it.each([false, true])(
+    "rejects stale plans before confirmation or search (confirmed=%s)",
+    async (confirmed) => {
+      const { t, owner, projectId } = await setup();
+      await owner.mutation(api.projects.attachRoom, {
+        projectId,
+        room: sampleRoom,
+        expectedRevision: null,
       });
-      await t.mutation(internal.messages.complete, {
-        messageId: replyId, content: "Try again later.", status: "error",
+      const roomId = (await t.run(
+        async (ctx) => (await ctx.db.get(projectId))!.roomId,
+      ))!;
+      const { plan } = buildDesignPlan({
+        room: sampleRoom,
+        brief: sampleBrief,
+        products: sampleProducts,
+        request: {
+          summary: "A reading lamp.",
+          spacing: "balanced",
+          zones: [
+            {
+              id: "lamp",
+              purpose: "reading light",
+              category: "floor lamp",
+              query: "floor lamp",
+              mount: "floor",
+              anchor: "near-object",
+              relatedObjectId: "owned-bed",
+              desiredFootprint: { width: 0.5, depth: 0.5 },
+              desiredHeight: 1.8,
+              miscellaneous: [],
+              priority: 1,
+            },
+          ],
+        },
       });
-    }
-    await owner.mutation(api.projects.attachRoom, {
-      projectId,
-      room: { ...sampleRoom, dimensions: { width: 1, depth: 1, height: 2.7 } },
-      expectedRevision: 0,
-    });
-    if (!confirmed) {
-      await expect(owner.mutation(api.plans.confirm, {
-        messageId: card._id, zoneIds: ["lamp"],
-      })).rejects.toThrow("room has changed");
-      expect((await t.query(internal.plans.get, { planId }))?.status).toBe("proposed");
-      expect((await t.run((ctx) => ctx.db.get(card._id)))?.answer).toBeUndefined();
-      expect((await owner.query(api.projects.context, { projectId }))?.project.activeMessageId).toBeUndefined();
-    }
-    await expect(t.query(internal.plans.active, { projectId })).rejects.toThrow("room has changed");
-  });
+      const planId = await t.mutation(internal.plans.propose, {
+        projectId,
+        roomId,
+        plan,
+      });
+      const card = (
+        await owner.query(api.messages.list, {
+          projectId,
+          paginationOpts: { numItems: 20, cursor: null },
+        })
+      ).page[0];
+      if (confirmed) {
+        const replyId = await owner.mutation(api.plans.confirm, {
+          messageId: card._id,
+          zoneIds: ["lamp"],
+        });
+        await t.mutation(internal.messages.complete, {
+          messageId: replyId,
+          content: "Try again later.",
+          status: "error",
+        });
+      }
+      await owner.mutation(api.projects.attachRoom, {
+        projectId,
+        room: {
+          ...sampleRoom,
+          dimensions: { width: 1, depth: 1, height: 2.7 },
+        },
+        expectedRevision: 0,
+      });
+      if (!confirmed) {
+        await expect(
+          owner.mutation(api.plans.confirm, {
+            messageId: card._id,
+            zoneIds: ["lamp"],
+          }),
+        ).rejects.toThrow("room has changed");
+        expect((await t.query(internal.plans.get, { planId }))?.status).toBe(
+          "proposed",
+        );
+        expect(
+          (await t.run((ctx) => ctx.db.get(card._id)))?.answer,
+        ).toBeUndefined();
+        expect(
+          (await owner.query(api.projects.context, { projectId }))?.project
+            .activeMessageId,
+        ).toBeUndefined();
+      }
+      await expect(
+        t.query(internal.plans.active, { projectId }),
+      ).rejects.toThrow("room has changed");
+    },
+  );
 
   it("rejects cross-user room updates and stale room revisions", async () => {
     const { owner, other, projectId } = await setup();
@@ -600,7 +755,8 @@ describe("authenticated inspiration uploads", () => {
     });
     expect(messages.page).toHaveLength(2);
     const image = messages.page.find((message) => message.imageId);
-    expect(image?.imageUrl).toBeTruthy();
+    expect(image?.imageId).toBeTruthy();
+    expect(image?.imageUrl).toBeNull();
     expect(
       (
         await other.query(api.messages.list, {

@@ -1,3 +1,4 @@
+import { requireTurn } from "./turns";
 import { v } from "convex/values";
 import { requireOwner } from "./ownership";
 import schema, { zoneRecommendation } from "./schema";
@@ -224,7 +225,7 @@ export const list = query({
         );
         return {
           ...message,
-          imageUrl: image ? await ctx.storage.getUrl(image.storageId) : null,
+          imageUrl: null,
           imageAnalysis:
             image?.status === "analyzed" ? (image.analysis ?? null) : null,
           recommendation: product,
@@ -325,15 +326,29 @@ export const ask = internalMutation({
   returns: v.id("messages"),
   args: {
     projectId: v.id("projects"),
+    turnId: v.optional(v.id("messages")),
+    operationKey: v.optional(v.string()),
     question: v.string(),
     options: v.array(v.string()),
     multiSelect: v.boolean(),
   },
-  handler: async (ctx, { projectId, question, options, multiSelect }) => {
-    if (!(await ctx.db.get(projectId)))
-      throw new Error("This project does not exist.");
+  handler: async (
+    ctx,
+    { projectId, question, options, multiSelect, turnId, operationKey },
+  ) => {
+    await requireTurn(ctx, projectId, turnId);
+    if (operationKey) {
+      const previous = await ctx.db
+        .query("messages")
+        .withIndex("by_operation", (q) =>
+          q.eq("projectId", projectId).eq("operationKey", operationKey),
+        )
+        .unique();
+      if (previous) return previous._id;
+    }
     return await ctx.db.insert("messages", {
       projectId,
+      operationKey,
       role: "assistant",
       kind: "question",
       content: question,
@@ -487,6 +502,17 @@ export const expire = internalMutation({
   handler: async (ctx, { messageId }) => {
     const message = await ctx.db.get(messageId);
     if (!message || message.status !== "pending") return;
+    const checkpoint = await ctx.db
+      .query("agentSteps")
+      .withIndex("by_message_step", (q) => q.eq("messageId", messageId))
+      .order("desc")
+      .first();
+    if (checkpoint && Date.now() - checkpoint._creationTime < 180000) {
+      await ctx.scheduler.runAfter(180000, internal.messages.expire, {
+        messageId,
+      });
+      return;
+    }
     await ctx.runMutation(internal.messages.complete, {
       messageId,
       status: "error",
@@ -524,6 +550,20 @@ export const retry = mutation({
       status: "pending",
       createdAt: Date.now(),
     });
+    const checkpoints = await ctx.db
+      .query("agentSteps")
+      .withIndex("by_message_step", (q) => q.eq("messageId", messageId))
+      .collect();
+    for (const checkpoint of checkpoints) {
+      const {
+        _id: ignoredId,
+        _creationTime: ignoredTime,
+        ...fields
+      } = checkpoint;
+      void ignoredId;
+      void ignoredTime;
+      await ctx.db.insert("agentSteps", { ...fields, messageId: replyId });
+    }
     await ctx.db.patch(project._id, { activeMessageId: replyId });
     await ctx.scheduler.runAfter(180000, internal.messages.expire, {
       messageId: replyId,

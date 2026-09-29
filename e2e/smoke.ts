@@ -1,0 +1,58 @@
+import { test, expect } from "@playwright/test";
+
+test("guest room editing survives reload and can be deleted", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: /^Open the sample room/ }).click();
+  await page
+    .getByRole("button", { name: "Products · $0", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Place in room", exact: true })
+    .first()
+    .click();
+  await expect(
+    page.getByRole("button", { name: "Products · $79", exact: true }),
+  ).toBeVisible();
+  await page.reload();
+  await expect(
+    page.getByRole("button", { name: "Products · $79", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Your sessions" }).click();
+  await page
+    .getByRole("button", { name: "Delete The corner living room", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Delete session", exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", { name: /^Open the sample room/ }),
+  ).toBeVisible();
+});
+
+test("floor plan selection works when WebGL is unavailable", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    const original = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = function (
+      this: HTMLCanvasElement,
+      ...args: Parameters<typeof original>
+    ) {
+      if (String(args[0]).includes("webgl")) return null;
+      return original.apply(this, args);
+    } as typeof original;
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: /^Open the sample room/ }).click();
+  await expect(
+    page.getByRole("img", { name: "Room floor plan" }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Select Sofa 1", exact: true })
+    .press("Enter");
+  await expect(
+    page.getByRole("button", { name: "Select Sofa 1", exact: true }),
+  ).toHaveClass(/stroke-teal/);
+});

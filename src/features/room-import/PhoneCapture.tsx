@@ -10,7 +10,7 @@ import { QRCodeSVG } from "qrcode.react";
 import { api } from "../../../convex/_generated/api";
 import type { FunctionReturnType } from "convex/server";
 import { Button, Dialog, Heading, Muted } from "../../ui";
-import { downloadCapture } from "./downloadCapture";
+import { downloadFile } from "../workspace/cloudFiles";
 
 type Pairing = FunctionReturnType<typeof api.captures.create>;
 
@@ -31,6 +31,7 @@ export function PhoneCapture({
   children: (open: () => void, busy: boolean) => ReactNode;
 }) {
   const create = useAction(api.captures.create);
+  const downloadTicket = useMutation(api.files.captureTicket);
   const cancel = useMutation(api.captures.cancel);
   const [pairing, setPairing] = useState<Pairing | null>(null);
   const [error, setError] = useState("");
@@ -52,22 +53,28 @@ export function PhoneCapture({
     return () => clearInterval(timer);
   }, [pairing]);
   useEffect(() => {
-    if (!session?.fileUrl) return;
+    if (!session?.available || !pairing) return;
     const abort = new AbortController();
-    void fetch(session.fileUrl, { signal: abort.signal })
-      .then(async (response) => {
-        if (!response.ok)
-          throw new Error("The uploaded room could not be downloaded.");
-        const file = await downloadCapture(
-          response,
-          session.format,
-          abort.signal,
-          (bytes, total) => {
-            setLoading(
-              total
-                ? `Receiving scan… ${Math.round((bytes / total) * 100)}%`
-                : "Receiving scan…",
-            );
+    const captureId = pairing.sessionId;
+    void (async () => {
+      for (let attempt = 0; attempt < 30; attempt++) {
+        abort.signal.throwIfAborted();
+        const ticket = await downloadTicket({ captureId });
+        if (ticket.ready) return downloadFile(ticket);
+        setLoading("Preparing your saved scan…");
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
+      throw new Error(
+        "Your saved scan is still being prepared. Retry shortly.",
+      );
+    })()
+      .then(async (blob) => {
+        const file = new File(
+          [blob],
+          session.format === "zip" ? "room.zip" : "room.json",
+          {
+            type:
+              session.format === "zip" ? "application/zip" : "application/json",
           },
         );
         if (!abort.signal.aborted) {
@@ -85,7 +92,7 @@ export function PhoneCapture({
           );
       });
     return () => abort.abort();
-  }, [session?.fileUrl, session?.format, retry]);
+  }, [session?.available, session?.format, retry, pairing, downloadTicket]);
   const [isOpen, setIsOpen] = useState(false);
   useEffect(() => {
     const node = dialog.current;

@@ -50,7 +50,7 @@ import { productPlacementIssue } from "../../../shared/design/productPlacement";
 import type { DesignState } from "../../../shared/design/state";
 import { sampleProducts, sampleBrief } from "../../../shared/fixtures";
 import { sampleDesignAssets } from "../../../shared/fixtures/design";
-import { formatMoney } from "../../../shared/budget";
+import { formatMoney, selectionTotal } from "../../../shared/budget";
 import type { DesignConnection } from "./designConnection";
 import { DesignPanel } from "./DesignPanel";
 import { syntheticRoomPlan } from "../../../shared/fixtures/roomplan";
@@ -101,6 +101,8 @@ type ScanResource = {
  */
 export function RoomWorkspace({
   identity = "local",
+  projectId,
+  loadScan,
   initial = null,
   onPersist,
   title,
@@ -111,8 +113,10 @@ export function RoomWorkspace({
   reconstruct,
 }: {
   identity?: string;
+  projectId?: string;
+  loadScan?: (id: string) => Promise<Blob>;
   initial?: Workspace | null;
-  onPersist?: (next: Workspace | null) => void;
+  onPersist?: (next: Workspace | null) => void | Promise<void>;
   /** The session's name control; the room name shows when it is unset. */
   title?: ReactNode;
   brand?: ReactNode;
@@ -125,6 +129,7 @@ export function RoomWorkspace({
   reconstruct?: (
     input: ReconstructionInput,
     onReady: (scene: ReconstructedScene) => void,
+    projectId?: string,
   ) => ReactNode;
 }) {
   const [workspace, setWorkspace] = useState<Workspace | null>(initial);
@@ -133,8 +138,12 @@ export function RoomWorkspace({
   useEffect(() => {
     persistCallback.current = onPersist;
   }, [onPersist]);
-  const [receivedConnection, setConnection] = useState<DesignConnection | null>(null);
+  const [receivedConnection, setConnection] = useState<DesignConnection | null>(
+    null,
+  );
   const [editing, setEditing] = useState(false);
+  const [savingSource, setSavingSource] = useState(false);
+  const [saveFailed, setSaveFailed] = useState(false);
   const editPending = useRef(false);
   const [productsOpen, setProductsOpen] = useState(false);
   const [walkChatOpen, setWalkChatOpen] = useState(false);
@@ -210,7 +219,7 @@ export function RoomWorkspace({
       }
     : null;
   const disconnected = Boolean(workspace?.cloudProjectId && !connection);
-  const editDisabled = editing || disconnected;
+  const editDisabled = editing || disconnected || savingSource;
   const assets = useMemo(
     () =>
       Object.fromEntries(
@@ -232,15 +241,16 @@ export function RoomWorkspace({
     const next = { ...current, cloudProjectId: projectId };
     latestWorkspace.current = next;
     setWorkspace(next);
-    persistCallback.current?.(next);
+    void Promise.resolve(persistCallback.current?.(next)).catch(() =>
+      setStatus("Cloud save failed. Download your room to keep these changes."),
+    );
   }, []);
   const acceptDesign = useCallback((next: DesignConnection | null) => {
     const current = latestWorkspace.current;
     if (
       !next ||
-      !current ||
       next.state.room.shape !== "polygon" ||
-      next.state.room.id !== current.room.id
+      (current && next.state.room.id !== current.room.id)
     ) {
       setConnection(null);
       return;
@@ -248,16 +258,18 @@ export function RoomWorkspace({
     setConnection(next);
     if (
       next.state.room.objects.some((object) => object.productId) ||
-      current.room.revision !== next.state.room.revision
+      current?.room.revision !== next.state.room.revision
     )
       setShowScan(false);
     // A mutation response can arrive before the reactive query catches up.
     if (
-      current.cloudProjectId === next.projectId &&
+      current?.cloudProjectId === next.projectId &&
       next.state.room.revision < current.room.revision
     )
       return;
     const updated: Workspace = {
+      format: "rumi.room",
+      version: 1,
       ...current,
       cloudProjectId: next.projectId,
       room: next.state.room,
@@ -270,12 +282,16 @@ export function RoomWorkspace({
     latestWorkspace.current = updated;
     setWorkspace(updated);
     try {
-      persistCallback.current?.(updated);
+      void Promise.resolve(persistCallback.current?.(updated)).catch(() =>
+        setStatus(
+          "Cloud save failed. Download your room to keep these changes.",
+        ),
+      );
       setStatus("Saved to your account");
     } catch {
       setStatus("Saved to your account. Browser cache is unavailable.");
     }
-    if (current.room.revision !== updated.room.revision) {
+    if (current?.room.revision !== updated.room.revision) {
       setPreview(null);
       setPreviewIssue(null);
       setSuggestion(null);
@@ -298,7 +314,7 @@ export function RoomWorkspace({
   useEffect(() => {
     if (!scanId || capture?.id === scanId) return;
     const controller = new AbortController();
-    void readScan(identity, scanId)
+    void (loadScan ? loadScan(scanId) : readScan(identity, scanId))
       .then(async (blob) => {
         const result = await processScan(blob, controller.signal);
         if (!controller.signal.aborted)
@@ -321,7 +337,7 @@ export function RoomWorkspace({
           });
       });
     return () => controller.abort();
-  }, [identity, scanId, capture?.id]);
+  }, [identity, scanId, capture?.id, loadScan]);
   useEffect(() => () => activeImport.current?.abort(), []);
   const scanError = useCallback((message: string) => {
     setError(message);
@@ -359,14 +375,32 @@ export function RoomWorkspace({
   }
 
   function persist(next: Workspace | null) {
+    if (next && projectId) next = { ...next, cloudProjectId: projectId };
     latestWorkspace.current = next;
     setWorkspace(next);
     try {
-      onPersist?.(next);
+      const save = onPersist?.(next);
+      if (save) {
+        setSavingSource(true);
+        setSaveFailed(false);
+        setStatus("Saving to your account…");
+        void save
+          .then(() => setStatus("Saved to your account"))
+          .catch(() => {
+            setSaveFailed(true);
+            setStatus(
+              "Cloud save failed. Retry or download your room before closing this tab.",
+            );
+          })
+          .finally(() => setSavingSource(false));
+        return;
+      }
       setStatus(
         next?.scanId === capture?.id && capture?.persisted === false
           ? "Edits saved. The detailed scan is only in memory; download your room before closing this tab."
-          : "Saved on this browser",
+          : projectId
+            ? "Saved to your account"
+            : "Saved on this browser",
       );
     } catch {
       setStatus(
@@ -508,7 +542,9 @@ export function RoomWorkspace({
       )
         throw new Error("The room changed while this edit was saving.");
       if (next.id !== current.room.id)
-        throw new Error("This edit belongs to a different room. Reconnect its chat.");
+        throw new Error(
+          "This edit belongs to a different room. Reconnect its chat.",
+        );
       if (next.shape !== "polygon")
         throw new Error("This editor requires a captured room.");
       const updated = {
@@ -544,7 +580,9 @@ export function RoomWorkspace({
     if (!design) throw new Error("Wait for the room design to load.");
     const product = design.products.find((item) => item.id === productId);
     if (!product)
-      throw new Error("This product is no longer in the catalog. Search again.");
+      throw new Error(
+        "This product is no longer in the catalog. Search again.",
+      );
     const issue = productPlacementIssue(product);
     if (issue) throw new Error(issue);
     const recommendation = design.recommendations.find(
@@ -750,7 +788,8 @@ export function RoomWorkspace({
           current.original !== target?.original ||
           current.cloudProjectId !== target?.cloudProjectId ||
           next.id !== room.id
-        ) return;
+        )
+          return;
         if (next.shape === "polygon") persist({ ...current, room: next });
         setPreview(null);
         setSelected(null);
@@ -836,6 +875,7 @@ export function RoomWorkspace({
         {
           // eslint-disable-next-line react-hooks/refs -- chat renders the panel; onCollapse reads the launcher ref only after interaction.
           chat({
+            projectId,
             room,
             selectedObjectId: selected,
             onDesign: acceptDesign,
@@ -957,6 +997,14 @@ export function RoomWorkspace({
                 {status && (
                   <Muted className="hidden text-xs 2xl:block">{status}</Muted>
                 )}
+                {saveFailed && (
+                  <Button
+                    onClick={() => persist(workspace)}
+                    disabled={savingSource}
+                  >
+                    Retry save
+                  </Button>
+                )}
                 <Button
                   disabled={!design?.canUndo || editDisabled}
                   onClick={() => void undo()}
@@ -966,7 +1014,7 @@ export function RoomWorkspace({
                 <Button aria-pressed={productsOpen} onClick={toggleProducts}>
                   <ShoppingBag /> Products
                   {design
-                    ? ` · ${room.objects.some((item) => !item.owned && item.productId && !design.products.some((product) => product.id === item.productId)) ? "Unpriced items" : formatMoney(room.objects.filter((item) => !item.owned).reduce((sum, item) => sum + (design.products.find((product) => product.id === item.productId)?.priceCents ?? 0), 0))}`
+                    ? ` · ${room.objects.some((item) => !item.owned && item.productId && !item.productSnapshot && !design.products.some((product) => product.id === item.productId)) ? "Unpriced items" : formatMoney(selectionTotal(room, design.products))}`
                     : ""}
                 </Button>
                 <Button
@@ -1019,7 +1067,12 @@ export function RoomWorkspace({
                   selected={selected}
                   onSelect={selectObject}
                   assetScenes={assets}
-                  assetStates={Object.fromEntries((design?.assets ?? []).map((asset) => [asset.id, asset.status]))}
+                  assetStates={Object.fromEntries(
+                    (design?.assets ?? []).map((asset) => [
+                      asset.id,
+                      asset.status,
+                    ]),
+                  )}
                   preview={preview}
                   previewInvalid={Boolean(previewIssue)}
                   editMode={editDisabled || walking ? "select" : editMode}
@@ -1048,8 +1101,12 @@ export function RoomWorkspace({
               reconstruct && (
                 <div key={resource.id} hidden={walking}>
                   {/* The renderer registers this completion callback; it runs after reconstruction. */}
-                  {/* eslint-disable-next-line react-hooks/refs */}
-                  {reconstruct(resource.evidence, acceptReconstruction)}
+                  {reconstruct(
+                    resource.evidence,
+                    // eslint-disable-next-line react-hooks/refs -- the renderer registers this callback for completion.
+                    acceptReconstruction,
+                    projectId,
+                  )}
                 </div>
               )}
 
@@ -1062,7 +1119,10 @@ export function RoomWorkspace({
               products={design?.products}
               onAsk={askAboutSelected}
               onArrange={() => {
-                if (selected) void execute([{ type: "arrange", objectId: selected }]).catch(() => undefined);
+                if (selected)
+                  void execute([{ type: "arrange", objectId: selected }]).catch(
+                    () => undefined,
+                  );
               }}
               onReplace={(productId) =>
                 selected

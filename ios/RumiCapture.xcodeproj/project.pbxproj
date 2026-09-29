@@ -351,6 +351,7 @@
 				DEVELOPMENT_TEAM = 3SN533K2V4;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Rumi Capture";
+				INFOPLIST_KEY_RumiCaptureOrigin = "$(RUMI_CAPTURE_ORIGIN)";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.lifestyle";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Rumi uses your camera for QR pairing and your camera and LiDAR to save room layout, surface shapes, and room photos.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -593,6 +594,7 @@
 				DEVELOPMENT_TEAM = 3SN533K2V4;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Rumi Capture";
+				INFOPLIST_KEY_RumiCaptureOrigin = "$(RUMI_CAPTURE_ORIGIN)";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.lifestyle";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Rumi uses your camera for QR pairing and your camera and LiDAR to save room layout, surface shapes, and room photos.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;

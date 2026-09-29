@@ -45,3 +45,29 @@ export async function readScan(identity: string, id: string): Promise<Blob> {
     db.close();
   }
 }
+
+export async function deleteScan(identity: string, id?: string) {
+  const db = await openDatabase();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction("scans", "readwrite");
+      const store = transaction.objectStore("scans");
+      if (id) store.delete([identity, id]);
+      else {
+        const cursor = store.openCursor();
+        cursor.onsuccess = () => {
+          const entry = cursor.result;
+          if (!entry) return;
+          if (Array.isArray(entry.key) && entry.key[0] === identity)
+            entry.delete();
+          entry.continue();
+        };
+      }
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = transaction.onabort = () =>
+        reject(transaction.error);
+    });
+  } finally {
+    db.close();
+  }
+}

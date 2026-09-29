@@ -11,6 +11,7 @@ import {
 } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { requireOwner } from "./ownership";
+import { requireTurn } from "./turns";
 import { normalizeBrief } from "./projects";
 import {
   assetSchema,
@@ -107,19 +108,77 @@ export async function commitDesign(
   return next;
 }
 
+async function commitOnce(
+  ctx: MutationCtx,
+  projectId: Id<"projects">,
+  key: string | undefined,
+  roomId: Id<"rooms">,
+  revision: number,
+  commands: DesignCommand[],
+  actor: "user" | "agent",
+  maxTotalCents?: number,
+) {
+  const request = JSON.stringify({
+    commands: designCommandsSchema.parse(commands),
+    actor,
+    maxTotalCents,
+  });
+  if (key) {
+    if (key.length > 200) throw new Error("Invalid operation key.");
+    const previous = await ctx.db
+      .query("designCommands")
+      .withIndex("by_project_key", (q) =>
+        q.eq("projectId", projectId).eq("key", key),
+      )
+      .unique();
+    if (previous) {
+      if (previous.request !== request)
+        throw new Error(
+          "This operation key was already used for another edit.",
+        );
+      return previous.snapshot;
+    }
+  }
+  const snapshot = await commitDesign(
+    ctx,
+    roomId,
+    revision,
+    commands,
+    actor,
+    maxTotalCents,
+  );
+  if (key)
+    await ctx.db.insert("designCommands", {
+      projectId,
+      key,
+      request,
+      snapshot,
+    });
+  return snapshot;
+}
+
 export const edit = mutation({
   args: {
     projectId: v.id("projects"),
     expectedRevision: v.number(),
     commands: zodToConvex(designCommandsSchema),
+    operationKey: v.optional(v.string()),
   },
   returns: zodToConvex(roomSchema),
   handler: async (
     ctx,
-    { projectId, expectedRevision, commands },
+    { projectId, expectedRevision, commands, operationKey },
   ): Promise<RoomSnapshot> => {
     const room = await ownedRoom(ctx, projectId);
-    return commitDesign(ctx, room._id, expectedRevision, commands, "user");
+    return commitOnce(
+      ctx,
+      projectId,
+      operationKey,
+      room._id,
+      expectedRevision,
+      commands,
+      "user",
+    );
   },
 });
 
@@ -128,19 +187,29 @@ export const editByAgent = internalMutation({
     projectId: v.id("projects"),
     expectedRevision: v.number(),
     commands: zodToConvex(designCommandsSchema),
+    operationKey: v.optional(v.string()),
     messageId: v.id("messages"),
     maxTotalCents: v.optional(v.number()),
   },
   returns: zodToConvex(roomSchema),
   handler: async (
     ctx,
-    { projectId, expectedRevision, commands, messageId, maxTotalCents },
+    {
+      projectId,
+      expectedRevision,
+      commands,
+      messageId,
+      maxTotalCents,
+      operationKey,
+    },
   ): Promise<RoomSnapshot> => {
-    const project = await ctx.db.get(projectId);
-    if (!project?.roomId || project.activeMessageId !== messageId)
+    const project = await requireTurn(ctx, projectId, messageId);
+    if (!project.roomId)
       throw new Error("This design turn is no longer active.");
-    return commitDesign(
+    return commitOnce(
       ctx,
+      projectId,
+      operationKey,
       project.roomId,
       expectedRevision,
       commands,
@@ -196,7 +265,10 @@ export const retryAsset = mutation({
     const room = await ownedRoom(ctx, projectId);
     if (!room.snapshot.objects.some((item) => item.productId === productId))
       throw new Error("Only products in this room can be modeled.");
-    const [product] = await catalogProducts(ctx, [productId]);
+    const [live] = await catalogProducts(ctx, [productId]);
+    const product =
+      room.snapshot.objects.find((item) => item.productId === productId)
+        ?.productSnapshot ?? live;
     if (!product) throw new Error("This product is no longer available.");
     await queueProductAsset(ctx, product, true);
     return null;
@@ -212,52 +284,24 @@ async function readDesign(
   const ownerId = project.ownerId;
   const room = await ctx.db.get(project.roomId);
   if (!room || room.ownerId !== ownerId) return null;
-  const messages = await ctx.db
-    .query("messages")
+  const saved = await ctx.db
+    .query("recommendations")
     .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
     .order("desc")
-    .take(30);
-  const plans = await ctx.db
-    .query("plans")
-    .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
-    .order("desc")
-    .take(10);
+    .take(100);
   const choices = new Map<
     string,
     { productId: string; zone: ReservedZone | null }
   >();
-  for (const message of messages) {
-    for (const choice of message.recommendations ?? []) {
-      if (!choice.productId || choices.size >= 24) continue;
-      const key = `${choice.zoneId}:${choice.productId}`;
-      const plan = plans.find(
-        (item) =>
-          item.plan.roomId === room.snapshot.id &&
-          item.createdAt <= message.createdAt &&
-          item.plan.zones.some((zone) => zone.id === choice.zoneId),
-      );
-      if (!choices.has(key))
-        choices.set(key, {
-          productId: choice.productId,
-          zone:
-            plan?.plan.zones.find((zone) => zone.id === choice.zoneId) ?? null,
-        });
-    }
-    if (
-      message.recommendationProductId &&
-      choices.size < 24 &&
-      ![...choices.values()].some(
-        (choice) => choice.productId === message.recommendationProductId,
-      )
-    )
-      choices.set(message.recommendationProductId, {
-        productId: message.recommendationProductId,
-        zone: null,
-      });
-    if (choices.size >= 24) break;
+  for (const row of saved) {
+    if (!row.product || choices.size >= 24) continue;
+    const key = `${row.result.zoneId}:${row.product.id}`;
+    if (!choices.has(key))
+      choices.set(key, { productId: row.product.id, zone: row.zone });
   }
   if (
     !choices.size &&
+    !saved.length &&
     room.snapshot.shape === "polygon" &&
     room.snapshot.capture.synthetic
   )
@@ -280,9 +324,10 @@ async function readDesign(
       room.snapshot.objects.flatMap((object) =>
         object.productId
           ? [
-              products.find((product) => product.id === object.productId)
-                ?.assetId ??
+              object.productSnapshot?.assetId ??
                 object.assetId ??
+                products.find((product) => product.id === object.productId)
+                  ?.assetId ??
                 `${object.productId}-asset`,
             ]
           : object.assetId

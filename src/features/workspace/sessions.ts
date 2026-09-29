@@ -29,7 +29,7 @@ const sessionSchema = z.object({
 const storeSchema = z.object({
   version: z.literal(1),
   activeId: z.string(),
-  sessions: z.array(sessionSchema).min(1),
+  sessions: z.array(z.unknown()).min(1),
 });
 
 /**
@@ -106,10 +106,18 @@ export function readSessions(
     if (text) {
       const result = storeSchema.safeParse(JSON.parse(text));
       if (result.success) {
-        const sessions: Session[] = result.data.sessions.map((session) => ({
-          ...session,
-          workspace: session.workspace && polygon(session.workspace),
-        }));
+        const sessions: Session[] = result.data.sessions.flatMap((value) => {
+          const parsed = sessionSchema.safeParse(value);
+          if (!parsed.success) return [];
+          const session = parsed.data;
+          return [
+            {
+              ...session,
+              workspace: session.workspace && polygon(session.workspace),
+            },
+          ];
+        });
+        if (!sessions.length) throw new Error("No recoverable sessions.");
         const activeId = sessions.some((s) => s.id === result.data.activeId)
           ? result.data.activeId
           : sessions[0].id;

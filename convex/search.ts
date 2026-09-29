@@ -1,3 +1,8 @@
+"use node";
+
+import { cachedFetch } from "./cachedFetch";
+import type { ActionCtx } from "./_generated/server";
+import { safeFetch } from "../shared/network/server";
 import { openai } from "@ai-sdk/openai";
 import { zodToConvex } from "convex-helpers/server/zod4";
 import { internalAction } from "./_generated/server";
@@ -9,10 +14,7 @@ import {
   type SearchTaskResult,
 } from "../shared/contracts";
 import { exaContents, exaSearch } from "../shared/search";
-import {
-  fetchPage,
-  validateProductUrl,
-} from "../shared/search/page";
+import { fetchPage, validateProductUrl } from "../shared/search/page";
 import { runSearch, runSearches } from "../shared/search/pipeline";
 import { extractListing, readDiagram } from "./extract";
 import type { ProductCandidate, SearchTask } from "../shared/contracts";
@@ -25,7 +27,11 @@ export const DEFAULT_MODEL = "gpt-5.6-luna";
 // lives in shared/search so it can be tested without a deployment.
 // Takes the one thing it needs from the action context, so it does not have to restate
 // Convex's own types.
-function searchDeps(persist: (products: ProductCandidate[]) => Promise<void>) {
+function searchDeps(
+  ctx: ActionCtx,
+  persist: (products: ProductCandidate[]) => Promise<void>,
+) {
+  const read = cachedFetch(ctx);
   const apiKey = process.env.EXA_API_KEY;
   if (!apiKey)
     throw new Error("Set EXA_API_KEY in this deployment's environment.");
@@ -38,11 +44,11 @@ function searchDeps(persist: (products: ProductCandidate[]) => Promise<void>) {
   return {
     search: (query: string, numResults: number, includeDomains: string[]) =>
       exaSearch(apiKey, query, numResults, includeDomains),
-    fetchPage: (url: string) => fetchPage(url),
-    validateProductUrl: (url: string) => validateProductUrl(url),
+    fetchPage: (url: string) => fetchPage(url, read),
+    validateProductUrl: (url: string) => validateProductUrl(url, safeFetch),
     fetchContents: (urls: string[]) => exaContents(apiKey, urls),
     fetchJson: async (url: string) => {
-      const response = await fetch(url, {
+      const response = await read(url, {
         headers: { accept: "application/json" },
       });
       if (!response.ok)
@@ -51,7 +57,8 @@ function searchDeps(persist: (products: ProductCandidate[]) => Promise<void>) {
     },
     extractListing: (page: PageContent, task: SearchTask) =>
       extractListing(listingModel, page, task),
-    readDiagram: (images: ImageRef[]) => readDiagram(visionModel, images),
+    readDiagram: (images: ImageRef[]) =>
+      readDiagram(visionModel, images, safeFetch),
     persist,
   };
 }
@@ -62,7 +69,7 @@ export const searchProducts = internalAction({
   handler: async (ctx, args): Promise<SearchTaskResult> => {
     const result = await runSearch(
       searchTaskSchema.parse(args.task),
-      searchDeps(async (products) => {
+      searchDeps(ctx, async (products) => {
         await ctx.runMutation(internal.products.upsertProducts, { products });
       }),
     );
@@ -77,7 +84,7 @@ export const searchCategories = internalAction({
   handler: async (ctx, args): Promise<SearchTaskResult[]> => {
     const results = await runSearches(
       z.array(searchTaskSchema).parse(args.tasks),
-      searchDeps(async (products) => {
+      searchDeps(ctx, async (products) => {
         await ctx.runMutation(internal.products.upsertProducts, { products });
       }),
     );

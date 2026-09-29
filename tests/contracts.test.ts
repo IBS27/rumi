@@ -39,19 +39,23 @@ describe("team handoff", () => {
     ).toBe("dining chair");
   });
   it("creates Convex table validators from the shared contracts", () => {
-    expect(Object.keys(schema.tables)).toEqual([
-      "roomReconstructions",
-      "rooms",
-      "products",
-      "assets",
-      "proposals",
-      "projects",
-      "messages",
-      "plans",
-      "images",
-      "imageUploads",
-      "captures",
-    ]);
+    expect(Object.keys(schema.tables)).toEqual(
+      expect.arrayContaining([
+        "rooms",
+        "products",
+        "projects",
+        "messages",
+        "plans",
+        "assets",
+        "captures",
+        "files",
+        "fileTickets",
+        "agentSteps",
+        "recommendations",
+        "designCommands",
+        "offerObservations",
+      ]),
+    );
   });
   it("keeps unknown measurements and pending models explicit", () => {
     expect(

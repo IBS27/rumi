@@ -37,7 +37,9 @@ export function DesignPanel({
     (item) => item.productId && !item.owned,
   );
   const missing = selected.some(
-    (item) => !state.products.some((product) => product.id === item.productId),
+    (item) =>
+      !item.productSnapshot &&
+      !state.products.some((product) => product.id === item.productId),
   );
   const total = missing ? null : selectionTotal(state.room, state.products);
   const remaining =
@@ -69,7 +71,9 @@ export function DesignPanel({
     }
   };
   function assetStatus(object: RoomObject) {
-    const product = state.products.find((item) => item.id === object.productId);
+    const product =
+      object.productSnapshot ??
+      state.products.find((item) => item.id === object.productId);
     return state.assets.find(
       (item) => item.id === (product?.assetId ?? object.assetId),
     );
@@ -228,9 +232,9 @@ export function DesignPanel({
         )}
         {tab === "selected" &&
           selected.map((object) => {
-            const product = state.products.find(
-              (item) => item.id === object.productId,
-            );
+            const product =
+              object.productSnapshot ??
+              state.products.find((item) => item.id === object.productId);
             const asset = assetStatus(object);
             return (
               <div

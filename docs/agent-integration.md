@@ -17,9 +17,7 @@ chat with a room open copies that room's validated snapshot into the project.
 Once attached, the conversation and editor subscribe to the same authoritative
 room through `design.get`. Manual and agent edits use the same validated command
 pipeline. Sending a message never overwrites the room with a browser snapshot.
-Attaching a different room remains an explicit action. Original scans and camera
-state stay local; the current selection and product models are cached for reload
-and included in saved-room exports.
+Attaching a different room remains an explicit action. Signed-in projects own their original scan files and restore them through private download tickets. Camera state stays local; the current selection and product models are included in saved-room exports. Project routes own navigation independently of the chat lifecycle. See [production rollout](production-rollout.md) for migration and release requirements.
 
 The editor supports captured polygon floors, wall decor, rugs, and products placed
 on supporting furniture. Placement checks cover actual floor polygons, walls,
@@ -41,7 +39,7 @@ later. Rugs retain their measured product dimensions and existing placement chec
 checks the current revision, canonical catalog dimensions and prices, product and
 placement locks, and the final budget. A requested savings target is enforced with
 `maxTotalCents`. The selected object's ID is attached to the chat turn, including
-the first message. Canceled or expired turns cannot apply late edits. Undo restores
+the first message. Canceled or expired turns cannot apply late edits. Model responses and individual tool results are checkpointed; retries preserve command IDs so an interrupted placement cannot apply twice. Completed zone recommendations persist independently of chat history. Undo restores
 objects with a new revision and is bounded to ten changes and 250 KB per room.
 
 Models are prepared asynchronously after products are placed. Dimensioned previews

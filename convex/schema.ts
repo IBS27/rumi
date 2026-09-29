@@ -11,6 +11,7 @@ import {
   proposalSchema,
   roomSchema,
   roomObjectSchema,
+  reservedZoneSchema,
 } from "../shared/contracts";
 
 // Briefs stored before the Spec stage lack its fields. Storage allows their
@@ -37,7 +38,89 @@ export const zoneRecommendation = v.object({
 
 // Zod refinements must also run at function boundaries; Convex validates storage shapes.
 export default defineSchema({
+  sourceCache: defineTable({
+    key: v.string(),
+    token: v.string(),
+    leaseUntil: v.number(),
+    expiresAt: v.number(),
+    storageId: v.optional(v.id("_storage")),
+  })
+    .index("by_key", ["key"])
+    .index("by_expiry", ["expiresAt"])
+    .index("by_storageId", ["storageId"]),
+  accountDeletions: defineTable({
+    ownerId: v.string(),
+    subject: v.optional(v.string()),
+    requestedAt: v.number(),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("done"),
+      v.literal("identity-pending"),
+    ),
+    error: v.optional(v.string()),
+  }).index("by_ownerId", ["ownerId"]),
+  operatorEvents: defineTable({
+    operation: v.string(),
+    createdAt: v.number(),
+    count: v.number(),
+  }),
+  files: defineTable({
+    projectId: v.id("projects"),
+    ownerId: v.string(),
+    kind: v.union(v.literal("workspace"), v.literal("scan")),
+    size: v.number(),
+    chunks: v.array(v.id("_storage")),
+    tokenHash: v.string(),
+    expiresAt: v.number(),
+    complete: v.boolean(),
+  }).index("by_projectId", ["projectId"]),
+  fileTickets: defineTable({
+    ownerId: v.string(),
+    projectId: v.optional(v.id("projects")),
+    captureId: v.optional(v.id("captures")),
+    fileId: v.optional(v.id("files")),
+    imageId: v.optional(v.id("images")),
+    tokenHash: v.string(),
+    expiresAt: v.number(),
+  })
+    .index("by_projectId", ["projectId"])
+    .index("by_hash", ["tokenHash"]),
+  designCommands: defineTable({
+    projectId: v.id("projects"),
+    key: v.string(),
+    request: v.string(),
+    snapshot: zodToConvex(roomSchema),
+  })
+    .index("by_project_key", ["projectId", "key"])
+    .index("by_projectId", ["projectId"]),
+  recommendations: defineTable({
+    projectId: v.id("projects"),
+    messageId: v.id("messages"),
+    planId: v.optional(v.id("plans")),
+    zone: v.union(zodToConvex(reservedZoneSchema), v.null()),
+    result: zoneRecommendation,
+    product: v.union(zodToConvex(productSchema), v.null()),
+    explanation: v.string(),
+  })
+    .index("by_projectId", ["projectId"])
+    .index("by_plan_zone", ["planId", "result.zoneId"])
+    .index("by_message_zone", ["messageId", "result.zoneId"]),
+  agentSteps: defineTable({
+    projectId: v.id("projects"),
+    messageId: v.id("messages"),
+    step: v.number(),
+    model: v.optional(v.string()),
+    usage: v.optional(v.string()),
+    durationMs: v.optional(v.number()),
+    response: v.string(),
+    calls: v.string(),
+    outputs: v.string(),
+    text: v.string(),
+  })
+    .index("by_message_step", ["messageId", "step"])
+    .index("by_projectId", ["projectId"]),
   roomReconstructions: defineTable({
+    projectId: v.optional(v.id("projects")),
     ownerId: v.string(),
     digest: v.string(),
     inputId: v.id("_storage"),
@@ -64,6 +147,7 @@ export default defineSchema({
     sceneJson: v.optional(v.string()),
     error: v.optional(v.string()),
   })
+    .index("by_projectId", ["projectId"])
     .index("by_ownerId_digest", ["ownerId", "digest"])
     .index("by_ownerId_stage", ["ownerId", "stage"])
     .index("by_ownerId", ["ownerId"]),
@@ -76,6 +160,12 @@ export default defineSchema({
   products: defineTable(zodToConvex(productSchema)).index("by_catalog_id", [
     "id",
   ]),
+  offerObservations: defineTable({
+    productId: v.string(),
+    digest: v.string(),
+    observedAt: v.number(),
+    product: zodToConvex(productSchema),
+  }).index("by_productId_digest", ["productId", "digest"]),
   assets: defineTable(zodToConvex(assetSchema)).index("by_catalog_id", ["id"]),
   proposals: defineTable(
     zodToConvex(z.object({ ownerId: z.string(), proposal: proposalSchema })),
@@ -84,13 +174,20 @@ export default defineSchema({
   projects: defineTable({
     ownerId: v.string(),
     title: v.string(),
+    importKey: v.optional(v.string()),
+    migrationVersion: v.optional(v.number()),
+    workspaceFileId: v.optional(v.id("files")),
+    scanFileId: v.optional(v.id("files")),
     roomId: v.optional(v.id("rooms")),
     brief: v.optional(storedBrief),
     phase: v.optional(zodToConvex(projectPhaseSchema)),
     activeMessageId: v.optional(v.id("messages")),
     createdAt: v.number(),
-  }).index("by_ownerId", ["ownerId"]),
+  })
+    .index("by_ownerId", ["ownerId"])
+    .index("by_owner_import", ["ownerId", "importKey"]),
   messages: defineTable({
+    operationKey: v.optional(v.string()),
     projectId: v.id("projects"),
     role: v.union(
       v.literal("user"),
@@ -131,9 +228,12 @@ export default defineSchema({
       v.literal("error"),
     ),
     createdAt: v.number(),
-  }).index("by_projectId", ["projectId"]),
+  })
+    .index("by_projectId", ["projectId"])
+    .index("by_operation", ["projectId", "operationKey"]),
   // Reserved zones for a room, waiting for the user to confirm which to shop.
   plans: defineTable({
+    operationKey: v.optional(v.string()),
     projectId: v.id("projects"),
     roomId: v.id("rooms"),
     plan: zodToConvex(designPlanSchema),
@@ -146,7 +246,9 @@ export default defineSchema({
       v.literal("superseded"),
     ),
     createdAt: v.number(),
-  }).index("by_projectId", ["projectId"]),
+  })
+    .index("by_projectId", ["projectId"])
+    .index("by_operation", ["projectId", "operationKey"]),
   images: defineTable({
     projectId: v.id("projects"),
     storageId: v.id("_storage"),
@@ -167,6 +269,11 @@ export default defineSchema({
     size: v.number(),
     expiresAt: v.number(),
   }).index("by_projectId", ["projectId"]),
+  captureChunks: defineTable({
+    captureId: v.id("captures"),
+    index: v.number(),
+    storageId: v.id("_storage"),
+  }).index("by_capture_index", ["captureId", "index"]),
   captures: defineTable({
     ownerId: v.string(),
     state: v.union(

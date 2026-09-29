@@ -1,3 +1,6 @@
+import { internalAction } from "../convex/_generated/server";
+import { v } from "convex/values";
+import { assetKey } from "../shared/catalog/identity";
 import { describe, expect, it } from "bun:test";
 import { convexTest } from "convex-test";
 import schema from "../convex/schema";
@@ -10,12 +13,29 @@ import { selectionTotal } from "../shared/budget";
 import type { DesignCommand } from "../shared/design";
 
 const modules = {
+  "../convex/agent.ts": async () => ({
+    runForProject: internalAction({
+      args: { projectId: v.id("projects"), messageId: v.id("messages") },
+      handler: async () => null,
+    }),
+  }),
+  "../convex/assetJobs.ts": async () => ({
+    generateForProduct: internalAction({
+      args: {
+        productId: v.string(),
+        productSnapshot: schema.tables.products.validator,
+        attempt: v.number(),
+      },
+      handler: async () => null,
+    }),
+  }),
   "../convex/_generated/server.js": () =>
     import("../convex/_generated/server.js"),
   "../convex/projects.ts": () => import("../convex/projects"),
   "../convex/messages.ts": () => import("../convex/messages"),
   "../convex/design.ts": () => import("../convex/design"),
   "../convex/products.ts": () => import("../convex/products"),
+  "../convex/migrations.ts": () => import("../convex/migrations"),
   "../convex/assets.ts": () => import("../convex/assets"),
 };
 async function setup() {
@@ -222,7 +242,7 @@ describe("authoritative room editing", () => {
     };
     await t.mutation(internal.products.upsertProducts, { products: [real] });
     await edit(0, [{ type: "add", productId: real.id, instanceId: "real" }]);
-    const id = "real-lamp-asset";
+    const id = assetKey(real);
     const pending = await t.query(internal.assets.getByCatalogId, { id });
     expect(pending?.status).toBe("pending");
     await owner.mutation(api.design.retryAsset, {
@@ -299,6 +319,10 @@ it("hides old unsized recommendations from chat and the design panel", async () 
   });
   expect(chat.page[0].recommendation).toBeNull();
   expect(chat.page[0].zoneCards[0].product).toBeNull();
+  await t.mutation(internal.migrations.recommendations, {
+    projectId,
+    cursor: null,
+  });
   const design = await owner.query(api.design.get, { projectId });
   expect(design?.recommendations).toEqual([]);
 });

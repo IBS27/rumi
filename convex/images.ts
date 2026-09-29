@@ -10,7 +10,7 @@ import {
   internalQuery,
 } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { requireOwner } from "./ownership";
+import { requireOwner, requireActiveOwner } from "./ownership";
 import { hashToken, randomToken } from "../shared/capture/pairing";
 import {
   MAX_IMAGE_BYTES,
@@ -80,6 +80,7 @@ export const uploadTicket = internalQuery({
   handler: async (ctx, { uploadId, tokenHash }) => {
     const ticket = await ctx.db.get(uploadId);
     if (!ticket || ticket.tokenHash !== tokenHash) return null;
+    await requireActiveOwner(ctx, ticket.ownerId);
     const project = await ctx.db.get(ticket.projectId);
     if (!project || project.ownerId !== ticket.ownerId) return null;
     const { _id: _id, _creationTime: _time, ...value } = ticket;
@@ -192,6 +193,7 @@ export const save = internalMutation({
     )
       throw new Error("Upload expired.");
     const { projectId, ownerId, contentType } = ticket;
+    await requireActiveOwner(ctx, ownerId);
     const project = await ctx.db.get(projectId);
     if (!project || project.ownerId !== ownerId)
       throw new Error("This project does not exist.");

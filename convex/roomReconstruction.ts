@@ -107,16 +107,23 @@ export const clearDecor = internalMutation({
       throw new Error("Only a completed room model can be cleaned.");
     const before = reconstructedSceneSchema.parse(JSON.parse(job.sceneJson));
     const after = reconstructedSceneSchema.parse(clearEmbeddedDecor(before));
-    const count = before.objects.reduce((sum, object, index) => sum + object.parts.length - after.objects[index].parts.length, 0);
+    const count = before.objects.reduce(
+      (sum, object, index) =>
+        sum + object.parts.length - after.objects[index].parts.length,
+      0,
+    );
     if (count) await ctx.db.patch(id, { sceneJson: JSON.stringify(after) });
     return count;
   },
 });
 
 export const start = action({
-  args: { inputJson: v.string() },
+  args: { inputJson: v.string(), projectId: v.optional(v.id("projects")) },
   returns: v.id("roomReconstructions"),
-  handler: async (ctx, { inputJson }): Promise<Id<"roomReconstructions">> => {
+  handler: async (
+    ctx,
+    { inputJson, projectId },
+  ): Promise<Id<"roomReconstructions">> => {
     const ownerId = await requireOwner(ctx);
     if (new TextEncoder().encode(inputJson).byteLength > MAX_EVIDENCE_BYTES)
       throw new Error("Scan evidence exceeds 5 MB.");
@@ -124,7 +131,9 @@ export const start = action({
     if (input.room.shape !== "polygon" || input.room.capture.synthetic)
       throw new Error("Use a real captured room for reconstruction.");
     const canonical = JSON.stringify(input);
-    const digest = await hashToken(`${RECONSTRUCTION_APPEARANCE}:${canonical}`);
+    const digest = await hashToken(
+      `${RECONSTRUCTION_APPEARANCE}:${projectId ?? "legacy"}:${canonical}`,
+    );
     const existing = await ctx.runQuery(internal.roomReconstruction.find, {
       ownerId,
       digest,
@@ -136,7 +145,13 @@ export const start = action({
     try {
       const result = await ctx.runMutation(
         internal.roomReconstruction.enqueue,
-        { ownerId, digest, inputId, total: input.room.objects.length },
+        {
+          ownerId,
+          projectId,
+          digest,
+          inputId,
+          total: input.room.objects.length,
+        },
       );
       if (!result.created) await ctx.storage.delete(inputId);
       return result.id;
@@ -149,12 +164,25 @@ export const start = action({
 export const enqueue = internalMutation({
   args: {
     ownerId: v.string(),
+    projectId: v.optional(v.id("projects")),
     digest: v.string(),
     inputId: v.id("_storage"),
     total: v.number(),
   },
   returns: v.object({ id: v.id("roomReconstructions"), created: v.boolean() }),
   handler: async (ctx, args) => {
+    if (
+      await ctx.db
+        .query("accountDeletions")
+        .withIndex("by_ownerId", (q) => q.eq("ownerId", args.ownerId))
+        .unique()
+    )
+      throw new Error("Account is being deleted.");
+    if (
+      args.projectId &&
+      (await ctx.db.get(args.projectId))?.ownerId !== args.ownerId
+    )
+      throw new Error("Project not found.");
     const existing = await ctx.db
       .query("roomReconstructions")
       .withIndex("by_ownerId_digest", (q) =>

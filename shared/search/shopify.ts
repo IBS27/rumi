@@ -16,7 +16,13 @@ const rawProductSchema = z.object({
   title: z.string(),
   handle: z.string().optional(),
   vendor: z.string().optional(),
+  currency: z.string().optional(),
   product_type: z.string().optional(),
+  options: z
+    .array(
+      z.object({ name: z.string(), values: z.array(z.string()).optional() }),
+    )
+    .optional(),
   tags: z.union([z.array(z.string()), z.string()]).optional(),
   body_html: z.string().nullable().optional(),
   images: z
@@ -40,12 +46,14 @@ export interface ShopifyVariant {
   id: string;
   title: string;
   priceCents: number;
-  available: boolean;
+  available: boolean | null;
   sku: string | null;
 }
 
 export interface ShopifyProduct {
   title: string;
+  currency?: string | null;
+  dimensionsVary?: boolean;
   handle: string | null;
   vendor: string | null;
   productType: string | null;
@@ -100,6 +108,19 @@ export function mapShopifyProduct(payload: unknown): ShopifyProduct | null {
       : [];
   return {
     title: raw.title,
+    currency: raw.currency ?? null,
+    dimensionsVary:
+      (raw.options ?? []).some(
+        (option) =>
+          /size|width|height|depth|length|seats/i.test(option.name) &&
+          (option.values?.length ?? 2) > 1,
+      ) ||
+      ((raw.variants?.length ?? 0) > 1 &&
+        (raw.variants ?? []).some((variant) =>
+          /\b(twin|full|queen|king|small|medium|large|\d+\s*(cm|inch|inches|ft))\b/i.test(
+            variant.title,
+          ),
+        )),
     handle: raw.handle ?? null,
     vendor: raw.vendor ?? null,
     productType: raw.product_type ?? null,
@@ -113,7 +134,7 @@ export function mapShopifyProduct(payload: unknown): ShopifyProduct | null {
       id: String(variant.id),
       title: variant.title,
       priceCents: Math.round(Number(variant.price) * 100),
-      available: variant.available ?? true,
+      available: variant.available ?? null,
       sku: variant.sku ?? null,
     })),
   };
