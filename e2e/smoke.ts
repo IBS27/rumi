@@ -31,28 +31,44 @@ test("guest room editing survives reload and can be deleted", async ({
   ).toBeVisible();
 });
 
-test("floor plan selection works when WebGL is unavailable", async ({
-  page,
-}) => {
-  await page.addInitScript(() => {
-    const original = HTMLCanvasElement.prototype.getContext;
-    HTMLCanvasElement.prototype.getContext = function (
-      this: HTMLCanvasElement,
-      ...args: Parameters<typeof original>
-    ) {
-      if (String(args[0]).includes("webgl")) return null;
-      return original.apply(this, args);
-    } as typeof original;
+for (const failure of [
+  "WebGL is unavailable",
+  "WebGL initialization throws",
+  "WebGL2 is unavailable",
+] as const) {
+  test(`floor plan selection works when ${failure}`, async ({ page }) => {
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await page.addInitScript((failure) => {
+      const original = HTMLCanvasElement.prototype.getContext;
+      HTMLCanvasElement.prototype.getContext = function (
+        this: HTMLCanvasElement,
+        ...args: Parameters<typeof original>
+      ) {
+        if (
+          failure === "WebGL2 is unavailable"
+            ? args[0] === "webgl2"
+            : String(args[0]).includes("webgl")
+        ) {
+          if (failure === "WebGL initialization throws")
+            throw new Error("WebGL is disabled");
+          return null;
+        }
+        return original.apply(this, args);
+      } as typeof original;
+    }, failure);
+    await page.goto("/");
+    await page.getByRole("button", { name: /^Open the sample room/ }).click();
+    await expect(
+      page.getByRole("img", { name: "Room floor plan" }),
+    ).toBeVisible();
+    await expect(page.locator("canvas")).toHaveCount(0);
+    await page
+      .getByRole("button", { name: "Select Sofa 1", exact: true })
+      .press("Enter");
+    await expect(
+      page.getByRole("button", { name: "Select Sofa 1", exact: true }),
+    ).toHaveClass(/stroke-teal/);
+    expect(errors).toEqual([]);
   });
-  await page.goto("/");
-  await page.getByRole("button", { name: /^Open the sample room/ }).click();
-  await expect(
-    page.getByRole("img", { name: "Room floor plan" }),
-  ).toBeVisible();
-  await page
-    .getByRole("button", { name: "Select Sofa 1", exact: true })
-    .press("Enter");
-  await expect(
-    page.getByRole("button", { name: "Select Sofa 1", exact: true }),
-  ).toHaveClass(/stroke-teal/);
-});
+}

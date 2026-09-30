@@ -308,6 +308,17 @@ export function RoomViewer({
   onCommit?: (object: RoomObject) => void;
 }) {
   const [lowQuality, setLowQuality] = useState(false);
+  const [webGLAvailable] = useState(() => {
+    // Canvas configures Three.js asynchronously, outside the error boundary.
+    // Its fallback is canvas fallback content, hidden even when WebGL fails.
+    try {
+      const context = document.createElement("canvas").getContext("webgl2");
+      context?.getExtension("WEBGL_lose_context")?.loseContext();
+      return context !== null;
+    } catch {
+      return false;
+    }
+  });
   const fallback = (
     <FloorPlan room={room} selected={selected} onSelect={onSelect} />
   );
@@ -336,6 +347,7 @@ export function RoomViewer({
       ),
     [reconstruction],
   );
+  if (!webGLAvailable) return fallback;
   return (
     <ViewerBoundary key={room.id} fallback={fallback}>
       <Canvas

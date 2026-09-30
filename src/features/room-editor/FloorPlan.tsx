@@ -1,5 +1,6 @@
 import type { CapturedRoom } from "../../../shared/contracts";
 import { worldCorners } from "../../../shared/capture/roomplan";
+import { cx } from "../../ui";
 
 /** A DOM/SVG fallback remains usable without WebGL or the Three.js chunk. */
 export function FloorPlan({
@@ -49,11 +50,13 @@ export function FloorPlan({
               y={-object.dimensions.depth / 2}
               width={object.dimensions.width}
               height={object.dimensions.depth}
-              className={
+              className={cx(
+                // Keep keyboard focus on the meter scale of the SVG viewBox.
+                "focus-visible:outline-none! focus-visible:[stroke-width:0.05] focus-visible:stroke-teal",
                 selected === object.id
                   ? "fill-teal-tint stroke-teal"
-                  : "fill-stone stroke-mute"
-              }
+                  : "fill-stone stroke-mute",
+              )}
               strokeWidth={0.025}
               tabIndex={0}
               role="button"
