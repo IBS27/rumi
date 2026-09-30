@@ -3,8 +3,11 @@ import type { QueryCtx } from "./_generated/server";
 import { requireActiveOwner } from "./ownership";
 
 /**
- * Operator recovery increments a reply's runAttempt. Writes carry the attempt
- * they were started with; replies from before recovery existed are attempt 0.
+ * A reply write is admitted only when it names its reply and that reply's
+ * current attempt. A missing attempt means attempt 0 of the named reply, which
+ * is only its original run: a retry creates a new reply, and operator recovery
+ * increments runAttempt. A write that does not name its reply cannot prove
+ * which run it came from and must be rejected.
  */
 export const currentAttempt = (message: Doc<"messages">, attempt?: number) =>
   (message.runAttempt ?? 0) === (attempt ?? 0);

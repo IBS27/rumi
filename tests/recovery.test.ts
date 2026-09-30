@@ -682,80 +682,123 @@ it("rejects every reply write carrying a superseded attempt", async () => {
   ).toBeUndefined();
 });
 
-it("fences image analyses started before attempts existed", async () => {
+it("rejects image analyses that do not name their reply, including across retries", async () => {
+  started.length = 0;
   const t = convexTest(schema, modules);
-  // Pre-attempt analyze actions call complete without the reply or attempt.
-  const legacy = (
-    reply: { imageId?: Id<"images">; userMessageId: Id<"messages"> },
-    status: "analyzed" | "error",
-  ) =>
+  const user = t.withIdentity({ tokenIdentifier: owner });
+  type Reply = Awaited<ReturnType<typeof pendingReply>>;
+  // Pre-attempt analyze actions call complete with only these four fields.
+  const legacy = (reply: Reply, status: "analyzed" | "error") =>
     t.mutation(internal.images.complete, {
       imageId: reply.imageId!,
       userMessageId: reply.userMessageId,
       status,
-      analysis: status === "analyzed" ? "Style: oak" : "Late failure",
+      analysis: `Stale ${status}`,
     });
-  const state = (reply: {
-    imageId?: Id<"images">;
-    userMessageId: Id<"messages">;
-  }) =>
+  const state = (reply: Reply) =>
     t.run(async (ctx) => ({
       image: (await ctx.db.get(reply.imageId!))!.status,
       analysis: (await ctx.db.get(reply.imageId!))!.analysis,
       user: (await ctx.db.get(reply.userMessageId))!.content,
     }));
+  const untouched: Awaited<ReturnType<typeof state>> = {
+    image: "pending",
+    analysis: undefined,
+    user: "Find a lamp",
+  };
+  // A timed-out reply is retried through the real mutation: same user message,
+  // same image, a new pending reply at attempt 0 that re-analyzes the image.
+  const timeoutAndRetry = async (reply: Reply, attempt?: number) => {
+    await t.mutation(internal.messages.expire, {
+      messageId: reply.messageId,
+      attempt,
+    });
+    expect((await t.run((ctx) => ctx.db.get(reply.messageId)))?.status).toBe(
+      "error",
+    );
+    await user.mutation(api.messages.retry, { messageId: reply.messageId });
+    const projectId = (await t.run((ctx) => ctx.db.get(reply.messageId)))!
+      .projectId;
+    const retryId = (await t.run((ctx) => ctx.db.get(projectId)))!
+      .activeMessageId!;
+    expect(retryId).not.toBe(reply.messageId);
+    const retryReply = await t.run((ctx) => ctx.db.get(retryId));
+    expect(retryReply?.status).toBe("pending");
+    expect(retryReply?.runAttempt).toBeUndefined();
+    await until(() =>
+      started.some((call) => call.args.assistantMessageId === retryId),
+    );
+    expect(started.at(-1)).toEqual({
+      name: "analyze",
+      args: {
+        imageId: reply.imageId,
+        userMessageId: reply.userMessageId,
+        assistantMessageId: retryId,
+      },
+    });
+    return retryId;
+  };
+  const current = (reply: Reply, assistantMessageId: Id<"messages">) =>
+    t.mutation(internal.images.complete, {
+      imageId: reply.imageId!,
+      userMessageId: reply.userMessageId,
+      assistantMessageId,
+      status: "analyzed",
+      analysis: "Style: linen",
+    });
 
-  // A reply that recovery never touched still accepts its legacy analysis.
-  const compatible = await pendingReply(t, await project(t), "pending");
-  await legacy(compatible, "analyzed");
-  expect(await state(compatible)).toEqual({
-    image: "analyzed",
-    analysis: "Style: oak",
-    user: "I uploaded an inspiration image.",
-  });
-
-  // After recovery advances the reply to attempt 1, the old action is stale.
+  // Recovery → timeout → retry. The delayed pre-recovery analysis must not be
+  // credited to the retry, which shares its user message and image.
   const recovered = await pendingReply(t, await project(t), "pending");
   await recover(t);
   expect(
     (await t.run((ctx) => ctx.db.get(recovered.messageId)))?.runAttempt,
   ).toBe(1);
   await legacy(recovered, "error");
-  await t.mutation(internal.messages.complete, {
-    messageId: recovered.messageId,
-    status: "error",
-    content: "I couldn’t analyze that image. Please try again.",
-  });
-  expect(await state(recovered)).toEqual({
-    image: "pending",
-    analysis: undefined,
-    user: "Find a lamp",
-  });
-  expect((await t.run((ctx) => ctx.db.get(recovered.messageId)))?.status).toBe(
-    "pending",
-  );
-  // The recovered attempt's own analysis still lands.
+  expect(await state(recovered)).toEqual(untouched);
+  // The recovered attempt names itself, so its result applies.
   await t.mutation(internal.images.complete, {
     imageId: recovered.imageId!,
     userMessageId: recovered.userMessageId,
     assistantMessageId: recovered.messageId,
     attempt: 1,
-    status: "analyzed",
-    analysis: "Style: linen",
-  });
-  expect((await state(recovered)).analysis).toBe("Style: linen");
-
-  // Once a later turn replaces the reply, a late legacy analysis is dropped.
-  const projectId = await project(t);
-  const replaced = await pendingReply(t, projectId, "pending");
-  await t.mutation(internal.messages.complete, {
-    messageId: replaced.messageId,
     status: "error",
-    content: "The reply took too long. Please try again.",
+    analysis: "Recovered failure",
   });
-  await pendingReply(t, projectId);
-  await legacy(replaced, "analyzed");
-  expect((await state(replaced)).image).toBe("pending");
+  const afterRecovery = await state(recovered);
+  expect(afterRecovery.analysis).toBe("Recovered failure");
+  const retried = await timeoutAndRetry(recovered, 1);
+  await legacy(recovered, "analyzed");
+  expect(await state(recovered)).toEqual(afterRecovery);
+  // The retry's own analysis, which names the new reply, still applies.
+  await current(recovered, retried);
+  expect(await state(recovered)).toEqual({
+    image: "analyzed",
+    analysis: "Style: linen",
+    user: "I uploaded an inspiration image.",
+  });
+
+  // Initial timeout → retry, with no recovery involved.
+  const initial = await pendingReply(t, await project(t), "pending");
+  const retry = await timeoutAndRetry(initial);
+  await legacy(initial, "analyzed");
+  expect(await state(initial)).toEqual(untouched);
+  await current(initial, retry);
+  expect((await state(initial)).image).toBe("analyzed");
+
+  // Without a retry, the legacy result is still unprovable and is dropped,
+  // while the old action's writes that name its reply keep working.
+  const plain = await pendingReply(t, await project(t), "pending");
+  await legacy(plain, "analyzed");
+  expect(await state(plain)).toEqual(untouched);
+  await t.mutation(internal.messages.complete, {
+    messageId: plain.messageId,
+    status: "error",
+    content: "I couldn’t analyze that image. Please try again.",
+  });
+  expect((await t.run((ctx) => ctx.db.get(plain.messageId)))?.status).toBe(
+    "error",
+  );
 });
 
 it("records a tombstone until a deleted project's children are gone", async () => {
