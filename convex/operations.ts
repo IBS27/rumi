@@ -55,6 +55,7 @@ async function resumeReply(ctx: MutationCtx, project: Doc<"projects">) {
   await ctx.db.patch(message._id, { runAttempt: attempt });
   await ctx.scheduler.runAfter(180000, internal.messages.expire, {
     messageId: message._id,
+    attempt,
   });
   const user = (
     await ctx.db

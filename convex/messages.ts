@@ -1,4 +1,4 @@
-import { requireTurn } from "./turns";
+import { currentAttempt, requireTurn } from "./turns";
 import { v } from "convex/values";
 import { requireOwner } from "./ownership";
 import schema, { zoneRecommendation } from "./schema";
@@ -327,6 +327,7 @@ export const ask = internalMutation({
   args: {
     projectId: v.id("projects"),
     turnId: v.optional(v.id("messages")),
+    attempt: v.optional(v.number()),
     operationKey: v.optional(v.string()),
     question: v.string(),
     options: v.array(v.string()),
@@ -334,9 +335,17 @@ export const ask = internalMutation({
   },
   handler: async (
     ctx,
-    { projectId, question, options, multiSelect, turnId, operationKey },
+    {
+      projectId,
+      question,
+      options,
+      multiSelect,
+      turnId,
+      attempt,
+      operationKey,
+    },
   ) => {
-    await requireTurn(ctx, projectId, turnId);
+    await requireTurn(ctx, projectId, turnId, attempt);
     if (operationKey) {
       const previous = await ctx.db
         .query("messages")
@@ -414,6 +423,7 @@ export const updateProgress = internalMutation({
   returns: v.null(),
   args: {
     messageId: v.id("messages"),
+    attempt: v.optional(v.number()),
     content: v.string(),
     activity: v.array(activityValidator),
     recommendationProductId: v.optional(v.union(v.string(), v.null())),
@@ -421,10 +431,22 @@ export const updateProgress = internalMutation({
   },
   handler: async (
     ctx,
-    { messageId, content, activity, recommendationProductId, recommendations },
+    {
+      messageId,
+      attempt,
+      content,
+      activity,
+      recommendationProductId,
+      recommendations,
+    },
   ) => {
     const message = await ctx.db.get(messageId);
-    if (!message || message.status !== "pending") return;
+    if (
+      !message ||
+      message.status !== "pending" ||
+      !currentAttempt(message, attempt)
+    )
+      return;
     const project = await ctx.db.get(message.projectId);
     if (!project || project.activeMessageId !== messageId) return;
     await ctx.db.patch(messageId, {
@@ -443,12 +465,19 @@ export const complete = internalMutation({
   returns: v.null(),
   args: {
     messageId: v.id("messages"),
+    attempt: v.optional(v.number()),
     content: v.string(),
     status: v.union(v.literal("done"), v.literal("error")),
   },
-  handler: async (ctx, { messageId, content, status }) => {
+  handler: async (ctx, { messageId, attempt, content, status }) => {
     const message = await ctx.db.get(messageId);
-    if (!message || message.status !== "pending") return;
+    // A run superseded by recovery must not finish or release the newer attempt.
+    if (
+      !message ||
+      message.status !== "pending" ||
+      !currentAttempt(message, attempt)
+    )
+      return;
     await ctx.db.patch(messageId, {
       content,
       status,
@@ -497,11 +526,17 @@ export const history = internalQuery({
 });
 
 export const expire = internalMutation({
-  args: { messageId: v.id("messages") },
+  args: { messageId: v.id("messages"), attempt: v.optional(v.number()) },
   returns: v.null(),
-  handler: async (ctx, { messageId }) => {
+  handler: async (ctx, { messageId, attempt }) => {
     const message = await ctx.db.get(messageId);
-    if (!message || message.status !== "pending") return;
+    // Each attempt has its own watchdog; an older one cannot time out newer work.
+    if (
+      !message ||
+      message.status !== "pending" ||
+      !currentAttempt(message, attempt)
+    )
+      return;
     const checkpoint = await ctx.db
       .query("agentSteps")
       .withIndex("by_message_step", (q) => q.eq("messageId", messageId))
@@ -510,11 +545,13 @@ export const expire = internalMutation({
     if (checkpoint && Date.now() - checkpoint._creationTime < 180000) {
       await ctx.scheduler.runAfter(180000, internal.messages.expire, {
         messageId,
+        attempt,
       });
       return;
     }
     await ctx.runMutation(internal.messages.complete, {
       messageId,
+      attempt,
       status: "error",
       content: "The reply took too long. Please try again.",
     });

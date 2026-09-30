@@ -9,6 +9,7 @@ import { emptyBrief } from "../convex/projects";
 import { importRoomPlan } from "../shared/capture/roomplan";
 import { syntheticRoomPlan } from "../shared/fixtures/roomplan";
 import { MAX_RECONSTRUCTION_MS } from "../shared/reconstruction/contracts";
+import { sampleProducts } from "../shared/fixtures";
 
 // Backups omit scheduled functions. These tests restore rows directly, with no
 // timers, then check that operator recovery re-arms every lifecycle once.
@@ -32,6 +33,11 @@ const modules = {
   "../convex/captures.ts": () => import("../convex/captures"),
   "../convex/assets.ts": () => import("../convex/assets"),
   "../convex/agentSteps.ts": () => import("../convex/agentSteps"),
+  "../convex/plans.ts": () => import("../convex/plans"),
+  "../convex/recommendations.ts": () => import("../convex/recommendations"),
+  "../convex/design.ts": () => import("../convex/design"),
+  "../convex/products.ts": () => import("../convex/products"),
+  "../convex/rooms.ts": () => import("../convex/rooms"),
   "../convex/roomReconstruction.ts": () =>
     import("../convex/roomReconstruction"),
   "../convex/images.ts": async () => ({
@@ -181,7 +187,10 @@ describe("recovery after restoring a backup", () => {
     // Expiry is re-armed so a reply whose worker is lost cannot stay pending.
     expect(
       (await timers(t, "messages:expire")).map((job) => job.args[0]),
-    ).toEqual([{ messageId }, { messageId: image.messageId }]);
+    ).toEqual([
+      { messageId, attempt: 1 },
+      { messageId: image.messageId, attempt: 1 },
+    ]);
 
     // Running recovery again supersedes the chain it started the first time.
     started.length = 0;
@@ -366,35 +375,311 @@ describe("recovery after restoring a backup", () => {
   });
 });
 
-it("stops a stale reply chain before it does any work", async () => {
+// Scripted OpenAI Responses streams for the real agent action.
+const sse = (...output: object[]) =>
+  new Response(
+    [
+      {
+        type: "response.created",
+        response: { id: "r", created_at: 1, model: "gpt-4o" },
+      },
+      ...output,
+      {
+        type: "response.completed",
+        response: { usage: { input_tokens: 1, output_tokens: 1 } },
+      },
+    ]
+      .map((event) => `data: ${JSON.stringify(event)}\n\n`)
+      .join("") + "data: [DONE]\n\n",
+    { headers: { "content-type": "text/event-stream" } },
+  );
+const briefCall = (id: string, budgetCents: number) => {
+  const item = { type: "function_call", id, call_id: id, name: "updateBrief" };
+  return sse(
+    {
+      type: "response.output_item.added",
+      output_index: 0,
+      item: { ...item, arguments: "" },
+    },
+    {
+      type: "response.output_item.done",
+      output_index: 0,
+      item: {
+        ...item,
+        arguments: JSON.stringify({ budgetCents }),
+        status: "completed",
+      },
+    },
+  );
+};
+const text = (value: string) =>
+  sse(
+    {
+      type: "response.output_item.added",
+      output_index: 0,
+      item: { type: "message", id: "m" },
+    },
+    {
+      type: "response.output_text.delta",
+      item_id: "m",
+      output_index: 0,
+      content_index: 0,
+      delta: value,
+    },
+    {
+      type: "response.output_item.done",
+      output_index: 0,
+      item: { type: "message", id: "m" },
+    },
+  );
+const until = async (done: () => boolean | Promise<boolean>) => {
+  for (let i = 0; i < 400 && !(await done()); i++) {
+    // Scheduled functions run on real timers; waiting for in-progress ones
+    // would block on the model calls this test holds open.
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  expect(await done()).toBe(true);
+};
+
+it("rejects a paused earlier run once recovery starts a newer attempt", async () => {
   const t = convexTest(schema, {
     ...modules,
     "../convex/agent.ts": () => import("../convex/agent"),
   });
   const projectId = await project(t);
   const { messageId } = await pendingReply(t, projectId);
-  await t.run((ctx) => ctx.db.patch(messageId, { runAttempt: 2 }));
+  // Model calls wait for the test to release them, in order.
+  const calls: { release: (response: Response) => void }[] = [];
+  const originalFetch = globalThis.fetch;
   const key = process.env.OPENAI_API_KEY;
-  delete process.env.OPENAI_API_KEY;
+  process.env.OPENAI_API_KEY = "test";
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = String(input instanceof Request ? input.url : input);
+    if (!url.startsWith("https://api.openai.com/")) throw new Error(url);
+    return new Promise<Response>((release) => calls.push({ release }));
+  }) as typeof fetch;
+  const read = () => t.run((ctx) => ctx.db.get(messageId));
+  const budget = async () =>
+    await t.run(async (ctx) => {
+      const project = await ctx.db.get(projectId);
+      return (await ctx.db.get(project!.roomId!))!.brief.budgetCents;
+    });
   try {
-    await t.action(internal.agent.runForProject, {
+    // The original run passes its entry check, then waits on the model.
+    const stale = t.action(internal.agent.runForProject, {
       projectId,
       messageId,
-      attempt: 1,
     });
-    expect((await t.run((ctx) => ctx.db.get(messageId)))?.status).toBe(
-      "pending",
+    await until(() => calls.length === 1);
+    await t.mutation(internal.operations.recover, { cursor: null });
+    await until(() => calls.length === 2);
+    expect((await read())?.runAttempt).toBe(1);
+
+    // The old model call returns a tool call; none of its writes may land.
+    calls[0].release(briefCall("stale", 11100));
+    await stale;
+    // Its original watchdog also fires late.
+    await t.mutation(internal.messages.expire, { messageId });
+    expect(await read()).toMatchObject({ status: "pending", runAttempt: 1 });
+    expect((await t.run((ctx) => ctx.db.get(projectId)))?.activeMessageId).toBe(
+      messageId,
     );
-    // The current attempt proceeds; here it stops at the missing model key.
-    await t.action(internal.agent.runForProject, {
-      projectId,
-      messageId,
-      attempt: 2,
-    });
-    expect((await t.run((ctx) => ctx.db.get(messageId)))?.status).toBe("error");
+    expect(await budget()).toBe(0);
+    expect(await t.run((ctx) => ctx.db.query("agentSteps").collect())).toEqual(
+      [],
+    );
+
+    // The newer attempt continues and finishes the reply.
+    calls[1].release(briefCall("current", 22200));
+    await until(() => calls.length === 3);
+    calls[2].release(text("Budget saved."));
+    await until(async () => (await read())?.status === "done");
+    expect((await read())?.content).toBe("Budget saved.");
+    expect(await budget()).toBe(22200);
+    expect(
+      (await t.run((ctx) => ctx.db.get(projectId)))?.activeMessageId,
+    ).toBeUndefined();
+    expect(calls).toHaveLength(3);
   } finally {
-    if (key !== undefined) process.env.OPENAI_API_KEY = key;
+    globalThis.fetch = originalFetch;
+    if (key === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = key;
   }
+});
+
+it("rejects every reply write carrying a superseded attempt", async () => {
+  const t = convexTest(schema, modules);
+  const projectId = await project(t);
+  const { messageId, imageId } = await pendingReply(t, projectId, "pending");
+  const { roomId, snapshot } = await t.run(async (ctx) => {
+    await ctx.db.patch(messageId, { runAttempt: 1 });
+    const roomId = (await ctx.db.get(projectId))!.roomId!;
+    return { roomId, snapshot: (await ctx.db.get(roomId))!.snapshot };
+  });
+  const plan = {
+    roomId: snapshot.id,
+    baseRevision: snapshot.revision,
+    summary: "Plan",
+    spacing: "balanced" as const,
+    zones: [],
+    rejected: [],
+    tasks: [],
+  };
+  const planId = await t.run((ctx) =>
+    ctx.db.insert("plans", {
+      projectId,
+      roomId,
+      status: "proposed",
+      createdAt: Date.now(),
+      plan,
+    }),
+  );
+  const stale = { messageId, attempt: 0 };
+  const rejected = "no longer active";
+  await expect(
+    t.mutation(internal.messages.ask, {
+      projectId,
+      turnId: messageId,
+      attempt: 0,
+      question: "Late?",
+      options: ["Yes"],
+      multiSelect: false,
+    }),
+  ).rejects.toThrow(rejected);
+  await expect(
+    t.mutation(internal.agentSteps.save, {
+      projectId,
+      ...stale,
+      step: 0,
+      response: "[]",
+      calls: "[]",
+      outputs: "{}",
+      text: "",
+    }),
+  ).rejects.toThrow(rejected);
+  const stepId = await t.mutation(internal.agentSteps.save, {
+    projectId,
+    messageId,
+    attempt: 1,
+    step: 0,
+    response: "[]",
+    calls: "[]",
+    outputs: "{}",
+    text: "",
+  });
+  await expect(
+    t.mutation(internal.agentSteps.output, {
+      id: stepId,
+      attempt: 0,
+      callId: "late",
+      output: "{}",
+    }),
+  ).rejects.toThrow(rejected);
+  await expect(
+    t.mutation(internal.projects.updateBrief, {
+      projectId,
+      ...stale,
+      budgetCents: 100,
+    }),
+  ).rejects.toThrow(rejected);
+  await expect(
+    t.mutation(internal.projects.setPhase, {
+      projectId,
+      ...stale,
+      phase: "plan",
+    }),
+  ).rejects.toThrow(rejected);
+  await expect(
+    t.mutation(internal.plans.propose, { projectId, roomId, plan, ...stale }),
+  ).rejects.toThrow(rejected);
+  await expect(
+    t.mutation(internal.plans.setStatus, {
+      planId,
+      ...stale,
+      status: "searching",
+    }),
+  ).rejects.toThrow(rejected);
+  await expect(
+    t.mutation(internal.recommendations.save, {
+      projectId,
+      ...stale,
+      zone: null,
+      product: sampleProducts[0],
+      explanation: "Late",
+      result: {
+        zoneId: "lamp",
+        productId: sampleProducts[0].id,
+        fits: "yes",
+        issues: [],
+      },
+    }),
+  ).rejects.toThrow(rejected);
+  await expect(
+    t.mutation(internal.design.editByAgent, {
+      projectId,
+      ...stale,
+      expectedRevision: snapshot.revision,
+      commands: [
+        { type: "add", productId: sampleProducts[0].id, instanceId: "late" },
+      ],
+    }),
+  ).rejects.toThrow(rejected);
+  await t.mutation(internal.images.complete, {
+    imageId: imageId!,
+    userMessageId: (await t.run((ctx) =>
+      ctx.db
+        .query("messages")
+        .filter((q) => q.eq(q.field("role"), "user"))
+        .first(),
+    ))!._id,
+    assistantMessageId: messageId,
+    attempt: 0,
+    status: "error",
+    analysis: "Late failure",
+  });
+  await t.mutation(internal.messages.updateProgress, {
+    ...stale,
+    content: "Late text",
+    activity: [],
+  });
+  await t.mutation(internal.messages.expire, stale);
+  await t.mutation(internal.messages.complete, {
+    ...stale,
+    status: "error",
+    content: "Late failure",
+  });
+  expect(await t.run((ctx) => ctx.db.get(imageId!))).toMatchObject({
+    status: "pending",
+  });
+  expect(await t.run((ctx) => ctx.db.get(messageId))).toMatchObject({
+    status: "pending",
+    content: "",
+  });
+  expect(
+    await t.run((ctx) => ctx.db.query("recommendations").collect()),
+  ).toEqual([]);
+  expect((await t.run((ctx) => ctx.db.get(planId)))?.status).toBe("proposed");
+
+  // The current attempt's writes still apply.
+  await t.mutation(internal.messages.updateProgress, {
+    messageId,
+    attempt: 1,
+    content: "Working",
+    activity: [],
+  });
+  expect((await t.run((ctx) => ctx.db.get(messageId)))?.content).toBe(
+    "Working",
+  );
+  await t.mutation(internal.messages.complete, {
+    messageId,
+    attempt: 1,
+    status: "done",
+    content: "Done",
+  });
+  expect((await t.run((ctx) => ctx.db.get(messageId)))?.status).toBe("done");
+  expect(
+    (await t.run((ctx) => ctx.db.get(projectId)))?.activeMessageId,
+  ).toBeUndefined();
 });
 
 it("records a tombstone until a deleted project's children are gone", async () => {

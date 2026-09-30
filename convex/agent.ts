@@ -255,6 +255,7 @@ function buildAgentTools(
   fills: State<ZoneFill[] | null>,
   report: Reporter,
   messageId: Id<"messages"> | null,
+  attempt: number | undefined,
   selectedObjectId: string | null,
 ): ToolSet {
   const specGate = () =>
@@ -308,6 +309,7 @@ function buildAgentTools(
             await ctx.runMutation(internal.plans.propose, {
               projectId,
               messageId: messageId ?? undefined,
+              attempt,
               operationKey: toolCallId,
               roomId,
               plan: result.plan,
@@ -437,6 +439,7 @@ function buildAgentTools(
                   await ctx.runMutation(internal.recommendations.save, {
                     projectId,
                     messageId,
+                    attempt,
                     planId: planId ?? undefined,
                     zone,
                     product,
@@ -472,6 +475,7 @@ function buildAgentTools(
             await ctx.runMutation(internal.plans.setStatus, {
               planId,
               messageId: messageId ?? undefined,
+              attempt,
               status: results.every((result) => result.product !== null)
                 ? "searched"
                 : "searching",
@@ -508,6 +512,7 @@ function buildAgentTools(
               await ctx.runMutation(internal.messages.ask, {
                 projectId,
                 turnId: messageId ?? undefined,
+                attempt,
                 operationKey: toolCallId,
                 question: specSummaryText(brief.get()),
                 options: SPEC_SUMMARY_OPTIONS,
@@ -534,6 +539,7 @@ function buildAgentTools(
               await ctx.runMutation(internal.messages.ask, {
                 projectId,
                 turnId: messageId ?? undefined,
+                attempt,
                 operationKey: toolCallId,
                 question,
                 options,
@@ -563,6 +569,7 @@ function buildAgentTools(
             projectId,
             operationKey: toolCallId,
             messageId,
+            attempt,
             expectedRevision: room.revision,
             commands,
             maxTotalCents,
@@ -614,6 +621,7 @@ function buildAgentTools(
           await ctx.runMutation(internal.projects.setPhase, {
             projectId,
             messageId: messageId ?? undefined,
+            attempt,
             phase: next,
           });
         phase.set(next);
@@ -665,6 +673,7 @@ function buildAgentTools(
           ? await ctx.runMutation(internal.projects.updateBrief, {
               projectId,
               messageId: messageId ?? undefined,
+              attempt,
               ...patch,
             })
           : roomId
@@ -721,6 +730,7 @@ function buildAgentTools(
             await ctx.runMutation(internal.recommendations.save, {
               projectId,
               messageId,
+              attempt,
               zone: null,
               product,
               result: {
@@ -828,6 +838,7 @@ function buildAgentTools(
                   projectId,
                   operationKey: toolCallId,
                   messageId,
+                  attempt,
                   expectedRevision: room.revision,
                   commands: additions.map((object) => ({
                     type: "add" as const,
@@ -875,6 +886,7 @@ async function runAgent(
   forcePlanSpace = false,
   messageId: Id<"messages"> | null = null,
   history: ModelMessage[] = [],
+  attempt?: number,
 ): Promise<{
   text: string;
   room: RoomSnapshot | null;
@@ -946,6 +958,7 @@ async function runAgent(
     { get: () => zoneFills, set: (next) => (zoneFills = next) },
     report,
     messageId,
+    attempt,
     selectedObjectId,
   );
   const stored = messageId
@@ -1011,6 +1024,7 @@ async function runAgent(
         stepId = await ctx.runMutation(internal.agentSteps.save, {
           projectId,
           messageId,
+          attempt,
           step: number,
           response: JSON.stringify(response),
           calls: JSON.stringify(calls),
@@ -1042,6 +1056,7 @@ async function runAgent(
         if (stepId)
           await ctx.runMutation(internal.agentSteps.output, {
             id: stepId,
+            attempt,
             callId,
             output: JSON.stringify(output),
           });
@@ -1098,6 +1113,7 @@ export const runForProject = internalAction({
     const complete = (content: string, status: "done" | "error") =>
       ctx.runMutation(internal.messages.complete, {
         messageId,
+        attempt,
         content,
         status,
       });
@@ -1156,6 +1172,7 @@ export const runForProject = internalAction({
         async (content, activity, recommendationProductId, recommendations) => {
           await ctx.runMutation(internal.messages.updateProgress, {
             messageId,
+            attempt,
             content,
             activity,
             recommendationProductId,
@@ -1167,6 +1184,7 @@ export const runForProject = internalAction({
         forcePlanSpace,
         messageId,
         transcript,
+        attempt,
       );
       if (continued) {
         await ctx.scheduler.runAfter(0, internal.agent.runForProject, {
@@ -1186,6 +1204,7 @@ export const runForProject = internalAction({
         await ctx.runMutation(internal.messages.ask, {
           projectId,
           turnId: messageId,
+          attempt,
           operationKey: `${messageId}:fallback-question`,
           question: card.question,
           options: card.options,

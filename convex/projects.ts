@@ -326,10 +326,11 @@ export const setPhase = internalMutation({
     projectId: v.id("projects"),
     phase: zodToConvex(projectPhaseSchema),
     messageId: v.optional(v.id("messages")),
+    attempt: v.optional(v.number()),
   },
   returns: v.null(),
-  handler: async (ctx, { projectId, phase, messageId }) => {
-    const project = await requireTurn(ctx, projectId, messageId);
+  handler: async (ctx, { projectId, phase, messageId, attempt }) => {
+    const project = await requireTurn(ctx, projectId, messageId, attempt);
     if (messageId && phase === "plan" && (project.phase ?? "spec") === "spec") {
       const messages = await ctx.db
         .query("messages")
@@ -365,6 +366,7 @@ export const updateBrief = internalMutation({
   args: {
     projectId: v.id("projects"),
     messageId: v.optional(v.id("messages")),
+    attempt: v.optional(v.number()),
     prompt: v.optional(v.string()),
     styles: v.optional(v.array(v.string())),
     budgetCents: v.optional(v.number()),
@@ -385,8 +387,8 @@ export const updateBrief = internalMutation({
     decided: v.optional(zodToConvex(z.array(specTopicSchema))),
   },
   returns: zodToConvex(briefSchema),
-  handler: async (ctx, { projectId, messageId, ...patch }) => {
-    const project = await requireTurn(ctx, projectId, messageId);
+  handler: async (ctx, { projectId, messageId, attempt, ...patch }) => {
+    const project = await requireTurn(ctx, projectId, messageId, attempt);
     if (!project) throw new Error("This project does not exist.");
     const room = project.roomId ? await ctx.db.get(project.roomId) : null;
     const brief = briefSchema.parse({

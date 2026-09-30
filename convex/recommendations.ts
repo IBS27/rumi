@@ -13,9 +13,12 @@ export const forZone = internalQuery({
       .unique(),
 });
 export const save = internalMutation({
-  args: schema.tables.recommendations.validator.fields,
-  handler: async (ctx, args) => {
-    await requireTurn(ctx, args.projectId, args.messageId);
+  args: {
+    ...schema.tables.recommendations.validator.fields,
+    attempt: v.optional(v.number()),
+  },
+  handler: async (ctx, { attempt, ...args }) => {
+    await requireTurn(ctx, args.projectId, args.messageId, attempt);
     const sameTurn = await ctx.db
       .query("recommendations")
       .withIndex("by_message_zone", (q) =>

@@ -42,13 +42,14 @@ export const propose = internalMutation({
     roomId: v.id("rooms"),
     plan: zodToConvex(designPlanSchema),
     messageId: v.optional(v.id("messages")),
+    attempt: v.optional(v.number()),
     operationKey: v.optional(v.string()),
   },
   handler: async (
     ctx,
-    { projectId, roomId, plan, messageId, operationKey },
+    { projectId, roomId, plan, messageId, attempt, operationKey },
   ) => {
-    const project = await requireTurn(ctx, projectId, messageId);
+    const project = await requireTurn(ctx, projectId, messageId, attempt);
     const room = await ctx.db.get(roomId);
     if (
       project.roomId !== roomId ||
@@ -125,12 +126,13 @@ export const setStatus = internalMutation({
   args: {
     planId: v.id("plans"),
     messageId: v.optional(v.id("messages")),
+    attempt: v.optional(v.number()),
     status: v.union(v.literal("searching"), v.literal("searched")),
   },
-  handler: async (ctx, { planId, status, messageId }) => {
+  handler: async (ctx, { planId, status, messageId, attempt }) => {
     const plan = await ctx.db.get(planId);
     if (!plan) throw new Error("Plan not found.");
-    await requireTurn(ctx, plan.projectId, messageId);
+    await requireTurn(ctx, plan.projectId, messageId, attempt);
     await requireCurrentRoom(ctx, plan);
     await ctx.db.patch(planId, { status });
     return null;

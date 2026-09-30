@@ -189,6 +189,7 @@ export const editByAgent = internalMutation({
     commands: zodToConvex(designCommandsSchema),
     operationKey: v.optional(v.string()),
     messageId: v.id("messages"),
+    attempt: v.optional(v.number()),
     maxTotalCents: v.optional(v.number()),
   },
   returns: zodToConvex(roomSchema),
@@ -199,11 +200,12 @@ export const editByAgent = internalMutation({
       expectedRevision,
       commands,
       messageId,
+      attempt,
       maxTotalCents,
       operationKey,
     },
   ): Promise<RoomSnapshot> => {
-    const project = await requireTurn(ctx, projectId, messageId);
+    const project = await requireTurn(ctx, projectId, messageId, attempt);
     if (!project.roomId)
       throw new Error("This design turn is no longer active.");
     return commitOnce(

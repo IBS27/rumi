@@ -10,6 +10,7 @@ import {
   internalQuery,
 } from "./_generated/server";
 import { internal } from "./_generated/api";
+import { currentAttempt } from "./turns";
 import { requireOwner, requireActiveOwner } from "./ownership";
 import { hashToken, randomToken } from "../shared/capture/pairing";
 import {
@@ -267,11 +268,23 @@ export const complete = internalMutation({
   args: {
     imageId: v.id("images"),
     userMessageId: v.id("messages"),
+    // Optional for analyses started before attempts existed.
+    assistantMessageId: v.optional(v.id("messages")),
+    attempt: v.optional(v.number()),
     status: v.union(v.literal("analyzed"), v.literal("error")),
     analysis: v.string(),
   },
-  handler: async (ctx, { imageId, userMessageId, status, analysis }) => {
+  handler: async (
+    ctx,
+    { imageId, userMessageId, assistantMessageId, attempt, status, analysis },
+  ) => {
     if (!(await ctx.db.get(imageId)) || !(await ctx.db.get(userMessageId)))
+      return;
+    const reply = assistantMessageId && (await ctx.db.get(assistantMessageId));
+    if (
+      assistantMessageId &&
+      (!reply || reply.status !== "pending" || !currentAttempt(reply, attempt))
+    )
       return;
     // The analysis stays on the image. The user's bubble keeps a short line;
     // the chat shows the analysis as a note, and the agent reads it from the
@@ -338,11 +351,14 @@ export const analyze = internalAction({
       await ctx.runMutation(internal.images.complete, {
         imageId,
         userMessageId,
+        assistantMessageId,
+        attempt,
         status: "analyzed",
         analysis: result.text,
       });
       await ctx.runMutation(internal.messages.updateProgress, {
         messageId: assistantMessageId,
+        attempt,
         content: "",
         activity: [
           {
@@ -370,11 +386,14 @@ export const analyze = internalAction({
       await ctx.runMutation(internal.images.complete, {
         imageId,
         userMessageId,
+        assistantMessageId,
+        attempt,
         status: "error",
         analysis: detail,
       });
       await ctx.runMutation(internal.messages.complete, {
         messageId: assistantMessageId,
+        attempt,
         content: "I couldn’t analyze that image. Please try again.",
         status: "error",
       });
