@@ -146,7 +146,7 @@ export function describeScope(
     return [
       defining,
       exclusions,
-      `The user has not listed items. Choose the non-excluded furniture ${room} needs for its purpose and style, sized to the free floor space. Put each floor piece in a free-floor slot from the list below (slotId), one per slot. Start with the most useful allowed piece, then storage, surfaces, seating, comfort and light as needed. Existing furniture reduces what is needed. Clearances may share walkways, so pieces can sit closer than their clearances suggest.`,
+      `The user has not listed items. Choose the non-excluded furniture ${room} needs for its purpose and style, sized to the free floor space. Start with the most useful allowed piece, then storage, surfaces, seating, comfort and light as needed. Existing furniture reduces what is needed. Clearances may share walkways, so pieces can sit closer than their clearances suggest.`,
       count,
       spacing,
       accessories,
@@ -155,7 +155,7 @@ export function describeScope(
     defining,
     exclusions,
     count,
-    `Items the user asked for, each of which MUST get its own zone with a matching category: ${scope.required.join(", ")}. Put each floor piece in a free-floor slot from the list below (slotId), one per slot.`,
+    `Items the user asked for, each of which MUST get its own zone with a matching category: ${scope.required.join(", ")}.`,
     scope.maxExtraFurniture > 0
       ? `You may add at most ${scope.maxExtraFurniture} extra floor piece that ${room} clearly needs.`
       : "Do not add extra floor furniture.",

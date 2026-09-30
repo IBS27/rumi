@@ -7,8 +7,10 @@
 `MAX_PLAN_ZONES` bounds shopping wants, zone proposals, persisted plans, and their
 search tasks at twelve. The planner's default is four non-rug pieces; explicit
 requests, room-defining furniture, and required supports are protected when optional
-extras are trimmed. Free-floor measurements are advisory and add no slot identifiers
-to the stored plan. Existing plans and briefs remain compatible.
+extras are trimmed. A zone request may name a free-floor `slotId`; a slot holds one
+floor piece, and a slotted piece is reserved inside its slot or rejected, never
+moved elsewhere. Pieces without a slot use `null`. Stored plans carry no slot
+identifiers. Existing plans and briefs remain compatible.
 
 `DesignBrief.excludedCategories` optionally lists furniture the user does not want
 to shop for. Missing means no structured exclusions (older saved briefs remain

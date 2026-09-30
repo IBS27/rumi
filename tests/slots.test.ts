@@ -1,14 +1,161 @@
 import { describe, expect, it } from "bun:test";
+import type {
+  DesignBrief,
+  ProductCandidate,
+  RoomObject,
+  RoomSnapshot,
+  ZoneRequest,
+} from "../shared/contracts";
+import { importRoomPlan } from "../shared/capture/roomplan";
+import { applyDesignCommands, designPlacementIssue } from "../shared/design";
 import { sampleBrief, sampleProducts, sampleRoom } from "../shared/fixtures";
-import { buildSpaceModel, rectangleRing, ringInside, ringsOverlap } from "../shared/planner/space";
-import { describeSlots, findSlots } from "../shared/planner/slots";
-import { buildDesignPlan, reserveZones } from "../shared/planner";
-import { productObject } from "../shared/design/placement";
+import { syntheticRoomPlan } from "../shared/fixtures/roomplan";
+import { applyProposal, findPlacement } from "../shared/geometry";
+import {
+  buildDesignPlan,
+  describeScope,
+  planScope,
+  reserveZones,
+} from "../shared/planner";
+import {
+  buildSpaceModel,
+  rectangleRing,
+  ringInside,
+  ringsOverlap,
+} from "../shared/planner/space";
+import * as slotRules from "../shared/planner/slots";
+import { describeSlots, findSlots, type Slot } from "../shared/planner/slots";
 
-const emptyRoom = { ...sampleRoom, objects: [] };
+// 4.8 × 4.2 m, no furniture and no openings.
+const emptyRoom: RoomSnapshot = { ...sampleRoom, objects: [], openings: [] };
+const brief: DesignBrief = { ...sampleBrief, budgetCents: 0 };
+const slotRing = (slot: Slot) =>
+  rectangleRing(slot.center, slot.width, slot.depth, slot.rotationY);
+const bodyRing = (zone: {
+  position: { x: number; z: number };
+  footprint: { width: number; depth: number };
+  rotationY: number;
+}) =>
+  rectangleRing(
+    { x: zone.position.x, z: zone.position.z },
+    zone.footprint.width,
+    zone.footprint.depth,
+    zone.rotationY,
+  );
+const piece = (
+  id: string,
+  category: string,
+  priority: number,
+  extra: Partial<ZoneRequest> = {},
+): ZoneRequest => ({
+  id,
+  category,
+  query: category,
+  purpose: `Add ${category}`,
+  priority,
+  mount: "floor",
+  anchor: "wall",
+  relatedObjectId: null,
+  slotId: null,
+  desiredFootprint: { width: 0.5, depth: 0.5 },
+  desiredHeight: null,
+  miscellaneous: [],
+  ...extra,
+});
+const request = (zones: ZoneRequest[]) => ({
+  summary: "Plan the room.",
+  spacing: "balanced",
+  zones,
+});
+const withObject = (
+  room: RoomSnapshot,
+  object: Pick<RoomObject, "id" | "name" | "category" | "dimensions" | "position"> & {
+    yaw?: number;
+  },
+): RoomSnapshot => ({
+  ...room,
+  objects: [
+    ...room.objects,
+    {
+      ...sampleRoom.objects[0],
+      ...object,
+      rotation: { x: 0, y: object.yaw ?? 0, z: 0 },
+    },
+  ],
+});
+const rug = (
+  id: string,
+  dimensions: { width: number; depth: number; height: number },
+): ProductCandidate => ({
+  ...sampleProducts[0],
+  id,
+  name: `Rug ${id}`,
+  category: "rug",
+  availability: "available",
+  measurement: {
+    ...sampleProducts[0].measurement,
+    source: "confirmed",
+    dimensions,
+  },
+});
+
+describe("catalog rug dimensions", () => {
+  const catalogRug = rug("catalog-rug", { width: 1.6, depth: 2.3, height: 0.01 });
+
+  it("survive placement and proposal validation in scanned and rectangular rooms", () => {
+    for (const room of [importRoomPlan(syntheticRoomPlan), sampleRoom]) {
+      const object = findPlacement(room, catalogRug);
+      expect(object?.dimensions).toEqual(catalogRug.measurement.dimensions!);
+      const next = applyProposal(
+        room,
+        {
+          id: "rug-proposal",
+          roomId: room.id,
+          baseRevision: room.revision,
+          summary: "Place the rug",
+          additions: [object!],
+        },
+        [catalogRug],
+        brief,
+      );
+      expect(next.revision).toBe(room.revision + 1);
+    }
+  });
+
+  it("survive add, replace and arrange commands, lying under furniture", () => {
+    const thicker = rug("thicker-rug", { width: 1.2, depth: 1.8, height: 0.015 });
+    const products = [catalogRug, thicker];
+    const added = applyDesignCommands(
+      sampleRoom,
+      [{ type: "add", productId: catalogRug.id, instanceId: "rug-1", nearObjectId: "owned-bed" }],
+      products,
+      brief,
+    );
+    const placed = added.objects.find((object) => object.id === "rug-1")!;
+    expect(placed.dimensions).toEqual(catalogRug.measurement.dimensions!);
+    expect(designPlacementIssue(added, placed)).toBeNull();
+    const replaced = applyDesignCommands(
+      added,
+      [{ type: "replace", objectId: "rug-1", productId: thicker.id }],
+      products,
+      brief,
+    );
+    const arranged = applyDesignCommands(
+      replaced,
+      [{ type: "arrange", objectId: "rug-1", nearObjectId: "owned-bed" }],
+      products,
+      brief,
+    );
+    for (const room of [replaced, arranged]) {
+      const object = room.objects.find((item) => item.id === "rug-1")!;
+      expect(object.dimensions).toEqual(thicker.measurement.dimensions!);
+      expect(designPlacementIssue(room, object)).toBeNull();
+    }
+  });
+});
 
 describe("free-floor slots", () => {
-  it("finds the largest empty rectangles, largest first, each against a wall", () => {
+  it("finds empty rectangles, largest first, inside the floor and clear of furniture and doors", () => {
     const model = buildSpaceModel(sampleRoom);
     const slots = findSlots(model);
     expect(slots.length).toBeGreaterThan(0);
@@ -18,139 +165,306 @@ describe("free-floor slots", () => {
     for (const slot of slots) {
       expect(slot.width).toBeGreaterThanOrEqual(0.5);
       expect(slot.depth).toBeGreaterThanOrEqual(0.5);
-      const ring = rectangleRing(slot.center, slot.width, slot.depth, slot.rotationY);
-      // Inside the room, clear of every piece that stands on the floor.
-      expect(ringInside(ring, model.floor)).toBe(true);
+      expect(ringInside(slotRing(slot), model.floor)).toBe(true);
       for (const obstacle of model.obstacles)
-        if (obstacle.category !== "rug" && obstacle.bottom <= 0.9)
-          expect(ringsOverlap(ring, obstacle.footprint)).toBe(false);
+        expect(ringsOverlap(slotRing(slot), obstacle.footprint)).toBe(false);
+      for (const door of model.clearances)
+        expect(ringsOverlap(slotRing(slot), door.footprint)).toBe(false);
     }
-    // Slots do not overlap one another.
-    const rings = slots.map((slot) => rectangleRing(slot.center, slot.width, slot.depth, slot.rotationY));
+    const rings = slots.map(slotRing);
     for (let i = 0; i < rings.length; i++)
-      for (let j = i + 1; j < rings.length; j++) expect(ringsOverlap(rings[i], rings[j])).toBe(false);
-    // The fixture bed and desk are what the slots sit next to.
+      for (let j = i + 1; j < rings.length; j++)
+        expect(ringsOverlap(rings[i], rings[j])).toBe(false);
     expect(slots.some((slot) => slot.near.some((name) => /bed|desk/i.test(name)))).toBe(true);
     expect(describeSlots(slots)).toContain("Slot 1 (slot-1)");
+    expect(findSlots(model, { minSide: 10 })).toEqual([]);
   });
 
-  it("ignores slivers and hung objects, and gives an empty room the whole floor", () => {
+  it("never advertises floor across a thin or rotated divider", () => {
+    for (const yaw of [0, 0.63]) {
+      const room = withObject(emptyRoom, {
+        id: "divider",
+        name: "Thin room divider",
+        category: "storage",
+        dimensions: { width: 2, height: 1.8, depth: 0.02 },
+        position: { x: 2.4, y: 0, z: 2.5 },
+        yaw,
+      });
+      const model = buildSpaceModel(room);
+      const slots = findSlots(model, { count: 6 });
+      for (const slot of slots) {
+        expect(ringInside(slotRing(slot), model.floor)).toBe(true);
+        for (const obstacle of model.obstacles)
+          expect(ringsOverlap(slotRing(slot), obstacle.footprint)).toBe(false);
+      }
+      // Floor on both sides of the divider is still offered.
+      expect(slots.length).toBeGreaterThan(1);
+    }
+  });
+
+  it("splits open floor into several wall-backed slots instead of one room-sized slot", () => {
     const model = buildSpaceModel(emptyRoom);
-    const [first] = findSlots(model, { count: 1 });
-    // 4.8 × 4.2 room less door strips: nearly the whole floor.
-    expect(first.width * first.depth).toBeGreaterThan(14);
-    expect(first.wallId).not.toBeNull();
-    // A wall mirror above waist height does not cut the floor.
-    const withMirror = {
-      ...emptyRoom,
-      objects: [
-        {
-          ...sampleRoom.objects[0], id: "mirror", name: "Wall mirror", category: "art" as const,
-          dimensions: { width: 1, height: 1, depth: 0.03 }, position: { x: 2.4, y: 1.2, z: 0.02 },
-        },
-      ],
-    };
-    const [same] = findSlots(buildSpaceModel(withMirror), { count: 1 });
-    expect(same.width * same.depth).toBeCloseTo(first.width * first.depth, 1);
-    expect(findSlots(model, { minSide: 10 })).toEqual([]);
+    const slots = findSlots(model, { count: 5 });
+    expect(slots.length).toBeGreaterThanOrEqual(4);
+    for (const slot of slots) {
+      // Pieces stand against a wall; no slot is deeper than a bed needs.
+      expect(slot.depth).toBeLessThanOrEqual(2.4);
+      expect(slot.width).toBeLessThanOrEqual(3.2);
+      expect(ringInside(slotRing(slot), model.floor)).toBe(true);
+    }
+    const rings = slots.map(slotRing);
+    for (let i = 0; i < rings.length; i++)
+      for (let j = i + 1; j < rings.length; j++)
+        expect(ringsOverlap(rings[i], rings[j])).toBe(false);
   });
 });
 
-describe("slot planning", () => {
-  const base = { purpose: "p", anchor: "wall" as const, relatedObjectId: null, desiredHeight: null, miscellaneous: [], priority: 1 };
-
-  it("places a floor piece in the slot the model chose, against the slot's wall", () => {
+describe("slot reservation", () => {
+  it("places a floor piece inside its slot, back against the slot's wall edge", () => {
     const model = buildSpaceModel(sampleRoom);
     const slots = findSlots(model);
     const target = slots[0];
     const { zones, rejected } = reserveZones(
-      sampleRoom, model,
-      [{ ...base, id: "sofa", category: "loveseat", query: "loveseat", mount: "floor", slotId: target.id, desiredFootprint: { width: 1.5, depth: 0.85 } }],
-      "balanced", sampleRoom.dimensions.height, [], slots,
+      sampleRoom,
+      model,
+      [piece("sofa", "loveseat", 1, { slotId: target.id, desiredFootprint: { width: 1.5, depth: 0.85 } })],
+      "balanced",
+      sampleRoom.dimensions.height,
+      [],
+      slots,
     );
     expect(rejected).toEqual([]);
     const sofa = zones[0];
     expect(sofa.rotationY).toBeCloseTo(target.rotationY, 5);
-    // Inside the slot.
-    const slotRing = rectangleRing(target.center, target.width + 0.02, target.depth + 0.02, target.rotationY);
-    expect(ringInside(rectangleRing({ x: sofa.position.x, z: sofa.position.z }, sofa.footprint.width, sofa.footprint.depth, sofa.rotationY), [slotRing])).toBe(true);
-    // Its back is at the slot's back edge, not floating mid-slot.
-    const s = Math.sin(target.rotationY), c = Math.cos(target.rotationY);
-    const back = { x: target.center.x - s * target.depth / 2, z: target.center.z - c * target.depth / 2 };
+    expect(ringInside(bodyRing(sofa), [slotRing(target)])).toBe(true);
+    const s = Math.sin(target.rotationY),
+      c = Math.cos(target.rotationY);
+    const back = {
+      x: target.center.x - (s * target.depth) / 2,
+      z: target.center.z - (c * target.depth) / 2,
+    };
     const gap = (sofa.position.x - back.x) * s + (sofa.position.z - back.z) * c;
-    expect(gap).toBeCloseTo(sofa.footprint.depth / 2 + 0.05 + 0.02, 1);
+    expect(gap - sofa.footprint.depth / 2).toBeLessThanOrEqual(sofa.margins.back + 0.03);
   });
 
-  it("sizes a piece to its slot and steps a bed to the size that fits it", () => {
+  it("never accepts a body outside the selected slot", () => {
     const model = buildSpaceModel(sampleRoom);
     const slots = findSlots(model);
-    const small = slots.reduce((a, b) => (a.width * a.depth < b.width * b.depth ? a : b));
-    const { zones } = reserveZones(
-      sampleRoom, model,
-      [{ ...base, id: "table", category: "console table", query: "console", mount: "floor", slotId: small.id, desiredFootprint: { width: 5, depth: 5 } }],
-      "balanced", sampleRoom.dimensions.height, [], slots,
-    );
-    expect(zones[0].footprint.width).toBeLessThanOrEqual(small.width);
-    expect(zones[0].footprint.depth).toBeLessThanOrEqual(small.depth);
-    // A queen frame asked into a 1.45 m wide slot steps down to a twin frame.
-    const narrow = { ...emptyRoom, dimensions: { width: 1.5, depth: 3.5, height: 2.7 }, openings: [] };
-    if (narrow.shape !== "rectangle") throw new Error("fixture changed");
-    const narrowModel = buildSpaceModel(narrow);
-    const narrowSlots = findSlots(narrowModel);
-    const bed = reserveZones(
-      narrow, narrowModel,
-      [{ ...base, id: "bed", category: "queen bed", query: "queen bed", mount: "floor", slotId: narrowSlots[0].id, desiredFootprint: { width: 1.6, depth: 2.1 } }],
-      "balanced", narrow.dimensions.height, [], narrowSlots,
-    ).zones[0];
-    expect(bed.category).toBe("twin bed");
-    expect(bed.footprint.width).toBe(1.1);
+    for (const slot of slots) {
+      const { zones, rejected } = reserveZones(
+        sampleRoom,
+        model,
+        [piece("table", "console table", 1, { slotId: slot.id, desiredFootprint: { width: 5, depth: 5 } })],
+        "balanced",
+        sampleRoom.dimensions.height,
+        [],
+        slots,
+      );
+      expect(zones.length + rejected.length).toBe(1);
+      for (const zone of zones) {
+        expect(ringInside(bodyRing(zone), [slotRing(slot)])).toBe(true);
+        expect(zone.footprint.width).toBeLessThanOrEqual(slot.width);
+        expect(zone.footprint.depth).toBeLessThanOrEqual(slot.depth);
+      }
+      for (const item of rejected) expect(item.reason).toContain(slot.id);
+    }
   });
 
-  it("keeps the plan to four items, rugs free, and always keeps what the user asked for", () => {
-    const zone = (id: string, category: string, priority: number, mount: "floor" | "wall" | "under" = "floor") => ({
-      ...base, id, category, query: category, mount, priority,
-      desiredFootprint: mount === "under" ? { width: 1.6, depth: 2.3 } : mount === "wall" ? { width: 0.6, depth: 0.04 } : { width: 0.5, depth: 0.5 },
-    });
-    // Delegated: the model over-proposed; the lowest priorities go, the rug is free.
+  it("gives a slot to one floor piece and rejects reused or unknown slots by name", () => {
+    const model = buildSpaceModel(emptyRoom);
+    const slots = findSlots(model, { count: 2 });
+    const { zones, rejected } = reserveZones(
+      emptyRoom,
+      model,
+      [
+        piece("chair", "accent chair", 1, { slotId: slots[0].id }),
+        piece("lamp", "floor lamp", 2, { slotId: slots[0].id }),
+        piece("stool", "stool", 3, { slotId: "slot-99" }),
+      ],
+      "balanced",
+      emptyRoom.dimensions.height,
+      [],
+      slots,
+    );
+    expect(zones.map((zone) => zone.id)).toEqual(["chair"]);
+    expect(ringInside(bodyRing(zones[0]), [slotRing(slots[0])])).toBe(true);
+    expect(rejected.map((item) => item.zoneId)).toEqual(["lamp", "stool"]);
+    expect(rejected[0].reason).toContain(slots[0].id);
+    expect(rejected[1].reason).toContain("slot-99");
+  });
+
+  it("keeps a piece without a slot out of a slot another piece still needs", () => {
+    const model = buildSpaceModel(emptyRoom);
+    const slots = findSlots(model, { count: 3 });
+    const { zones, rejected } = reserveZones(
+      emptyRoom,
+      model,
+      [
+        piece("bookcase", "bookcase", 1, { desiredFootprint: { width: 1, depth: 0.4 } }),
+        piece("desk", "desk", 2, { slotId: slots[0].id, desiredFootprint: { width: 1.2, depth: 0.6 } }),
+      ],
+      "balanced",
+      emptyRoom.dimensions.height,
+      [],
+      slots,
+    );
+    expect(rejected).toEqual([]);
+    const bookcase = zones.find((zone) => zone.id === "bookcase")!;
+    const desk = zones.find((zone) => zone.id === "desk")!;
+    expect(ringsOverlap(bodyRing(bookcase), slotRing(slots[0]))).toBe(false);
+    expect(ringInside(bodyRing(desk), [slotRing(slots[0])])).toBe(true);
+  });
+
+  it("steps a bed down to the standard frame its slot holds", () => {
+    const narrow: RoomSnapshot = {
+      ...emptyRoom,
+      dimensions: { width: 1.5, depth: 3.5, height: 2.7 },
+    };
+    const model = buildSpaceModel(narrow);
+    const slots = findSlots(model);
+    const { zones } = reserveZones(
+      narrow,
+      model,
+      [piece("bed", "queen bed", 1, { slotId: slots[0].id, desiredFootprint: { width: 1.65, depth: 2.15 } })],
+      "balanced",
+      narrow.dimensions.height,
+      [],
+      slots,
+    );
+    expect(zones[0].category).toBe("twin bed");
+    expect(zones[0].footprint.width).toBe(1.1);
+    expect(ringInside(bodyRing(zones[0]), [slotRing(slots[0])])).toBe(true);
+  });
+});
+
+describe("planner slot and count rules", () => {
+  const wants = ["accent chair", "floor lamp", "plant", "bookcase", "stool"];
+  const directed: DesignBrief = {
+    ...brief,
+    wants: wants.map((category) => ({ category, notes: "" })),
+  };
+
+  it("place a directed list longer than four, one piece per slot and the rest in free floor", () => {
+    const scope = planScope(directed);
+    expect(scope.maxZones).toBe(5);
+    const slots = findSlots(buildSpaceModel(emptyRoom), { count: scope.maxZones });
+    expect(slots.length).toBeGreaterThanOrEqual(4);
+    const zones = wants.map((category, index) =>
+      piece(category, category, index + 1, { slotId: slots[index]?.id ?? null }),
+    );
     const { plan } = buildDesignPlan({
       room: emptyRoom,
-      brief: { ...sampleBrief, wants: [] },
-      products: sampleProducts,
-      request: {
-        summary: "Too much.", spacing: "balanced",
-        zones: [
-          zone("chair", "accent chair", 1), zone("lamp", "floor lamp", 2), zone("plant", "plant", 3),
-          zone("art", "wall art", 4, "wall"), zone("rug", "area rug", 5, "under"), zone("bookcase", "bookcase", 6),
-          zone("stool", "stool", 7),
-        ],
-      },
+      brief: directed,
+      products: [],
+      request: request(zones),
     });
-    const kept = plan.zones.map((item) => item.category);
-    expect(kept).toContain("area rug");
-    expect(kept.filter((category) => category !== "area rug")).toHaveLength(4);
-    expect(kept).not.toContain("stool");
-    expect(kept).not.toContain("bookcase");
-    expect(plan.rejected.some((item) => item.reason.includes("initial plan to 4 pieces"))).toBe(true);
-    // Directed: five named items all stay; the cap grows to the user's list.
-    const named = ["accent chair", "floor lamp", "plant", "bookcase", "stool"];
-    const directed = buildDesignPlan({
-      room: emptyRoom,
-      brief: { ...sampleBrief, wants: named.map((category) => ({ category, notes: "" })) },
-      products: sampleProducts,
-      request: {
-        summary: "All five.", spacing: "balanced",
-        zones: named.map((category, index) => zone(category, category, index + 1)),
-      },
-    }).plan;
-    expect(directed.zones.map((item) => item.category).sort()).toEqual([...named].sort());
+    expect(plan.rejected).toEqual([]);
+    expect(plan.zones.map((zone) => zone.id).sort()).toEqual([...wants].sort());
+    wants.forEach((category, index) => {
+      const zone = plan.zones.find((item) => item.id === category)!;
+      if (slots[index]) expect(ringInside(bodyRing(zone), [slotRing(slots[index])])).toBe(true);
+    });
   });
 
-  it("gives a rug no thickness so it lies under anything", () => {
-    const rug = productObject(
-      { ...sampleProducts[0], id: "rug", category: "area rug", availability: "available", measurement: { ...sampleProducts[0].measurement, dimensions: { width: 1.6, depth: 2.3, height: 0.01 } } },
-      "rug-1",
+  it("place floor pieces beyond the chosen slots in the remaining free floor", () => {
+    const slots = findSlots(buildSpaceModel(emptyRoom), { count: planScope(directed).maxZones });
+    const zones = wants.map((category, index) =>
+      piece(category, category, index + 1, { slotId: index === 0 ? slots[0].id : null }),
     );
-    expect(rug.dimensions.height).toBe(0.005);
-    expect(rug.mount).toBe("under");
+    const { plan } = buildDesignPlan({
+      room: emptyRoom,
+      brief: directed,
+      products: [],
+      request: request(zones),
+    });
+    expect(plan.rejected).toEqual([]);
+    expect(plan.zones).toHaveLength(wants.length);
+    const chair = plan.zones.find((zone) => zone.id === "accent chair")!;
+    expect(ringInside(bodyRing(chair), [slotRing(slots[0])])).toBe(true);
+  });
+
+  it("let an accessory-only request plan no floor furniture", () => {
+    const art = piece("art", "wall art", 1, {
+      mount: "wall",
+      desiredFootprint: { width: 0.6, depth: 0.04 },
+      desiredHeight: 0.6,
+    });
+    const { plan } = buildDesignPlan({
+      room: emptyRoom,
+      brief: { ...brief, wants: [{ category: "wall art", notes: "" }] },
+      products: [],
+      request: request([art]),
+    });
+    expect(plan.zones.map((zone) => zone.mount)).toEqual(["wall"]);
+    expect(plan.rejected).toEqual([]);
+  });
+
+  it("send reused or unknown slots back to the model with a satisfiable fix", () => {
+    const slots = findSlots(buildSpaceModel(emptyRoom), { count: planScope(directed).maxZones });
+    const plan = (slotIds: (string | null)[]) =>
+      buildDesignPlan({
+        room: emptyRoom,
+        brief: directed,
+        products: [],
+        request: request(
+          wants.map((category, index) =>
+            piece(category, category, index + 1, { slotId: slotIds[index] ?? null }),
+          ),
+        ),
+      });
+    expect(() => plan([slots[0].id, slots[0].id])).toThrow(/slot-1.*slotId null/);
+    expect(() => plan(["slot-99"])).toThrow(/slot-99.*slotId null/);
+  });
+
+  it("send a requested or defining piece that misses its slot back for another slot", () => {
+    const model = buildSpaceModel(sampleRoom);
+    const requested: DesignBrief = { ...brief, wants: [{ category: "twin bed", notes: "" }] };
+    const slots = findSlots(model, { count: planScope(requested).maxZones });
+    const tight = slots.find((slot) => slot.width < 1.12 || slot.depth < 2.1);
+    expect(tight).toBeDefined();
+    const bed = piece("bed", "twin bed", 1, {
+      slotId: tight!.id,
+      desiredFootprint: { width: 1.1, depth: 2.05 },
+    });
+    expect(() =>
+      buildDesignPlan({ room: sampleRoom, brief: requested, products: [], request: request([bed]) }),
+    ).toThrow(new RegExp(`${tight!.id}.*slotId null`));
+
+    const bedroom: DesignBrief = { ...brief, purpose: "bedroom" };
+    const emptySlots = findSlots(buildSpaceModel(emptyRoom), { count: planScope(bedroom).maxZones });
+    const shallow = emptySlots.find((slot) => slot.width < 1.12 || slot.depth < 2.1);
+    expect(shallow).toBeDefined();
+    let message = "";
+    try {
+      buildDesignPlan({
+        room: emptyRoom,
+        brief: bedroom,
+        products: [],
+        request: request([{ ...bed, category: "bed", query: "bed", slotId: shallow!.id }]),
+      });
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
+    }
+    expect(message).toContain(shallow!.id);
+    expect(message).toContain("slotId null");
+    // The planner retries every rejection except an unreservable defining piece.
+    expect(message).not.toMatch(/defining .+ could not be reserved/i);
+  });
+
+  it("state rules that every supported request can satisfy", () => {
+    const rules = (slotRules as Record<string, unknown>).SLOT_RULES;
+    expect(typeof rules).toBe("string");
+    expect(rules).toContain("slotId null");
+    const texts = [
+      String(rules),
+      describeScope(planScope(directed), "study"),
+      describeScope(planScope({ ...brief, wants: [{ category: "wall art", notes: "" }] }), "study"),
+      describeScope(planScope({ ...brief, purpose: "bedroom" }), "bedroom"),
+      describeSlots([]),
+    ];
+    for (const text of texts)
+      expect(text).not.toMatch(/must take one slot|one per slot|at least one floor piece|at most 4 items/i);
+    expect(texts[1]).toContain("at most 5 pieces");
+    expect(describeSlots([])).toContain("slotId null");
   });
 });

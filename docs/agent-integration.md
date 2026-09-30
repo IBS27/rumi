@@ -27,10 +27,14 @@ object overlap and conservative doorway clearances. Unknown dimensions and absen
 floor measurements cannot establish fit. Electrical, installation, ergonomic and
 delivery checks remain outside this milestone.
 
-Planning starts with measured free-floor areas, room purpose, existing furniture,
-and explicit shopping exclusions. The area measurements guide category and size
-choices; they are not exclusive slots. Several pieces can share a large area, and
-the placement validator checks every actual reservation against earlier pieces.
+Planning starts with measured free-floor slots, room purpose, existing furniture,
+and explicit shopping exclusions. Slots are wall-backed empty rectangles, found
+conservatively so a thin divider or angled edge is never inside one, and capped in
+depth and width so open floor yields several. The planner may give each slot to one
+floor piece, which is then reserved inside it or rejected. Other floor pieces take
+`slotId: null` and are placed in the remaining free floor, clear of slots still
+claimed by later pieces. The placement validator checks every actual reservation
+against earlier pieces.
 The initial plan defaults to four pieces plus rugs. Explicit requests and furniture
 needed to support a requested accessory take priority over this default, within the
 brief's twelve-item limit. Only successful reservations count toward the default.
