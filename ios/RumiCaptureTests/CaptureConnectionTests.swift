@@ -51,7 +51,18 @@ final class CaptureConnectionTests: XCTestCase {
         XCTAssertTrue(connection.isConnected)
         let requests = await stub.requests
         XCTAssertEqual(requests.count, 4)
-        XCTAssertTrue(requests.allSatisfy { $0.httpBody == requests.first?.httpBody })
+        // The claim endpoint reads these JSON fields; encoded key order is not part of its contract.
+        struct ClaimBody: Decodable { let sessionId: String; let claimId: String }
+        let bodies = try requests.map { request in
+            try JSONDecoder().decode(ClaimBody.self, from: XCTUnwrap(request.httpBody))
+        }
+        let claimId = try XCTUnwrap(bodies.first?.claimId)
+        XCTAssertFalse(claimId.isEmpty)
+        XCTAssertNotNil(UUID(uuidString: claimId), "Every retry must reuse one UUID claim ID")
+        for body in bodies {
+            XCTAssertEqual(body.sessionId, "test-session")
+            XCTAssertEqual(body.claimId, claimId)
+        }
     }
 
     func testCanceledClaimCannotStartRoomScan() async throws {
