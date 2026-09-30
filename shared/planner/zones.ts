@@ -1,11 +1,12 @@
 import type {
+  RoomObject,
   ReservedZone,
   RoomSnapshot,
   ZoneRejection,
   ZoneRequest,
 } from "../contracts";
 import type { Spacing, ZoneMount } from "../contracts";
-import { SPACING_FACTOR } from "./scope";
+import { sameCategory, SPACING_FACTOR } from "./scope";
 import {
   FURNITURE_GAP,
   WALK_PATH,
@@ -19,6 +20,7 @@ import {
 } from "./space";
 
 const MIN_FOOTPRINT = 0.25;
+const POSITION_ROUNDING_PAD = 0.01;
 // Positions are reported to the centimeter.
 const cm = (value: number) => Math.round(value * 100) / 100 + 0;
 // Shrinking past 70% turns the request into a different piece of furniture, so
@@ -29,10 +31,10 @@ const SHRINK_STEPS = [1, 0.9, 0.8, 0.7];
 // bed nobody makes; stepping to the next size down asks for one they do.
 // Footprints include a typical frame around the mattress.
 const BED_SIZES: { name: string; pattern: RegExp; width: number; depth: number }[] = [
-  { name: "king", pattern: /\bking\b/i, width: 2.0, depth: 2.15 },
-  { name: "queen", pattern: /\bqueen\b/i, width: 1.6, depth: 2.1 },
-  { name: "full", pattern: /\b(full|double)\b/i, width: 1.45, depth: 2.0 },
-  { name: "twin", pattern: /\b(twin|single)\b/i, width: 1.05, depth: 2.0 },
+  { name: "king", pattern: /\bking\b/i, width: 2.05, depth: 2.2 },
+  { name: "queen", pattern: /\bqueen\b/i, width: 1.65, depth: 2.15 },
+  { name: "full", pattern: /\b(full|double)\b/i, width: 1.5, depth: 2.05 },
+  { name: "twin", pattern: /\b(twin|single)\b/i, width: 1.1, depth: 2.05 },
 ];
 
 // We shop US stores. UK size names pull in UK retailers, which are then
@@ -48,7 +50,12 @@ export function usBedTerms(text: string): string {
   return UK_BED_TERMS.reduce((value, [pattern, us]) => value.replace(pattern, us), text);
 }
 
+function isBed(category: string): boolean {
+  return /\b(?:bed|daybed)\b/i.test(category) && !/\bbed bench\b/i.test(category);
+}
+
 interface SizeStep {
+  sizeName?: string;
   width: number;
   depth: number;
   // Wording changes that go with the size, applied to category and query.
@@ -61,13 +68,21 @@ interface SizeStep {
 // ladder from the requested size down; everything else shrinks by steps.
 function sizeSteps(request: ZoneRequest): SizeStep[] {
   const words = usBedTerms(`${request.category} ${request.query}`);
-  if (/\bbed\b/i.test(request.category) && !/\bbedside|bed bench\b/i.test(request.category)) {
+  if (isBed(request.category)) {
     const start = BED_SIZES.findIndex((size) => size.pattern.test(words));
     const from = start === -1 ? BED_SIZES.findIndex((size) => size.name === "queen") : start;
     const named = BED_SIZES[from];
-    // A standard size is the size: the model's guess at a footprint does not
-    // shrink it, or the zone would reject every bed of the size it names.
-    return BED_SIZES.slice(from).map((size) => ({
+    // Keep room for a bulky frame when possible, then try a compact frame of
+    // the same size before stepping down. Never go below a standard envelope.
+    const desired = {
+      ...named,
+      width: Math.max(named.width, request.desiredFootprint.width),
+      depth: Math.max(named.depth, request.desiredFootprint.depth),
+    };
+    const sizes = BED_SIZES.slice(from);
+    if (desired.width > named.width || desired.depth > named.depth) sizes.unshift(desired);
+    return sizes.map((size) => ({
+      sizeName: size.name,
       width: size.width,
       depth: size.depth,
       rename: (text) => {
@@ -96,7 +111,7 @@ export function marginsFor(category: string): Margins {
   const value = category.toLowerCase();
   // Rooms are furnished tightly in practice: enough to use the piece and
   // squeeze past, not showroom spacing. Only the front strip is hard.
-  if (/bed/.test(value)) return { front: 0.5, back: 0.05, sides: 0.4 };
+  if (isBed(value)) return { front: 0.5, back: 0.05, sides: 0.4 };
   // Seating first: a "desk chair" or "dining chair" is a chair, not a desk.
   if (/chair|stool|bench|ottoman/.test(value))
     return { front: 0.45, back: 0.05, sides: 0.15 };
@@ -118,6 +133,26 @@ export function marginsFor(category: string): Margins {
 // the category's own value when that is already smaller (a lamp needs 0.2 m).
 const MIN_FRONT = 0.45;
 const MIN_SIDES = 0.05;
+
+// Small rooms cannot always spare a full walkway. The last-resort tier keeps
+// a squeezable strip in front and a minimal gap beside furniture; walls may
+// still cut side clearance. The zone records the honest margins it used.
+const TIGHT_FRONT = 0.45;
+const TIGHT_BACK = 0.02;
+
+function marginTiers(margins: Margins, mount: ZoneMount): Margins[] {
+  if (mount !== "floor") return [margins];
+  const tight: Margins = {
+    front: Math.min(margins.front, TIGHT_FRONT),
+    back: Math.min(margins.back, TIGHT_BACK),
+    sides: Math.min(margins.sides, MIN_SIDES),
+  };
+  return tight.front < margins.front ||
+    tight.back < margins.back ||
+    tight.sides < margins.sides
+    ? [margins, tight]
+    : [margins];
+}
 
 export function scaleMargins(margins: Margins, spacing: Spacing): Margins {
   const factor = SPACING_FACTOR[spacing];
@@ -177,6 +212,36 @@ function frontRing(
   );
 }
 
+// A floor edge is only a wall when a scanned wall runs parallel to it, nearby,
+// and over a shared span. Interior seams between floor patches and scan
+// cutoffs have no wall behind them; hugging one floats furniture in the room.
+const WALL_EDGE_DISTANCE = 0.6;
+const WALL_EDGE_PARALLEL = 0.25; // sin of the allowed edge-to-wall angle
+
+function edgeHasWall(model: SpaceModel, start: Point2, end: Point2): boolean {
+  const length = Math.hypot(end.x - start.x, end.z - start.z);
+  if (!length) return false;
+  const dx = (end.x - start.x) / length;
+  const dz = (end.z - start.z) / length;
+  return model.walls.some((wall) => {
+    const wx = wall.end.x - wall.start.x;
+    const wz = wall.end.z - wall.start.z;
+    const wLength = Math.hypot(wx, wz);
+    if (!wLength) return false;
+    if (Math.abs(dx * wz - dz * wx) / wLength > WALL_EDGE_PARALLEL) return false;
+    const midX = (wall.start.x + wall.end.x) / 2;
+    const midZ = (wall.start.z + wall.end.z) / 2;
+    if (
+      Math.abs(dx * (midZ - start.z) - dz * (midX - start.x)) >
+      WALL_EDGE_DISTANCE
+    )
+      return false;
+    const t1 = (wall.start.x - start.x) * dx + (wall.start.z - start.z) * dz;
+    const t2 = (wall.end.x - start.x) * dx + (wall.end.z - start.z) * dz;
+    return Math.min(t1, t2) < length && Math.max(t1, t2) > 0;
+  });
+}
+
 function candidatePositions(
   model: SpaceModel,
   request: ZoneRequest,
@@ -184,11 +249,38 @@ function candidatePositions(
   depth: number,
   margins: Margins,
   zones: ReservedZone[] = [],
+  placementHint: RoomObject | null = null,
 ): { position: Point2; rotationY: number }[] {
-  const { width: roomWidth, depth: roomDepth } = model.bounds;
+  // Captured floor polygons can be inset from the scan's wall-derived bounds.
+  // Candidate coordinates must follow the actual walkable polygon, not assume
+  // that it starts at (0, 0), or wall-aligned furniture gets pushed outside.
+  const floorPoints = model.floor.flat();
+  const minX = floorPoints.length
+    ? Math.min(...floorPoints.map((point) => point.x))
+    : 0;
+  const maxX = floorPoints.length
+    ? Math.max(...floorPoints.map((point) => point.x))
+    : model.bounds.width;
+  const minZ = floorPoints.length
+    ? Math.min(...floorPoints.map((point) => point.z))
+    : 0;
+  const maxZ = floorPoints.length
+    ? Math.max(...floorPoints.map((point) => point.z))
+    : model.bounds.depth;
+  const roomWidth = maxX - minX;
+  const roomDepth = maxZ - minZ;
   const candidates: { position: Point2; rotationY: number }[] = [];
   const push = (x: number, z: number, rotationY: number) =>
     candidates.push({ position: { x, z }, rotationY });
+  // An item removed through the editor was valid at this exact location. Try
+  // that footprint before the generic grid when planning a replacement of the
+  // same category.
+  if (placementHint)
+    push(
+      placementHint.position.x,
+      placementHint.position.z,
+      placementHint.rotation.y,
+    );
   const object = request.relatedObjectId
     ? model.obstacles.find((obstacle) => obstacle.id === request.relatedObjectId)
     : null;
@@ -222,72 +314,141 @@ function candidatePositions(
   // Back edge against the wall; the reservation ring already holds the margin.
   const wallInset = depth / 2 + margins.back + 0.02;
   const sideInset = width / 2 + margins.sides + 0.02;
-  // Positions come from the room's actual wall segments, so an irregular
-  // scan (a notch, a bathroom, an angled wall) offers its real walls and not
-  // the edges of its bounding box. The piece faces away from the wall.
-  const floorCenter = model.floor[0].reduce(
-    (sum, point) => ({
-      x: sum.x + point.x / model.floor[0].length,
-      z: sum.z + point.z / model.floor[0].length,
-    }),
-    { x: 0, z: 0 },
-  );
-  const segments = model.walls
-    .map((wall) => {
-      const length = Math.hypot(wall.end.x - wall.start.x, wall.end.z - wall.start.z);
-      if (length < 0.2) return null;
-      const dx = (wall.end.x - wall.start.x) / length;
-      const dz = (wall.end.z - wall.start.z) / length;
-      const mid = { x: (wall.start.x + wall.end.x) / 2, z: (wall.start.z + wall.end.z) / 2 };
-      let nx = -dz, nz = dx;
-      if ((floorCenter.x - mid.x) * nx + (floorCenter.z - mid.z) * nz < 0) {
-        nx = -nx;
-        nz = -nz;
-      }
-      // Local +Z (the front) must point along the inward normal.
-      return { wall, length, dx, dz, nx, nz, rotationY: Math.atan2(nx, nz) };
-    })
-    .filter((segment): segment is NonNullable<typeof segment> => segment !== null);
-  const alongWallAt = (segment: (typeof segments)[number], t: number) => ({
-    x: segment.wall.start.x + segment.dx * t + segment.nx * wallInset,
-    z: segment.wall.start.z + segment.dz * t + segment.nz * wallInset,
+  const segments = model.walls.flatMap((wall) => {
+    const length = Math.hypot(wall.end.x - wall.start.x, wall.end.z - wall.start.z);
+    if (length < width + 2 * POSITION_ROUNDING_PAD) return [];
+    const dx = (wall.end.x - wall.start.x) / length;
+    const dz = (wall.end.z - wall.start.z) / length;
+    return [-1, 1].map((side) => ({ wall, length, dx, dz, nx: -dz * side, nz: dx * side }));
   });
+  const alongWallAt = (segment: (typeof segments)[number], along: number) => {
+    push(
+      segment.wall.start.x + segment.dx * along + segment.nx * wallInset,
+      segment.wall.start.z + segment.dz * along + segment.nz * wallInset,
+      Math.atan2(segment.nx, segment.nz),
+    );
+  };
+  const steps = 24;
   const walls = () => {
     for (const segment of segments) {
-      if (segment.length < width) continue;
-      const usable = Math.max(0, segment.length - 2 * sideInset);
-      const steps = Math.max(1, Math.min(8, Math.round(usable / 0.25)));
-      for (let i = 0; i <= steps; i++) {
-        const t = sideInset + (usable * i) / steps;
-        const spot = alongWallAt(segment, Math.min(Math.max(t, width / 2), segment.length - width / 2));
-        push(spot.x, spot.z, segment.rotationY);
+      const inset = Math.min(sideInset, segment.length / 2);
+      const span = segment.length - 2 * inset;
+      const samples = Math.max(1, Math.ceil(span / 0.1));
+      for (let i = 0; i <= samples; i++) alongWallAt(segment, inset + span * i / samples);
+    }
+    // The scan's X/Z bounds are not its walls. Follow the measured floor
+    // edges, including inset/rotated edges, and try both normals (the full
+    // polygon fit check chooses the inward one, even in concave rooms).
+    for (const floor of model.shape === "polygon" ? model.floor : []) {
+      for (let edge = 0; edge < floor.length; edge++) {
+        const start = floor[edge];
+        const end = floor[(edge + 1) % floor.length];
+        const length = Math.hypot(end.x - start.x, end.z - start.z);
+        if (length < width + 2 * POSITION_ROUNDING_PAD) continue;
+        // With walls captured, an unbacked edge is a seam or scan cutoff —
+        // placing against it leaves the piece standing in open floor.
+        if (model.walls.length && !edgeHasWall(model, start, end)) continue;
+        const dx = (end.x - start.x) / length;
+        const dz = (end.z - start.z) / length;
+        const alongInset = width / 2 + POSITION_ROUNDING_PAD;
+        const span = length - 2 * alongInset;
+        const samples = Math.max(1, Math.ceil(span / 0.1));
+        for (const side of [-1, 1]) {
+          const nx = -dz * side, nz = dx * side;
+          // A shallow wall fitting can prevent flush placement without
+          // preventing furniture a little further into the room.
+          for (const offset of [0, 0.1, 0.2, 0.3]) {
+            for (let i = 0; i <= samples; i++) {
+              const along = alongInset + span * i / samples;
+              push(
+                start.x + dx * along + nx * (wallInset + offset),
+                start.z + dz * along + nz * (wallInset + offset),
+                Math.atan2(nx, nz),
+              );
+            }
+          }
+        }
       }
     }
+    // Bounds edges guess where walls are; once the scan's own walls have been
+    // walked, they only add cutoff-edge positions that float in open floor.
+    if (model.shape !== "polygon" || !model.walls.length)
+      for (let i = 0; i <= steps; i++) {
+        const t = i / steps;
+        const x = minX + sideInset + t * Math.max(0, roomWidth - 2 * sideInset);
+        const z = minZ + sideInset + t * Math.max(0, roomDepth - 2 * sideInset);
+        push(x, minZ + wallInset, 0);
+        push(x, maxZ - wallInset, Math.PI);
+        push(minX + wallInset, z, Math.PI / 2);
+        push(maxX - wallInset, z, -Math.PI / 2);
+      }
   };
   const corners = () => {
     for (const segment of segments) {
-      if (segment.length < width) continue;
-      for (const t of [sideInset, segment.length - sideInset]) {
-        const spot = alongWallAt(segment, Math.min(Math.max(t, width / 2), segment.length - width / 2));
-        push(spot.x, spot.z, segment.rotationY);
+      const inset = Math.min(sideInset, segment.length / 2);
+      for (const along of [inset, segment.length - inset]) alongWallAt(segment, along);
+    }
+    if (model.shape !== "polygon" || !model.walls.length) {
+      push(minX + sideInset, minZ + wallInset, 0);
+      push(maxX - sideInset, minZ + wallInset, 0);
+      push(minX + sideInset, maxZ - wallInset, Math.PI);
+      push(maxX - sideInset, maxZ - wallInset, Math.PI);
+    }
+  };
+  // A known piece can leave a narrow but valid slot beside it. Align candidate
+  // clearances exactly to obstacle edges so a normal 0.6 m bedside passage is
+  // discoverable even when a uniform grid does not land on it.
+  const obstacles = () => {
+    for (const obstacle of model.obstacles) {
+      const xs = obstacle.footprint.map((point) => point.x);
+      const zs = obstacle.footprint.map((point) => point.z);
+      const left = Math.min(...xs), right = Math.max(...xs);
+      const back = Math.min(...zs), front = Math.max(...zs);
+      const obstacleX = (left + right) / 2;
+      const obstacleZ = (back + front) / 2;
+      const wallZs = [minZ + wallInset, maxZ - wallInset, obstacleZ];
+      for (const z of wallZs) {
+        push(
+          left - margins.sides - width / 2 - POSITION_ROUNDING_PAD,
+          z,
+          0,
+        );
+        push(
+          right + margins.sides + width / 2 + POSITION_ROUNDING_PAD,
+          z,
+          0,
+        );
+      }
+      const wallXs = [minX + sideInset, maxX - sideInset, obstacleX];
+      for (const x of wallXs) {
+        push(
+          x,
+          back - margins.front - depth / 2 - POSITION_ROUNDING_PAD,
+          0,
+        );
+        push(
+          x,
+          front + margins.back + depth / 2 + POSITION_ROUNDING_PAD,
+          0,
+        );
       }
     }
   };
   const center = () => {
-    push(roomWidth / 2, roomDepth / 2, 0);
-    for (let i = 1; i < 6; i++)
-      for (let j = 1; j < 6; j++)
-        push((roomWidth * i) / 6, (roomDepth * j) / 6, 0);
+    push((minX + maxX) / 2, (minZ + maxZ) / 2, 0);
+    for (let i = 1; i < 12; i++)
+      for (let j = 1; j < 12; j++)
+        push(minX + (roomWidth * i) / 12, minZ + (roomDepth * j) / 12, 0);
   };
   // Try the requested anchor first, then the others, so a zone is only
   // rejected when no anchor in the room can hold it.
   const order: Record<ZoneRequest["anchor"], (() => void)[]> = {
-    wall: [walls, corners, center],
-    window: [walls, corners, center],
-    corner: [corners, walls, center],
-    center: [center, walls, corners],
-    "near-object": [walls, corners, center],
-    anywhere: [walls, corners, center],
+    wall: [walls, obstacles, corners, center],
+    window: [walls, obstacles, corners, center],
+    corner: [corners, walls, obstacles, center],
+    center: [center, obstacles, walls, corners],
+    "near-object": [obstacles, walls, corners, center],
+    anywhere: [walls, obstacles, corners, center],
   };
   order[request.anchor].forEach((generate) => generate());
   return candidates;
@@ -402,7 +563,7 @@ function fits(
       return `${obstacle.name} would block its front`;
   }
   const clearance = model.clearances.find(
-    (zone) => ringsOverlap(body, zone.footprint) || ringsOverlap(front, zone.footprint),
+    (zone) => ringsOverlap(body, zone.footprint),
   );
   if (clearance) return clearance.reason;
   for (const other of reserved) {
@@ -639,6 +800,7 @@ export function reserveZones(
   requests: ZoneRequest[],
   spacing: Spacing = "balanced",
   maxRoomHeight = room.dimensions.height,
+  placementHints: RoomObject[] = [],
 ): { zones: ReservedZone[]; rejected: ZoneRejection[] } {
   const zones: ReservedZone[] = [];
   const rejected: ZoneRejection[] = [];
@@ -674,67 +836,89 @@ export function reserveZones(
       spacing,
     );
     let placed: ReservedZone | null = null;
+    const placementHint = placementHints.find((object) =>
+      sameCategory(object.category, request.category),
+    ) ?? null;
     const issues = new Map<string, number>();
     let lastIssue = "no free floor space";
-    outer: for (const step of sizeSteps(request)) {
-      const { width, depth } = step;
-      for (const candidate of candidatePositions(model, request, width, depth, margins, zones)) {
-        const ring = reservationRing(
-          candidate.position,
+    // Comfortable clearances first; if no size fits, retighten and retry so a
+    // small room rejects only when the piece truly cannot fit.
+    outer: for (const active of marginTiers(margins, mount)) {
+      for (const step of sizeSteps(request)) {
+        const width = cm(step.width), depth = cm(step.depth);
+        for (const candidate of candidatePositions(
+          model,
+          request,
           width,
           depth,
-          candidate.rotationY,
-          margins,
-        );
-        const body = rectangleRing(candidate.position, width, depth, candidate.rotationY);
-        const front = frontRing(candidate.position, width, depth, candidate.rotationY, margins);
-        const issue = fits(model, body, front, ring, reserved, mount, request.relatedObjectId);
-        if (issue) {
-          issues.set(issue, (issues.get(issue) ?? 0) + 1);
-          continue;
+          active,
+          zones,
+          placementHint,
+        )) {
+          // Validate exactly the coordinates that will be persisted/searched.
+          candidate.position = { x: cm(candidate.position.x), z: cm(candidate.position.z) };
+          const ring = reservationRing(
+            candidate.position,
+            width,
+            depth,
+            candidate.rotationY,
+            active,
+          );
+          const body = rectangleRing(candidate.position, width, depth, candidate.rotationY);
+          const front = frontRing(candidate.position, width, depth, candidate.rotationY, active);
+          const issue = fits(model, body, front, ring, reserved, mount, request.relatedObjectId);
+          if (issue) {
+            issues.set(issue, (issues.get(issue) ?? 0) + 1);
+            continue;
+          }
+          // Rugs do not claim floor from later zones.
+          if (mount === "floor")
+            reserved.push({ zoneId: request.id, body, front, withMargins: ring });
+          // A stepped-down bed is searched by its new size, not the old name.
+          const rename = step.rename ?? ((text: string) => text);
+          placed = {
+            id: request.id,
+            purpose: request.purpose,
+            category: rename(request.category),
+            query: rename(request.query),
+            mount,
+            anchor: request.anchor,
+            relatedObjectId: request.relatedObjectId,
+            position: { x: cm(candidate.position.x), y: model.floorY, z: cm(candidate.position.z) },
+            // + 0 turns -0 into 0 so the value serializes as a plain number.
+            rotationY: candidate.rotationY + 0,
+            footprint: {
+              width: Math.round(width * 100) / 100,
+              depth: Math.round(depth * 100) / 100,
+            },
+            // The room is the only hard height ceiling. A desired height is a
+            // hint for search, not a limit that would reject a taller product.
+            maxHeight: Math.round((maxRoomHeight - 0.1) * 100) / 100,
+            margins: active,
+            clearanceRules: [
+              ...(step.renamed
+                ? [`Sized down to a ${rename("bed")} so it fits the room.`]
+                : []),
+              `Keep ${active.front} m in front for use and walking.`,
+              ...(active.sides > 0 ? [`Keep ${active.sides} m on each side.`] : []),
+              ...model.clearances.map((zone) => zone.reason),
+            ],
+            miscellaneous: [
+              ...request.miscellaneous,
+              ...(step.sizeName
+                ? [
+                    `${step.sizeName} size, about ${width.toFixed(2)} × ${depth.toFixed(2)} m`,
+                  ]
+                : []),
+              ...(request.desiredHeight
+                ? [`about ${request.desiredHeight} m tall`]
+                : []),
+            ].slice(0, 12),
+            priority: zones.length + 1,
+            suggested: false,
+          };
+          break outer;
         }
-        // Rugs do not claim floor from later zones.
-        if (mount === "floor")
-          reserved.push({ zoneId: request.id, body, front, withMargins: ring });
-        // A stepped-down bed is searched by its new size, not the old name.
-        const rename = step.rename ?? ((text: string) => text);
-        placed = {
-          id: request.id,
-          purpose: request.purpose,
-          category: rename(request.category),
-          query: rename(request.query),
-          mount,
-          anchor: request.anchor,
-          relatedObjectId: request.relatedObjectId,
-          position: { x: cm(candidate.position.x), y: model.floorY, z: cm(candidate.position.z) },
-          // + 0 turns -0 into 0 so the value serializes as a plain number.
-          rotationY: candidate.rotationY + 0,
-          footprint: {
-            width: Math.round(width * 100) / 100,
-            depth: Math.round(depth * 100) / 100,
-          },
-          // The room is the only hard height ceiling. A desired height is a
-          // hint for search, not a limit that would reject a taller product.
-          maxHeight: Math.round((maxRoomHeight - 0.1) * 100) / 100,
-          margins,
-          clearanceRules: [
-            ...(step.renamed
-              ? [`Sized down to a ${rename("bed")} so it fits the room.`]
-              : []),
-            `Keep ${margins.front} m in front for use and walking.`,
-            ...(margins.sides > 0 ? [`Keep ${margins.sides} m on each side.`] : []),
-            ...model.clearances.map((zone) => zone.reason),
-          ],
-          miscellaneous: [
-            ...request.miscellaneous,
-            ...(request.desiredHeight
-              ? [`about ${request.desiredHeight} m tall`]
-              : []),
-          ].slice(0, 12),
-          priority: zones.length + 1,
-          suggested: false,
-        };
-        break outer;
       }
     }
     if (placed) zones.push(placed);

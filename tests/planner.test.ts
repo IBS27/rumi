@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { Matrix4 } from "three";
-import { searchTaskSchema, type ZonePlanRequest } from "../shared/contracts";
+import { searchTaskSchema, type RoomSnapshot, type ZonePlanRequest } from "../shared/contracts";
 import { sampleBrief, sampleProducts, sampleRoom } from "../shared/fixtures";
 import { syntheticRoomPlan } from "../shared/fixtures/roomplan";
 import { importRoomPlan, localCorners } from "../shared/capture/roomplan";
@@ -28,6 +28,7 @@ import {
   freeSpaceContains,
   polygonArea,
   rectangleRing,
+  ringInside,
   ringsOverlap,
 } from "../shared/planner/space";
 
@@ -137,9 +138,151 @@ describe("space model", () => {
     expect(ringsOverlap(a, b)).toBe(true);
     expect(ringsOverlap(a, c)).toBe(false);
   });
+
+  it("rotates door access with the measured aperture without widening past both jambs", () => {
+    const room = importRoomPlan(syntheticRoomPlan);
+    const original = buildSpaceModel(room).clearances[0];
+    const yaw = 0.63;
+    const rotation = new Matrix4().makeRotationY(yaw);
+    for (const surface of [...room.floors, ...room.walls, ...room.openings])
+      surface.transform = rotation.clone()
+        .multiply(new Matrix4().fromArray(surface.transform)).toArray();
+    const rotated = buildSpaceModel(room).clearances[0];
+    // Aperture 0.9 m plus a 0.3 m shoulder past each jamb, 0.9 m approach both sides.
+    expect(polygonArea([rotated.footprint])).toBeCloseTo(1.5 * 1.8, 6);
+    for (const point of original.footprint) {
+      const expected = {
+        x: point.x * Math.cos(yaw) + point.z * Math.sin(yaw),
+        z: -point.x * Math.sin(yaw) + point.z * Math.cos(yaw),
+      };
+      expect(rotated.footprint.some((actual) =>
+        Math.hypot(actual.x - expected.x, actual.z - expected.z) < 1e-6,
+      )).toBe(true);
+    }
+  });
 });
 
 describe("zone reservation", () => {
+  it("finds frame-sized beds along angled, inset scan floors without removal history", () => {
+    for (const yaw of [0.0655, 0.63, -0.8]) {
+      const scan = importRoomPlan(syntheticRoomPlan);
+      const transform = new Matrix4().makeTranslation(2, 0, 2)
+        .multiply(new Matrix4().makeRotationY(yaw))
+        .multiply(new Matrix4().fromArray(scan.floors[0].transform));
+      const room = {
+        ...scan, walls: [], openings: [], objects: [],
+        floors: [{ ...scan.floors[0], transform: transform.toArray(),
+          polygonCorners: [
+            { x: 0, y: 0, z: 0 }, { x: 2.9, y: 0, z: 0 },
+            { x: 2.9, y: 3, z: 0 }, { x: 0, y: 3, z: 0 },
+          ],
+        }],
+      };
+      const model = buildSpaceModel(room);
+      const desiredFootprint = { width: 1.65, depth: 2.15 };
+      const result = reserveZones(room, model, [{
+        ...lampZone, id: "bed", category: "bed", query: "queen bed",
+        relatedObjectId: null, anchor: "wall", desiredFootprint,
+      }]);
+      expect(result.rejected).toEqual([]);
+      const zone = result.zones[0];
+      expect(zone.footprint).toEqual(desiredFootprint);
+      // Either perpendicular edge is valid with the tighter clearances on main.
+      expect(Math.abs(Math.sin(2 * (zone.rotationY - yaw)))).toBeLessThan(1e-6);
+      expect(ringInside(rectangleRing(zone.position, 1.65, 2.15, zone.rotationY), model.floor)).toBe(true);
+      expect(designPlacementIssue(room, {
+        ...sampleRoom.objects[0], owned: false,
+        position: zone.position, rotation: { x: 0, y: zone.rotationY, z: 0 },
+        dimensions: { ...desiredFootprint, height: 1 },
+      })).toBeNull();
+    }
+  });
+
+  it("does not stand furniture against floor edges that have no wall behind them", () => {
+    const scan = importRoomPlan(syntheticRoomPlan);
+    // One square floor patch; only the east edge has a scanned wall. The
+    // other three edges are scan cutoffs, not walls.
+    const floorPatch = {
+      ...scan.floors[0],
+      transform: new Matrix4().toArray(),
+      polygonCorners: [
+        { x: 0, y: 0, z: 0 },
+        { x: 4.4, y: 0, z: 0 },
+        { x: 4.4, y: 0, z: 4 },
+        { x: 0, y: 0, z: 4 },
+      ],
+    };
+    const eastWall = {
+      ...scan.walls[0],
+      dimensions: { width: 4, height: 2.5, depth: 0 },
+      polygonCorners: [],
+      transform: new Matrix4()
+        .makeRotationY(-Math.PI / 2)
+        .setPosition(4.4, 1.2, 2)
+        .toArray(),
+    };
+    const room = {
+      ...scan,
+      floors: [floorPatch],
+      walls: [eastWall],
+      openings: [],
+      objects: [],
+    };
+    const { zones, rejected } = reserveZones(room, buildSpaceModel(room), [
+      {
+        ...lampZone,
+        id: "bed",
+        category: "bed",
+        query: "queen bed",
+        relatedObjectId: null,
+        anchor: "wall",
+        desiredFootprint: { width: 1.65, depth: 2.15 },
+      },
+    ]);
+    expect(rejected).toEqual([]);
+    const zone = zones[0];
+    // Flush to the real wall on the east edge — not floating at a cutoff.
+    expect(Math.abs(Math.abs(zone.rotationY) - Math.PI / 2)).toBeLessThan(0.01);
+    expect(zone.position.x).toBeGreaterThan(3);
+    expect(
+      designPlacementIssue(room, {
+        ...sampleRoom.objects[0],
+        owned: false,
+        position: zone.position,
+        rotation: { x: 0, y: zone.rotationY, z: 0 },
+        dimensions: { ...zone.footprint, height: 1 },
+      }),
+    ).toBeNull();
+  });
+
+  it("allows a bed walkway to share door access but never puts its body there", () => {
+    const room = { ...sampleRoom, objects: [], openings: [] };
+    const model = buildSpaceModel(room);
+    model.clearances = [{
+      id: "door", kind: "door", reason: "Keep the doorway open",
+      footprint: rectangleRing({ x: 2.4, z: 2.45 }, 4.8, 0.5),
+    }];
+    const result = reserveZones(room, model, [{
+      ...lampZone, id: "bed", category: "bed", query: "queen bed",
+      relatedObjectId: null, anchor: "wall",
+      desiredFootprint: { width: 1.65, depth: 2.1 },
+    }]);
+    expect(result.rejected).toEqual([]);
+    const zone = result.zones[0];
+    const body = rectangleRing(zone.position, zone.footprint.width, zone.footprint.depth, zone.rotationY);
+    expect(ringsOverlap(body, model.clearances[0].footprint)).toBe(false);
+    const front = rectangleRing({
+      x: zone.position.x,
+      z: zone.position.z + zone.footprint.depth / 2 + zone.margins.front / 2,
+    }, zone.footprint.width, zone.margins.front);
+    expect(ringsOverlap(front, model.clearances[0].footprint)).toBe(true);
+    model.clearances[0].footprint = model.floor[0];
+    expect(reserveZones(room, model, [{
+      ...lampZone, id: "bed", category: "bed", query: "bed",
+      relatedObjectId: null, desiredFootprint: { width: 1.65, depth: 2.15 },
+    }]).zones).toEqual([]);
+  });
+
   it("does not hang art across a scanned window", () => {
     const scan = importRoomPlan(syntheticRoomPlan);
     const room = { ...scan, objects: [], walls: [scan.walls[0]] };
@@ -258,6 +401,179 @@ describe("zone reservation", () => {
     const table = zones.find((zone) => zone.id === "big-table");
     if (table) expect(table.footprint.width).toBeLessThanOrEqual(2.4);
     expect(rejected.map((item) => item.zoneId)).toContain("impossible");
+  });
+
+  it("uses the captured floor bounds and keeps a full-size bed instead of shrinking it", () => {
+    const scan = importRoomPlan(syntheticRoomPlan);
+    const transform = [...scan.floors[0].transform];
+    transform[12] = 0.2;
+    transform[14] = 0.2;
+    const room = {
+      ...scan,
+      dimensions: { width: 4.4, height: 2.7, depth: 3.4 },
+      walls: [],
+      openings: [],
+      objects: [],
+      floors: [
+        {
+          ...scan.floors[0],
+          transform,
+          polygonCorners: [
+            { x: 0, y: 0, z: 0 },
+            { x: 4, y: 0, z: 0 },
+            { x: 4, y: 3, z: 0 },
+            { x: 0, y: 3, z: 0 },
+          ],
+        },
+      ],
+    };
+    const desiredFootprint = { width: 1.65, depth: 2.15 };
+    const { zones, rejected } = reserveZones(room, buildSpaceModel(room), [
+      {
+        ...lampZone,
+        id: "bed",
+        category: "bed",
+        query: "queen bed",
+        anchor: "wall",
+        relatedObjectId: null,
+        desiredFootprint,
+        desiredHeight: null,
+      },
+    ]);
+    expect(rejected).toEqual([]);
+    expect(zones[0].footprint).toEqual(desiredFootprint);
+    expect(zones[0].position.z).toBeGreaterThan(1.3);
+  });
+
+  it("finds a full-size bed with at least 60 cm beside storage", () => {
+    const room = {
+      ...sampleRoom,
+      dimensions: { width: 3.35, height: 2.7, depth: 3.2 },
+      openings: [],
+      objects: [
+        {
+          ...sampleRoom.objects[1],
+          id: "storage",
+          name: "Storage",
+          category: "storage" as const,
+          dimensions: { width: 0.5, height: 0.85, depth: 0.5 },
+          position: { x: 3.1, y: 0, z: 0.3 },
+        },
+      ],
+    };
+    const desiredFootprint = { width: 1.65, depth: 2.15 };
+    const { zones, rejected } = reserveZones(room, buildSpaceModel(room), [
+      {
+        ...lampZone,
+        id: "bed",
+        category: "bed",
+        query: "queen bed",
+        anchor: "wall",
+        relatedObjectId: null,
+        desiredFootprint,
+        desiredHeight: null,
+      },
+    ]);
+    expect(rejected).toEqual([]);
+    expect(zones[0].footprint).toEqual(desiredFootprint);
+    const bedRight = zones[0].position.x + zones[0].footprint.width / 2;
+    const storageLeft = room.objects[0].position.x - room.objects[0].dimensions.width / 2;
+    expect(storageLeft - bedRight).toBeGreaterThanOrEqual(0.6);
+  });
+
+  it("falls back through real bed sizes and keeps the search query consistent", () => {
+    const room = {
+      ...sampleRoom,
+      dimensions: { width: 1.6, height: 2.7, depth: 3.5 },
+      openings: [],
+      objects: [],
+    };
+    const { zones, rejected } = reserveZones(room, buildSpaceModel(room), [
+      {
+        ...lampZone,
+        id: "bed",
+        category: "queen bed",
+        query: "upholstered queen bed",
+        anchor: "wall",
+        relatedObjectId: null,
+        desiredFootprint: { width: 1.65, depth: 2.15 },
+        desiredHeight: null,
+      },
+    ]);
+    expect(rejected).toEqual([]);
+    expect(zones[0].footprint).toEqual({ width: 1.5, depth: 2.05 });
+    expect(zones[0].category).toBe("full bed");
+    expect(zones[0].query).toContain("full bed");
+    expect(zones[0].query).not.toContain("queen");
+    expect(zones[0].miscellaneous).toContain(
+      "full size, about 1.50 × 2.05 m",
+    );
+    // A frame larger than the mattress must survive the search/fit handoff.
+    const product = {
+      ...sampleProducts[0],
+      measurement: {
+        ...sampleProducts[0].measurement,
+        dimensions: { width: 1.46, depth: 2.01, height: 1 },
+      },
+    };
+    expect(evaluateFill(zones[0], product).fits).toBe("yes");
+    expect(evaluateFill(zones[0], {
+      ...product,
+      measurement: { ...product.measurement,
+        dimensions: { width: 1.6, depth: 2.2, height: 1 },
+      },
+    }).fits).toBe("no");
+  });
+
+  it("reserves a frame-sized bed beside storage in a tight room", () => {
+    // Preserve the small-room regression with main's tighter clearances.
+    const room: RoomSnapshot = {
+      ...sampleRoom,
+      dimensions: { width: 2.2, height: 2.7, depth: 3 },
+      openings: [],
+      objects: [
+        {
+          id: "owned-dresser",
+          name: "Your dresser",
+          category: "storage",
+          productId: null,
+          assetId: null,
+          dimensions: { width: 0.5, height: 0.9, depth: 1.2 },
+          position: { x: 1.95, y: 0, z: 1.5 },
+          rotation: { x: 0, y: 0, z: 0 },
+          color: "#997659",
+          owned: true,
+          locked: true,
+        },
+      ],
+    };
+    const { zones, rejected } = reserveZones(room, buildSpaceModel(room), [
+      {
+        ...lampZone,
+        id: "bed",
+        category: "bed",
+        query: "queen bed",
+        anchor: "wall",
+        relatedObjectId: null,
+        desiredFootprint: { width: 1.65, depth: 2.15 },
+        desiredHeight: null,
+      },
+    ]);
+    expect(rejected).toEqual([]);
+    const zone = zones[0];
+    expect(zone.margins.sides).toBeLessThan(0.6);
+    expect(zone.clearanceRules).toContain(
+      `Keep ${zone.margins.sides} m on each side.`,
+    );
+    expect(
+      designPlacementIssue(room, {
+        ...sampleRoom.objects[0],
+        owned: false,
+        position: zone.position,
+        rotation: { x: 0, y: zone.rotationY, z: 0 },
+        dimensions: { ...zone.footprint, height: 1 },
+      }),
+    ).toBeNull();
   });
 });
 
@@ -415,7 +731,7 @@ describe("accessories", () => {
   });
 
   it("steps a bed down the standard sizes and renames the search, never scales it", () => {
-    // A 1.9 m wide rectangle: a queen (1.6 m) fits; a king (2.0 m) cannot.
+    // A 1.9 m wide rectangle: a queen frame fits; a king cannot.
     if (sampleRoom.shape !== "rectangle") throw new Error("fixture changed");
     const room = {
       ...sampleRoom,
@@ -432,7 +748,7 @@ describe("accessories", () => {
     ]);
     expect(rejected).toEqual([]);
     const bed = zones[0];
-    expect(bed.footprint).toEqual({ width: 1.6, depth: 2.1 });
+    expect(bed.footprint).toEqual({ width: 1.65, depth: 2.15 });
     expect(bed.category).toBe("queen bed");
     expect(bed.query).toBe("upholstered queen bed low profile");
     expect(bed.clearanceRules[0]).toContain("Sized down to a queen bed");
@@ -444,7 +760,16 @@ describe("accessories", () => {
       },
     ]).zones[0];
     expect(plain.query).toBe("platform bed");
-    expect(plain.footprint.width).toBe(1.6);
+    expect(plain.footprint.width).toBe(1.65);
+    // A bulky frame guess must not skip a compact queen that still fits.
+    const compact = reserveZones(room, buildSpaceModel(room), [{
+      ...lampZone, id: "bed", category: "queen bed", query: "queen bed frame",
+      anchor: "wall", relatedObjectId: null,
+      desiredFootprint: { width: 2.2, depth: 2.4 }, desiredHeight: null,
+    }]).zones[0];
+    expect(compact.category).toBe("queen bed");
+    expect(compact.query).toBe("queen bed frame");
+    expect(compact.footprint).toEqual({ width: 1.65, depth: 2.15 });
     // UK names become US names before search, and a standard size is not
     // shrunk to the model's smaller guess.
     const uk = reserveZones(room, buildSpaceModel(room), [
@@ -455,7 +780,7 @@ describe("accessories", () => {
       },
     ]).zones[0];
     expect(uk.query).toBe("full bed compact upholstered frame");
-    expect(uk.footprint).toEqual({ width: 1.45, depth: 2 });
+    expect(uk.footprint).toEqual({ width: 1.5, depth: 2.05 });
     expect(uk.clearanceRules[0]).not.toContain("Sized down");
   });
 
@@ -602,6 +927,96 @@ describe("accessories", () => {
 });
 
 describe("design plan", () => {
+  it("keeps a resized bed required and carries its size and feature notes into search", () => {
+    const room = {
+      ...sampleRoom, objects: [], openings: [],
+      dimensions: { width: 1.6, depth: 3.5, height: 2.7 },
+    };
+    const brief = {
+      ...sampleBrief, budgetCents: 40000,
+      wants: [{ category: "queen bed", notes: "upholstered headboard" }],
+    };
+    const request = {
+      summary: "Fit a bed in the narrow room.", spacing: "balanced",
+      zones: [{
+        ...lampZone, id: "bed", category: "queen bed", query: "queen bed frame",
+        anchor: "wall", relatedObjectId: null,
+        desiredFootprint: { width: 1.65, depth: 2.15 },
+      }],
+    };
+    const { plan } = buildDesignPlan({ room, brief, products: [], request });
+    expect(plan.rejected).toEqual([]);
+    expect(plan.zones[0].category).toBe("full bed");
+    expect(plan.zones[0].suggested).toBe(false);
+    expect(plan.tasks[0].category).toBe("full bed");
+    expect(plan.tasks[0].query).toBe("full bed frame");
+    expect(plan.tasks[0].maxFootprint).toEqual({ width: 1.5, depth: 2.05 });
+    expect(plan.tasks[0].miscellaneous).toContain("upholstered headboard");
+    expect(() => buildDesignPlan({
+      room, brief: { ...brief, budgetCents: 10000 }, products: [], request,
+    })).toThrow("cannot cover the requested items");
+    const product = {
+      ...sampleProducts[0], category: "full bed", availability: "available" as const,
+      measurement: { ...sampleProducts[0].measurement,
+        dimensions: { width: 1.46, depth: 2.01, height: 1 },
+      },
+    };
+    expect(evaluateFill(plan.zones[0], product).fits).toBe("yes");
+    expect(designPlacementIssue(room, objectInZone(room, product, "bed", plan.zones[0]))).toBeNull();
+  });
+
+  it("plans a bedroom without a bed when the user excludes it, even after a failed bed request", () => {
+    const room = { ...sampleRoom, objects: [], openings: [] };
+    const chair = { ...lampZone, id: "chair", category: "armchair", query: "modern armchair",
+      relatedObjectId: null, anchor: "wall" as const,
+      desiredFootprint: { width: 0.7, depth: 0.7 },
+    };
+    for (const exclusions of [
+      { excludedCategories: ["bed"], restrictions: [] },
+      { restrictions: ["No bed"] },
+      { restrictions: ["I do not need the bed."] },
+    ]) {
+      const brief = { ...sampleBrief, wants: [], purpose: "bedroom", ...exclusions };
+      const { plan } = buildDesignPlan({ room, brief, products: [],
+        request: { ...request, zones: [chair] },
+      });
+      expect(plan.zones.map((zone) => zone.category)).toEqual(["armchair"]);
+      expect(plan.tasks.map((task) => task.category)).toEqual(["armchair"]);
+      expect(describeScope(planScope(brief), brief.purpose)).toContain("excluded furniture");
+      for (const category of ["bed", "daybed", "queen bed"]) {
+        expect(() => buildDesignPlan({ room, brief, products: [],
+          request: { ...request, zones: [{ ...chair, category }] },
+        })).toThrow("user excluded");
+      }
+    }
+  });
+
+  it("keeps exclusions above stale wants, but does not mistake bed size limits for an exclusion", () => {
+    const scope = planScope({ ...sampleBrief, purpose: "bedroom",
+      wants: [{ category: "bed", notes: "" }, { category: "dresser", notes: "" }],
+      excludedCategories: ["bed"],
+    });
+    expect(scope.required).toEqual(["dresser"]);
+    for (const restriction of ["No bed wider than 2 m", "No bed bugs", "No drilling"])
+      expect(planScope({ ...sampleBrief, purpose: "bedroom", restrictions: [restriction] }).excluded).toEqual([]);
+  });
+
+  it("does not force a bedroom anchor into a specific shopping list", () => {
+    const room = { ...sampleRoom, objects: [], openings: [] };
+    const chair = { ...lampZone, id: "chair", category: "armchair", query: "armchair",
+      relatedObjectId: null, anchor: "wall" as const,
+      desiredFootprint: { width: 0.7, depth: 0.7 },
+    };
+    const brief = { ...sampleBrief, purpose: "bedroom", wants: [{ category: "armchair", notes: "" }] };
+    expect(buildDesignPlan({ room, brief, products: [], request: { ...request, zones: [chair] } })
+      .plan.zones.map((zone) => zone.category)).toEqual(["armchair"]);
+    // Opting back into delegated furnishing with no exclusion retains the
+    // missing-bed guard; this fix must not reintroduce silent omissions.
+    expect(() => buildDesignPlan({ room, brief: { ...brief, wants: [], excludedCategories: [] },
+      products: [], request: { ...request, zones: [chair] },
+    })).toThrow("missing its defining bed");
+  });
+
   it("plans requested paintings despite an owned mirror classified as art", () => {
     const room = {
       ...sampleRoom,
@@ -885,6 +1300,90 @@ describe("design plan", () => {
         request,
       }),
     ).toThrow("does not want accessories; drop rug");
+  });
+
+  it("requires a missing room-defining piece and reuses its removed placement", () => {
+    const removedBed = sampleRoom.objects[0];
+    const room = {
+      ...sampleRoom,
+      objects: sampleRoom.objects.filter((object) => object.id !== removedBed.id),
+    };
+    const brief = { ...sampleBrief, wants: [], purpose: "bedroom" };
+    const bed = {
+      ...lampZone,
+      id: "replacement-bed",
+      purpose: "restore the room's primary sleeping function",
+      category: "bed",
+      query: "queen bed",
+      anchor: "wall" as const,
+      relatedObjectId: null,
+      desiredFootprint: { width: 1.65, depth: 2.15 },
+      desiredHeight: null,
+    };
+    expect(() =>
+      buildDesignPlan({
+        room,
+        brief,
+        products: sampleProducts,
+        request: {
+          ...request,
+          zones: [{ ...lampZone, id: "bench", category: "bedroom bench" }],
+        },
+      }),
+    ).toThrow("missing its defining bed");
+
+    const { plan } = buildDesignPlan({
+      room,
+      brief,
+      products: sampleProducts,
+      request: { ...request, zones: [bed] },
+      placementHints: [removedBed],
+    });
+    expect(plan.zones[0].category).toBe("bed");
+    expect(plan.zones[0].position).toEqual(removedBed.position);
+  });
+
+  it("does not return accent furniture when the defining piece cannot fit", () => {
+    const room = {
+      ...sampleRoom,
+      name: "Tiny bedroom",
+      dimensions: { width: 1, height: 2.4, depth: 1 },
+      objects: [],
+      openings: [],
+    };
+    const brief = { ...sampleBrief, wants: [], purpose: "bedroom" };
+    expect(() =>
+      buildDesignPlan({
+        room,
+        brief,
+        products: sampleProducts,
+        request: {
+          summary: "A bed and an accent chair.",
+          spacing: "balanced",
+          zones: [
+            {
+              ...lampZone,
+              id: "bed",
+              category: "bed",
+              query: "queen bed",
+              anchor: "wall",
+              relatedObjectId: null,
+              desiredFootprint: { width: 1.6, depth: 2.0 },
+              desiredHeight: null,
+              priority: 1,
+            },
+            {
+              ...lampZone,
+              id: "chair",
+              category: "armchair",
+              query: "bedroom armchair",
+              relatedObjectId: null,
+              priority: 2,
+            },
+          ],
+        },
+      }),
+    ).toThrow("defining bed could not be reserved");
   });
 
   it("scales clearance with spacing but never below the safety minimums", () => {
