@@ -372,7 +372,9 @@ export const reservedZoneSchema = z.object({
   // mounts, y is the bottom edge on the wall; for surface mounts, the host top.
   position: vectorSchema,
   rotationY: z.number().finite(),
-  // The product must fit inside this footprint, after margins are removed.
+  // Space reserved for the product, after margins are removed. Placement turns
+  // or slides a slightly larger product to the nearest clear spot around it;
+  // the room check, not this box, decides whether it fits.
   footprint: footprintSchema,
   maxHeight: z.number().positive().nullable(),
   margins: z.object({
