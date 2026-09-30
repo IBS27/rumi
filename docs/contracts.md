@@ -129,6 +129,9 @@ to measured boundaries and openings. Appearance revision 5 regenerates earlier
 scenes without changing evidence version 1 or deleting old scenes.
 Saved rooms optionally retain `reconstructionObjectIds`, including removed IDs,
 so cached results do not overwrite edits or restore deleted discoveries. This
-metadata also travels in exported ZIPs. Older saved rooms remain valid.
+metadata also travels in exported ZIPs. A newer scene removes previously applied
+photo discoveries that it no longer models, preventing obsolete placeholder boxes.
+Native captures, untracked objects, product/asset choices, locks, confirmed
+measurements, and objects supporting other items are retained. Older saved rooms remain valid.
 Both overview and first person consume the scene. See
 [simulated room reconstruction](room-reconstruction-simulation.md).

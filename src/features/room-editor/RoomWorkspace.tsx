@@ -712,7 +712,7 @@ export function RoomWorkspace({
       root.current?.querySelector<HTMLTextAreaElement>("textarea")?.focus(),
     );
   }
-  function acceptReconstruction(scene: ReconstructedScene) {
+  async function acceptReconstruction(scene: ReconstructedScene) {
     if (!resource) return;
     if (!workspace || workspace.scanId !== resource.id) return;
     const merged = mergeDiscoveredObjects(
@@ -720,25 +720,42 @@ export function RoomWorkspace({
       scene,
       workspace.reconstructionObjectIds,
     );
-    if (!connection) persist({ ...workspace, ...merged });
+    if (!connection)
+      persist({
+        ...workspace,
+        room: merged.room,
+        reconstructionObjectIds: merged.reconstructionObjectIds,
+      });
     else {
       const discoveries = merged.room.objects.filter(
         (object) =>
           !workspace.room.objects.some((existing) => existing.id === object.id),
       );
-      if (discoveries.length)
-        void execute(
-          discoveries.map((object) => ({ type: "discover", object })),
-        )
-          .then(() => {
-            const current = latestWorkspace.current;
-            if (current)
-              persist({
-                ...current,
-                reconstructionObjectIds: merged.reconstructionObjectIds,
-              });
-          })
-          .catch(() => undefined);
+      const commands: DesignCommand[] = [
+        ...merged.removedObjectIds.map((objectId) => ({
+          type: "remove" as const,
+          objectId,
+        })),
+        ...discoveries.map((object) => ({ type: "discover" as const, object })),
+      ];
+      try {
+        // The edit API accepts at most 40 commands per transaction.
+        for (let index = 0; index < commands.length; index += 40)
+          await execute(commands.slice(index, index + 40));
+        const current = latestWorkspace.current;
+        if (!current || current.scanId !== resource.id) return;
+        persist({
+          ...current,
+          reconstructionObjectIds: merged.reconstructionObjectIds,
+        });
+      } catch (cause) {
+        setError(
+          cause instanceof Error
+            ? cause.message
+            : "The reconstruction could not be saved.",
+        );
+        return;
+      }
     }
     setCapture((current) =>
       current?.id === resource.id ? { ...current, scene } : current,
