@@ -31,6 +31,46 @@ test("guest room editing survives reload and can be deleted", async ({
   ).toBeVisible();
 });
 
+test("a downloaded room restores in a browser with empty storage", async ({
+  page,
+  browser,
+}) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: /^Open the sample room/ }).click();
+  await page
+    .getByRole("button", { name: "Products · $0", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Place in room", exact: true })
+    .first()
+    .click();
+  await expect(
+    page.getByRole("button", { name: "Products · $79", exact: true }),
+  ).toBeVisible();
+  const download = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Download room" }).click();
+  const backup = await (await download).path();
+
+  // A new context starts without the first browser's localStorage or IndexedDB.
+  const fresh = await browser.newContext();
+  const restored = await fresh.newPage();
+  await restored.goto("/");
+  await expect(
+    restored.getByRole("button", { name: /^Open the sample room/ }),
+  ).toBeVisible();
+  await restored
+    .getByLabel("Import room JSON or scan ZIP")
+    .setInputFiles(backup);
+  await expect(
+    restored.getByRole("button", { name: "Products · $79", exact: true }),
+  ).toBeVisible();
+  await restored.reload();
+  await expect(
+    restored.getByRole("button", { name: "Products · $79", exact: true }),
+  ).toBeVisible();
+  await fresh.close();
+});
+
 for (const failure of [
   "WebGL is unavailable",
   "WebGL initialization throws",
