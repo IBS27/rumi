@@ -7,6 +7,7 @@ import {
   Suspense,
   useCallback,
   useEffect,
+  useEffectEvent,
   useMemo,
   useId,
   useRef,
@@ -302,6 +303,18 @@ export function RoomWorkspace({
   }, []);
   const scanId = workspace?.scanId;
   const resource = capture?.id === scanId ? capture : null;
+  // A cached scene can arrive before a cloud project's design subscription.
+  // Wait for it so discoveries commit to the account instead of a local copy.
+  const [readyScene, setReadyScene] = useState<{
+    scanId: string;
+    scene: ReconstructedScene;
+  } | null>(null);
+  const canApplyScene = Boolean(
+    readyScene &&
+      readyScene.scanId === resource?.id &&
+      (!workspace?.cloudProjectId || connection) &&
+      !editing,
+  );
   const simulationVisible =
     showSimulation && view === "3d" && !!resource?.scene;
   const scanVisible =
@@ -713,7 +726,7 @@ export function RoomWorkspace({
     );
   }
   async function acceptReconstruction(scene: ReconstructedScene) {
-    if (!resource) return;
+    if (!resource || resource.id !== readyScene?.scanId) return;
     if (!workspace || workspace.scanId !== resource.id) return;
     const merged = mergeDiscoveredObjects(
       workspace.room,
@@ -763,6 +776,15 @@ export function RoomWorkspace({
     setShowSimulation(true);
     setShowScan(false);
   }
+  const appliedScene = useRef<ReconstructedScene | null>(null);
+  const applyReadyScene = useEffectEvent((scene: ReconstructedScene) => {
+    if (appliedScene.current === scene) return;
+    appliedScene.current = scene;
+    void acceptReconstruction(scene);
+  });
+  useEffect(() => {
+    if (canApplyScene && readyScene) applyReadyScene(readyScene.scene);
+  }, [canApplyScene, readyScene]);
   async function download() {
     if (!workspace) return;
     setBusy(true);
@@ -1117,11 +1139,9 @@ export function RoomWorkspace({
               !resource.scene &&
               reconstruct && (
                 <div key={resource.id} hidden={walking}>
-                  {/* The renderer registers this completion callback; it runs after reconstruction. */}
                   {reconstruct(
                     resource.evidence,
-                    // eslint-disable-next-line react-hooks/refs -- the renderer registers this callback for completion.
-                    acceptReconstruction,
+                    (scene) => setReadyScene({ scanId: resource.id, scene }),
                     projectId,
                   )}
                 </div>
