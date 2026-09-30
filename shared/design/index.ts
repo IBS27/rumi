@@ -190,6 +190,9 @@ export function applyDesignCommands(
       if (actor !== "user")
         throw new Error("Scan corrections require the room inspector.");
       const corrected = roomObjectSchema.parse(command.object);
+      // Provenance records the discovery, not the edit; corrections cannot rewrite it.
+      delete corrected.discovery;
+      if (object.discovery) corrected.discovery = object.discovery;
       if (
         corrected.productId !== object.productId ||
         corrected.owned !== object.owned ||

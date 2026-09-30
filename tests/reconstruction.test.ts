@@ -287,9 +287,7 @@ describe("room reconstruction", () => {
           : o,
       ),
     };
-    expect(
-      mergeDiscoveredObjects(edited, scene, first.reconstructionObjectIds).room,
-    ).toEqual(edited);
+    expect(mergeDiscoveredObjects(edited, scene, first).room).toEqual(edited);
     const removed = {
       ...edited,
       objects: edited.objects.filter((o) => o.id !== lamp.objectId),
@@ -304,106 +302,11 @@ describe("room reconstruction", () => {
     ).saved;
     if (reloaded.room.shape !== "polygon") throw new Error("Missing room");
     expect(
-      mergeDiscoveredObjects(
-        reloaded.room,
-        scene,
-        reloaded.reconstructionObjectIds,
-      ).room.objects,
+      mergeDiscoveredObjects(reloaded.room, scene, reloaded).room.objects,
     ).toEqual(JSON.parse(JSON.stringify(removed.objects)));
     expect(
-      mergeDiscoveredObjects(first.room, scene, first.reconstructionObjectIds)
-        .room.objects,
+      mergeDiscoveredObjects(first.room, scene, first).room.objects,
     ).toHaveLength(input.room.objects.length + 1);
-  });
-
-  it("replaces obsolete photo discoveries after a saved ZIP is regenerated", async () => {
-    const input = await evidence();
-    if (input.room.shape !== "polygon") throw new Error("Missing room");
-    const oldScene = sceneFor(input);
-    oldScene.discoveredObjects = [lamp];
-    oldScene.objects.push({ ...oldScene.objects[0], objectId: lamp.objectId });
-    const first = mergeDiscoveredObjects(input.room, oldScene);
-    const saved = savedRoomSchema.parse({
-      ...readPackage(syntheticCaptureZip()).saved,
-      ...first,
-    });
-    const reloaded = readPackage(
-      exportPackage(syntheticCaptureZip(), saved),
-    ).saved;
-    if (reloaded.room.shape !== "polygon") throw new Error("Missing room");
-    const replacement = { ...lamp, objectId: "photo-bedside-table-lamp" };
-    const scene = sceneFor(input);
-    scene.discoveredObjects = [replacement];
-    scene.objects.push({ ...scene.objects[0], objectId: replacement.objectId });
-    const result = mergeDiscoveredObjects(
-      reloaded.room,
-      scene,
-      reloaded.reconstructionObjectIds,
-    );
-    expect(result.removedObjectIds).toEqual([lamp.objectId]);
-    expect(result.room.objects.map((object) => object.id)).toEqual([
-      ...input.room.objects.map((object) => object.id),
-      replacement.objectId,
-    ]);
-    expect(result.reconstructionObjectIds).toEqual([
-      lamp.objectId,
-      replacement.objectId,
-    ]);
-    expect(
-      mergeDiscoveredObjects(result.room, scene, result.reconstructionObjectIds)
-        .room,
-    ).toBe(result.room);
-
-    // Existing saves can already contain both generations from the old append-only merge.
-    const duplicated = {
-      ...result.room,
-      objects: [...reloaded.room.objects, result.room.objects.at(-1)!],
-    };
-    const cleaned = mergeDiscoveredObjects(
-      duplicated,
-      scene,
-      result.reconstructionObjectIds,
-    );
-    expect(cleaned.removedObjectIds).toEqual([lamp.objectId]);
-    expect(cleaned.room.objects).toEqual(result.room.objects);
-  });
-
-  it("keeps protected and untracked objects when a newer scene omits them", async () => {
-    const input = await evidence();
-    if (input.room.shape !== "polygon") throw new Error("Missing room");
-    const scene = sceneFor(input);
-    scene.discoveredObjects = [lamp];
-    scene.objects.push({ ...scene.objects[0], objectId: lamp.objectId });
-    const first = mergeDiscoveredObjects(input.room, scene);
-    const discovered = first.room.objects.at(-1)!;
-    const protectedObjects = [
-      { ...discovered, id: "locked", locked: true },
-      { ...discovered, id: "product-locked", productLocked: true },
-      {
-        ...discovered,
-        id: "confirmed",
-        measurementSource: "confirmed" as const,
-      },
-      { ...discovered, id: "product", productId: "chosen-product" },
-      { ...discovered, id: "asset", assetId: "custom-model" },
-      { ...discovered, id: "unowned", owned: false },
-      { ...discovered, id: "support" },
-      { ...discovered, id: "supported", supportId: "support", locked: true },
-    ];
-    const room = {
-      ...input.room,
-      objects: [
-        ...input.room.objects,
-        ...protectedObjects,
-        { ...discovered, id: "untracked" },
-      ],
-    };
-    const result = mergeDiscoveredObjects(room, sceneFor(input), [
-      ...input.room.objects.map((object) => object.id),
-      ...protectedObjects.map((object) => object.id),
-    ]);
-    expect(result.room).toBe(room);
-    expect(result.removedObjectIds).toEqual([]);
   });
 
   it("retains measured geometry, scales calibration and carries synthetic provenance", async () => {

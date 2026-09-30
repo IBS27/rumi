@@ -274,6 +274,25 @@ export function importRoomPlan(
   }) as CapturedRoom;
 }
 
+/**
+ * Reconstruction bookkeeping for photo discoveries. Generations are ordered by
+ * creation time; automatically retired IDs may return in a newer generation,
+ * while IDs the user removed never return.
+ */
+export const reconstructionStateSchema = z.object({
+  generation: z.number().finite().nonnegative(),
+  retired: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        generation: z.number().finite().nonnegative(),
+      }),
+    )
+    .max(1000),
+  deleted: z.array(z.string().min(1)).max(1000),
+});
+export type ReconstructionState = z.infer<typeof reconstructionStateSchema>;
+
 export const savedRoomSchema = z
   .object({
     format: z.literal("rumi.room"),
@@ -281,6 +300,7 @@ export const savedRoomSchema = z
     room: roomSchema,
     original: roomPlanSchema.passthrough(),
     reconstructionObjectIds: z.array(z.string().min(1)).max(1000).optional(),
+    reconstructionState: reconstructionStateSchema.optional(),
     design: z
       .object({
         products: z.array(productSchema).max(100),

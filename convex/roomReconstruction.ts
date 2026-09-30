@@ -46,6 +46,8 @@ const publicResult = v.object({
   error: v.union(v.string(), v.null()),
   sceneJson: v.union(v.string(), v.null()),
   attempt: v.number(),
+  // Orders scenes for one scan: a newer job is a newer reconstruction generation.
+  generation: v.number(),
 });
 
 async function requireCapacity(ctx: MutationCtx, ownerId: string) {
@@ -79,6 +81,7 @@ export const get = query({
       error: job.error ?? null,
       sceneJson: job.sceneJson ?? null,
       attempt: job.attempt,
+      generation: job._creationTime,
     };
   },
 });

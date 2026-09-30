@@ -8,7 +8,10 @@ import {
   type CapturedRoom,
   type RoomObject,
 } from "../contracts";
-import { captureTransformSchema } from "../capture/roomplan";
+import {
+  captureTransformSchema,
+  type ReconstructionState,
+} from "../capture/roomplan";
 import { materialDetailSchema } from "../assets/materials";
 import {
   materialKindSchema,
@@ -145,8 +148,12 @@ export const discoveredObjectSchema = z.object({
 });
 export type DiscoveredObject = z.infer<typeof discoveredObjectSchema>;
 
-export function discoveredRoomObject(object: DiscoveredObject): RoomObject {
-  return {
+/** Adds provenance when the supplying generation is known. */
+export function discoveredRoomObject(
+  object: DiscoveredObject,
+  generation?: number,
+): RoomObject {
+  const baseline: RoomObject = {
     id: object.objectId,
     name: object.name,
     category: object.category,
@@ -167,6 +174,13 @@ export function discoveredRoomObject(object: DiscoveredObject): RoomObject {
           ? "medium"
           : "low",
   };
+  // Copy the baseline: edits such as moves mutate vectors in place.
+  return generation === undefined
+    ? baseline
+    : {
+        ...baseline,
+        discovery: { generation, baseline: structuredClone(baseline) },
+      };
 }
 
 export const reconstructedObjectSchema = z
@@ -345,55 +359,197 @@ export function validateDiscoveredObjects(
   }
 }
 
-/** Retire obsolete photo detections; apply current IDs once to preserve cached edits/removals. */
-export function mergeDiscoveredObjects(
+/** Reconstruction metadata saved with a room; see `ReconstructionState`. */
+export type DiscoveryRecord = {
+  reconstructionObjectIds?: string[];
+  reconstructionState?: ReconstructionState;
+};
+
+// Key order and absent optional fields do not count as edits.
+function sameValue(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (
+    typeof a !== "object" ||
+    typeof b !== "object" ||
+    a === null ||
+    b === null ||
+    Array.isArray(a) !== Array.isArray(b)
+  )
+    return false;
+  const entries = (value: object) =>
+    Object.entries(value).filter(([, item]) => item !== undefined);
+  const left = entries(a);
+  const right = new Map(entries(b));
+  return (
+    left.length === right.size &&
+    left.every(
+      ([key, item]) => right.has(key) && sameValue(item, right.get(key)),
+    )
+  );
+}
+
+/** The object without cleanup bookkeeping, e.g. for model context. */
+export function withoutProvenance(object: RoomObject): RoomObject {
+  const copy = { ...object };
+  delete copy.discovery;
+  return copy;
+}
+
+/** True when a discovery is exactly as its generation supplied it. */
+export function discoveryUnedited(object: RoomObject) {
+  if (!object.discovery) return false;
+  const { discovery, ...fields } = object;
+  return sameValue(fields, discovery.baseline);
+}
+
+/**
+ * Plans how a scene changes the room's photo discoveries. Without a generation,
+ * only never-applied discoveries are added. With one, a newer generation also
+ * retires unedited discoveries it no longer models and restores discoveries an
+ * older generation retired. An older generation changes nothing. IDs the user
+ * removed never return.
+ */
+export function planDiscoveredObjects(
   room: CapturedRoom,
   scene: ReconstructedScene,
-  appliedIds: string[] = [],
+  record: DiscoveryRecord = {},
+  generation?: number,
 ) {
   if (room.id !== scene.roomId)
     throw new Error("Reconstruction belongs to another room.");
-  const previous = new Set(appliedIds);
-  const modeled = new Set(scene.objects.map((object) => object.objectId));
+  const state = record.reconstructionState;
+  const applied = new Set(record.reconstructionObjectIds ?? []);
+  const present = new Set(room.objects.map((object) => object.id));
+  const retired = new Map(
+    (state?.retired ?? []).map((entry) => [entry.id, entry.generation]),
+  );
+  // Applied discoveries that vanished without automatic retirement were removed
+  // by the user (or the agent, or an undo). Legacy rooms record no retirement.
+  const deleted = new Set([
+    ...(state?.deleted ?? []),
+    ...[...applied].filter((id) => !present.has(id) && !retired.has(id)),
+  ]);
+  for (const id of present) deleted.delete(id);
+  const stale =
+    generation !== undefined &&
+    state !== undefined &&
+    generation < state.generation;
+  if (stale)
+    return {
+      stale,
+      removals: [] as string[],
+      additions: [] as RoomObject[],
+      deleted: [...deleted],
+    };
+  const modeled = new Set([
+    ...scene.objects.map((object) => object.objectId),
+    ...(scene.discoveredObjects ?? []).map((object) => object.objectId),
+  ]);
   const supports = new Set(room.objects.map((object) => object.supportId));
-  const removedObjectIds = room.objects
-    .filter(
-      (object) =>
-        previous.has(object.id) &&
-        !modeled.has(object.id) &&
-        object.detectionSource === "photo" &&
-        object.owned &&
-        !object.productId &&
-        !object.assetId &&
-        !object.locked &&
-        !object.productLocked &&
-        object.measurementSource !== "confirmed" &&
-        !supports.has(object.id),
-    )
-    .map((object) => object.id);
-  const removed = new Set(removedObjectIds);
-  const seen = new Set([...appliedIds, ...room.objects.map((o) => o.id)]);
+  const removals =
+    generation === undefined
+      ? []
+      : room.objects
+          .filter(
+            (object) =>
+              applied.has(object.id) &&
+              !modeled.has(object.id) &&
+              object.detectionSource === "photo" &&
+              object.owned &&
+              !object.productId &&
+              !object.assetId &&
+              !object.locked &&
+              !object.productLocked &&
+              object.measurementSource !== "confirmed" &&
+              !supports.has(object.id) &&
+              object.discovery !== undefined &&
+              object.discovery.generation < generation &&
+              discoveryUnedited(object),
+          )
+          .map((object) => object.id);
   const additions = (scene.discoveredObjects ?? [])
-    .filter((o) => !seen.has(o.objectId))
-    .map(discoveredRoomObject);
+    .filter((object) => {
+      const id = object.objectId;
+      if (present.has(id) || deleted.has(id)) return false;
+      if (!applied.has(id)) return true;
+      const retiredBy = retired.get(id);
+      return (
+        generation !== undefined &&
+        retiredBy !== undefined &&
+        retiredBy < generation
+      );
+    })
+    .map((object) => discoveredRoomObject(object, generation));
+  return { stale, removals, additions, deleted: [...deleted] };
+}
+
+/**
+ * Records discovery changes that are committed to the room. Callers that commit
+ * a plan in batches record each batch, so metadata never claims uncommitted work.
+ */
+export function recordDiscoveryChanges(
+  record: DiscoveryRecord,
+  changes: {
+    generation?: number;
+    removed: string[];
+    added: string[];
+    deleted: string[];
+  },
+): Required<Pick<DiscoveryRecord, "reconstructionObjectIds">> &
+  DiscoveryRecord {
+  const reconstructionObjectIds = [
+    ...new Set([...(record.reconstructionObjectIds ?? []), ...changes.added]),
+  ];
+  const { generation } = changes;
+  if (generation === undefined)
+    return {
+      reconstructionObjectIds,
+      reconstructionState: record.reconstructionState,
+    };
+  const changed = new Set([...changes.removed, ...changes.added]);
+  const added = new Set(changes.added);
+  const state = record.reconstructionState;
   return {
-    room:
-      additions.length || removed.size
-        ? {
-            ...room,
-            revision: room.revision + 1,
-            objects: [
-              ...room.objects.filter((object) => !removed.has(object.id)),
-              ...additions,
-            ],
-          }
-        : room,
-    removedObjectIds,
-    reconstructionObjectIds: [
-      ...new Set([
-        ...appliedIds,
-        ...(scene.discoveredObjects ?? []).map((o) => o.objectId),
-      ]),
-    ],
+    reconstructionObjectIds,
+    reconstructionState: {
+      generation: Math.max(state?.generation ?? generation, generation),
+      retired: [
+        ...(state?.retired ?? []).filter((entry) => !changed.has(entry.id)),
+        ...changes.removed.map((id) => ({ id, generation })),
+      ],
+      deleted: changes.deleted.filter((id) => !added.has(id)),
+    },
+  };
+}
+
+/** Applies a whole plan at once, for rooms edited only in this browser. */
+export function mergeDiscoveredObjects(
+  room: CapturedRoom,
+  scene: ReconstructedScene,
+  record: DiscoveryRecord = {},
+  generation?: number,
+) {
+  const plan = planDiscoveredObjects(room, scene, record, generation);
+  const removed = new Set(plan.removals);
+  const changed = plan.additions.length > 0 || removed.size > 0;
+  return {
+    ...recordDiscoveryChanges(record, {
+      generation: plan.stale ? undefined : generation,
+      removed: plan.removals,
+      added: plan.additions.map((object) => object.id),
+      deleted: plan.deleted,
+    }),
+    stale: plan.stale,
+    removedObjectIds: plan.removals,
+    room: changed
+      ? {
+          ...room,
+          revision: room.revision + 1,
+          objects: [
+            ...room.objects.filter((object) => !removed.has(object.id)),
+            ...plan.additions,
+          ],
+        }
+      : room,
   };
 }
