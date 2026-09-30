@@ -294,6 +294,31 @@ describe("wall pieces in measured rooms", () => {
     expect(designPlacementIssue(rectangle, print({ x: 3, y: 1, z: 0.03 }, 0))).toContain("door or window");
   });
 
+  it("checks a hung piece's full tilted footprint against its own wall", () => {
+    const hung = tryApply(
+      rectangle,
+      [{ type: "add", productId: printProduct.id, instanceId: "art", zone: wallZone({ x: 2, y: 1, z: 0.03 }, 0) }],
+      sampleProducts,
+      sampleBrief,
+    );
+    if (typeof hung === "string") throw new Error(hung);
+    const art = hung.objects[0];
+    expect(art.position).toEqual({ x: 2, y: 1, z: 0.03 });
+    const correct = (rotation: RoomObject["rotation"]) =>
+      tryApply(hung, [{ type: "correct", object: { ...art, rotation } }], sampleProducts, sampleBrief);
+    // Pitched back, the print's top passes 17.5 cm (or 48 cm) through the wall.
+    expect(correct({ x: -Math.PI / 12, y: 0, z: 0 })).toContain("wall");
+    expect(correct({ x: -Math.PI / 4, y: 0, z: 0 })).toContain("wall");
+    // Turned 0.1 rad about its center, one end goes 2 cm behind the wall.
+    expect(
+      tryApply(hung, [{ type: "move", objectId: "art", position: art.position, rotationY: 0.1 }], sampleProducts, sampleBrief),
+    ).toContain("wall");
+    // Leaning its top out into the room keeps it in front of the wall.
+    const leaning = correct({ x: Math.PI / 24, y: 0, z: 0 });
+    if (typeof leaning === "string") throw new Error(leaning);
+    expect(leaning.objects[0].rotation.x).toBeCloseTo(Math.PI / 24);
+  });
+
   it("snaps corner art clear of the neighbouring wall", () => {
     const placed = objectInZone(rectangle, printProduct, "corner", wallZone({ x: 0.1, y: 1, z: 0.03 }, 0));
     expect(placed.position.z).toBeCloseTo(0.03);

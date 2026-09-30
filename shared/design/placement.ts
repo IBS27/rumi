@@ -247,32 +247,34 @@ export function designPlacementIssue(
     }
     const ux = dx / length,
       uz = dz / length;
-    const along =
-      (object.position.x - wall.start.x) * ux +
-      (object.position.z - wall.start.z) * uz;
-    const half = object.dimensions.width / 2;
-    // The wall's normal on the side the piece faces, and how far in front of
-    // the wall line its back sits.
+    // The wall's normal on the side the piece faces. The piece's whole
+    // transformed footprint, including any tilt, must lie in front of the
+    // wall line and within the wall's length.
     const forward = {
       x: Math.sin(object.rotation.y),
       z: Math.cos(object.rotation.y),
     };
     const side = forward.x * -uz + forward.z * ux >= 0 ? 1 : -1;
     const normal = { x: -uz * side, z: ux * side };
-    const back =
-      (object.position.x - wall.start.x) * normal.x +
-      (object.position.z - wall.start.z) * normal.z -
-      object.dimensions.depth / 2;
-    const inset = Math.max(0, half - 0.02);
+    const offsets = body.footprint.map(
+      (p) => (p.x - wall.start.x) * normal.x + (p.z - wall.start.z) * normal.z,
+    );
+    const alongs = body.footprint.map(
+      (p) => (p.x - wall.start.x) * ux + (p.z - wall.start.z) * uz,
+    );
+    const back = Math.min(...offsets);
+    const from = Math.min(...alongs),
+      to = Math.max(...alongs);
+    const inset = Math.min(0.02, (to - from) / 2);
     if (
       back >= -Math.max(EPS, tolerance) &&
       back <= 0.07 &&
-      along >= half - EPS &&
-      along + half <= length + EPS &&
+      from >= -EPS &&
+      to <= length + EPS &&
       forward.x * normal.x + forward.z * normal.z > 0.99 &&
       // It faces into the room: measured floor lies in front of it across
       // its whole width. A concave room's wall has floor on one side only.
-      [along - inset, along, along + inset].every((t) =>
+      [from + inset, (from + to) / 2, to - inset].every((t) =>
         floorBeside(
           room,
           model,
@@ -289,10 +291,7 @@ export function designPlacementIssue(
         const end =
           (opening.end.x - wall.start.x) * ux +
           (opening.end.z - wall.start.z) * uz;
-        if (
-          along + half > Math.min(start, end) &&
-          along - half < Math.max(start, end)
-        )
+        if (to > Math.min(start, end) && from < Math.max(start, end))
           return "This wall placement covers a door or window.";
       }
     } else if (overlap(body.footprint, strip))
