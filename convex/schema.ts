@@ -59,6 +59,11 @@ export default defineSchema({
     ),
     error: v.optional(v.string()),
   }).index("by_ownerId", ["ownerId"]),
+  // Present until a deleted project's children are gone, so recovery can resume cleanup.
+  projectDeletions: defineTable({
+    projectId: v.id("projects"),
+    requestedAt: v.number(),
+  }).index("by_projectId", ["projectId"]),
   operatorEvents: defineTable({
     operation: v.string(),
     createdAt: v.number(),
@@ -227,6 +232,8 @@ export default defineSchema({
       v.literal("done"),
       v.literal("error"),
     ),
+    // Operator recovery increments this so an earlier run chain stops at its next step.
+    runAttempt: v.optional(v.number()),
     createdAt: v.number(),
   })
     .index("by_projectId", ["projectId"])

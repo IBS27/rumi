@@ -1065,13 +1065,9 @@ async function runAgent(
           .safeParse(outputs[call.toolCallId]).success,
     );
     if (!calls.length || askedOptions || planShown) break;
-    if (!previous && projectId && messageId) {
-      await ctx.scheduler.runAfter(0, internal.agent.runForProject, {
-        projectId,
-        messageId,
-      });
+    // Each new model step runs in a fresh action; the caller schedules it.
+    if (!previous && projectId && messageId)
       return { text, room: currentRoom, askedOptions, continued: true };
-    }
   }
   finish(() => true);
   streamedText = text;
@@ -1093,8 +1089,12 @@ export const designRoom = internalAction({
 
 export const runForProject = internalAction({
   returns: v.null(),
-  args: { projectId: v.id("projects"), messageId: v.id("messages") },
-  handler: async (ctx, { projectId, messageId }): Promise<void> => {
+  args: {
+    projectId: v.id("projects"),
+    messageId: v.id("messages"),
+    attempt: v.optional(v.number()),
+  },
+  handler: async (ctx, { projectId, messageId, attempt }): Promise<void> => {
     const complete = (content: string, status: "done" | "error") =>
       ctx.runMutation(internal.messages.complete, {
         messageId,
@@ -1107,18 +1107,20 @@ export const runForProject = internalAction({
         { projectId },
       );
       if (!project || project.activeMessageId !== messageId) return;
+      const messages = await ctx.runQuery(internal.messages.history, {
+        projectId,
+      });
+      const reply = messages.find((message) => message._id === messageId);
+      // Recovery started a newer chain for this reply; stop this one.
+      if ((reply?.runAttempt ?? 0) !== (attempt ?? 0)) return;
       if (!process.env.OPENAI_API_KEY)
         throw new Error(
           "Chat is not configured yet. Add the OpenAI API key to the development deployment.",
         );
-      const messages = await ctx.runQuery(internal.messages.history, {
-        projectId,
-      });
       const transcript: ModelMessage[] = messages
         .filter((message) => message.status === "done")
         .slice(-40)
         .map((message) => ({ role: message.role, content: message.content }));
-      const reply = messages.find((message) => message._id === messageId);
       const stage: ProjectPhase = project.phase ?? "spec";
       const completed = messages.filter((message) => message.status === "done");
       let latestUserIndex = -1;
@@ -1166,7 +1168,14 @@ export const runForProject = internalAction({
         messageId,
         transcript,
       );
-      if (continued) return;
+      if (continued) {
+        await ctx.scheduler.runAfter(0, internal.agent.runForProject, {
+          projectId,
+          messageId,
+          attempt,
+        });
+        return;
+      }
       // A choice written as a text list is not clickable. Turn it into the
       // card the model should have used.
       const card =

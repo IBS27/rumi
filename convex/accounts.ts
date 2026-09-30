@@ -1,6 +1,7 @@
 import { mutation, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
+import { deleteProject } from "./projects";
 export const requestDeletion = mutation({
   args: {},
   handler: async (ctx) => {
@@ -54,13 +55,7 @@ export const cleanup = internalMutation({
       .query("projects")
       .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
       .take(25);
-    for (const project of projects) {
-      if (project.roomId) await ctx.db.delete(project.roomId);
-      await ctx.db.delete(project._id);
-      await ctx.scheduler.runAfter(0, internal.projects.cleanup, {
-        projectId: project._id,
-      });
-    }
+    for (const project of projects) await deleteProject(ctx, project);
     const captures = await ctx.db
       .query("captures")
       .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))

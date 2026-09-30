@@ -311,9 +311,9 @@ export function RoomWorkspace({
   } | null>(null);
   const canApplyScene = Boolean(
     readyScene &&
-      readyScene.scanId === resource?.id &&
-      (!workspace?.cloudProjectId || connection) &&
-      !editing,
+    readyScene.scanId === resource?.id &&
+    (!workspace?.cloudProjectId || connection) &&
+    !editing,
   );
   const simulationVisible =
     showSimulation && view === "3d" && !!resource?.scene;

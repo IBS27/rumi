@@ -14,7 +14,8 @@ import {
   mutation,
   query,
 } from "./_generated/server";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
+import type { MutationCtx } from "./_generated/server";
 import { z } from "zod";
 import {
   roomSchema,
@@ -82,11 +83,25 @@ export const remove = mutation({
     const project = await ctx.db.get(projectId);
     if (!project || project.ownerId !== ownerId)
       throw new Error("This project does not exist.");
-    if (project.roomId) await ctx.db.delete(project.roomId);
-    await ctx.db.delete(projectId);
-    await ctx.scheduler.runAfter(0, internal.projects.cleanup, { projectId });
+    await deleteProject(ctx, project);
   },
 });
+
+/** Make a project inaccessible now; its children are removed in batches. */
+export async function deleteProject(
+  ctx: MutationCtx,
+  project: Doc<"projects">,
+) {
+  if (project.roomId) await ctx.db.delete(project.roomId);
+  await ctx.db.delete(project._id);
+  await ctx.db.insert("projectDeletions", {
+    projectId: project._id,
+    requestedAt: Date.now(),
+  });
+  await ctx.scheduler.runAfter(0, internal.projects.cleanup, {
+    projectId: project._id,
+  });
+}
 
 // Delete children in bounded batches after making the project inaccessible.
 export const cleanup = internalMutation({
@@ -145,6 +160,12 @@ export const cleanup = internalMutation({
     }
     if (more || files.length === 10 || jobs.length === 10)
       await ctx.scheduler.runAfter(0, internal.projects.cleanup, { projectId });
+    else
+      for (const row of await ctx.db
+        .query("projectDeletions")
+        .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
+        .collect())
+        await ctx.db.delete(row._id);
   },
 });
 

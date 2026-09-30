@@ -292,10 +292,11 @@ export const analyze = internalAction({
     imageId: v.id("images"),
     userMessageId: v.id("messages"),
     assistantMessageId: v.id("messages"),
+    attempt: v.optional(v.number()),
   },
   handler: async (
     ctx,
-    { imageId, userMessageId, assistantMessageId },
+    { imageId, userMessageId, assistantMessageId, attempt },
   ): Promise<void> => {
     try {
       const image = await ctx.runQuery(internal.images.get, { imageId });
@@ -361,6 +362,7 @@ export const analyze = internalAction({
       await ctx.runAction(internal.agent.runForProject, {
         projectId: image.projectId,
         messageId: assistantMessageId,
+        attempt,
       });
     } catch (error) {
       const detail = error instanceof Error ? error.message : "unknown error";
