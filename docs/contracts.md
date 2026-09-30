@@ -63,7 +63,7 @@ and spheres. The application owns the product's
 physical dimensions and scales the scene to them; the model cannot change the room
 footprint. See [image-to-3D assets](asset-generation.md).
 
-`shared/geometry` supplies deterministic validation and a simple placement scan. It is a starter, not an interior-design optimizer. Rug overlaps are allowed; a door uses a conservative square clearance. Electrical, installation, delivery-fit, and ergonomic checks remain future work.
+`shared/geometry` supplies deterministic validation and a simple placement scan. It is a starter, not an interior-design optimizer. Rug overlaps are allowed. A door keeps its swing clear: openings record neither hinge side nor swing direction, so the door-width square in front of the doorway is reserved, on both sides of a scanned doorway because a scan does not record which side is the room. Walking room past the swing or beside the jambs is not reserved. Electrical, installation, delivery-fit, and ergonomic checks remain future work.
 
 ## Interactive design commands
 

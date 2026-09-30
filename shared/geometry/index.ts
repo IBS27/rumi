@@ -9,7 +9,6 @@ import {
   type RoomSnapshot,
 } from "../contracts";
 import { selectionTotal } from "../budget";
-import { DOOR_CLEARANCE } from "../planner/space";
 import {
   designPlacementIssue,
   productObject,
@@ -47,8 +46,8 @@ export function placementIssue(
   )
     return "This item extends outside the room.";
   for (const door of room.openings.filter((item) => item.kind === "door")) {
-    // Only the strip the door needs to open.
-    const clearance = DOOR_CLEARANCE;
+    // The door-width square its leaf sweeps, as in the planner's space model.
+    const clearance = door.width;
     const across =
       door.wall === "north" || door.wall === "south"
         ? a.right > door.offset && a.left < door.offset + door.width

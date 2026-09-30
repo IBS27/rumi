@@ -49,9 +49,15 @@ export interface SpaceModel {
   warnings: string[];
 }
 
-// Only the strip the door needs to open. Walking room beyond that is the
-// user's call, not the planner's.
-export const DOOR_CLEARANCE = 0.3;
+// A door keeps its swing clear: a hinged leaf sweeps a quarter circle as deep
+// as the door is wide, and openings record neither the hinge side nor the swing
+// direction, so the whole door-width square in front of the doorway is
+// reserved. That is the only door clearance. Walking room past the swing or
+// beside the jambs is not reserved: furniture may use it and zone walkways may
+// share it.
+export function doorSwingReason(id: string, width: number): string {
+  return `Keep the ${width.toFixed(2)} m swing of door ${id} clear.`;
+}
 export const WALK_PATH = 0.6;
 export const FURNITURE_GAP = 0.2;
 
@@ -324,7 +330,7 @@ function rectangleDoorClearances(
     .filter((opening) => opening.kind === "door")
     .map((door) => {
       const { width, depth } = room.dimensions;
-      const clearance = DOOR_CLEARANCE;
+      const clearance = door.width;
       const ring: Ring =
         door.wall === "north"
           ? rectangleRing({ x: door.offset + door.width / 2, z: clearance / 2 }, door.width, clearance)
@@ -337,7 +343,7 @@ function rectangleDoorClearances(
         id: `door-${door.id}`,
         kind: "door" as const,
         footprint: ring,
-        reason: `Keep ${clearance.toFixed(2)} m clear in front of door ${door.id}.`,
+        reason: doorSwingReason(door.id, door.width),
       };
     });
 }
@@ -403,10 +409,10 @@ export function buildSpaceModel(room: RoomSnapshot): SpaceModel {
         return {
           id: `door-${door.id}`,
           kind: "door" as const,
-          // Swing direction is unknown: keep the strip on both sides of the
-          // measured doorway, turned with it.
-          footprint: rectangleRing(center, width, DOOR_CLEARANCE * 2, yaw),
-          reason: `Keep ${DOOR_CLEARANCE.toFixed(2)} m clear around door ${door.id}.`,
+          // A scan does not record which side of the doorway is the room
+          // either: keep the swing on both sides, turned with the doorway.
+          footprint: rectangleRing(center, width, width * 2, yaw),
+          reason: doorSwingReason(door.id, width),
         };
       });
     if (room.measurementSource === "estimated")
