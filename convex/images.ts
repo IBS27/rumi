@@ -8,6 +8,7 @@ import {
   internalAction,
   internalMutation,
   internalQuery,
+  type QueryCtx,
 } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { currentAttempt } from "./turns";
@@ -263,6 +264,30 @@ export const get = internalQuery({
   },
 });
 
+/**
+ * Analyses started before attempts existed omit their reply. They served the
+ * project's active reply, and only while it still answers this user message,
+ * so a reply that recovery advanced, finished or superseded rejects them.
+ */
+async function legacyReply(
+  ctx: QueryCtx,
+  projectId: Id<"projects">,
+  userMessageId: Id<"messages">,
+) {
+  const project = await ctx.db.get(projectId);
+  if (!project?.activeMessageId) return null;
+  const latestUser = (
+    await ctx.db
+      .query("messages")
+      .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
+      .order("desc")
+      .take(100)
+  ).find((message) => message.role === "user");
+  return latestUser?._id === userMessageId
+    ? await ctx.db.get(project.activeMessageId)
+    : null;
+}
+
 export const complete = internalMutation({
   returns: v.null(),
   args: {
@@ -278,13 +303,12 @@ export const complete = internalMutation({
     ctx,
     { imageId, userMessageId, assistantMessageId, attempt, status, analysis },
   ) => {
-    if (!(await ctx.db.get(imageId)) || !(await ctx.db.get(userMessageId)))
-      return;
-    const reply = assistantMessageId && (await ctx.db.get(assistantMessageId));
-    if (
-      assistantMessageId &&
-      (!reply || reply.status !== "pending" || !currentAttempt(reply, attempt))
-    )
+    const image = await ctx.db.get(imageId);
+    if (!image || !(await ctx.db.get(userMessageId))) return;
+    const reply = assistantMessageId
+      ? await ctx.db.get(assistantMessageId)
+      : await legacyReply(ctx, image.projectId, userMessageId);
+    if (!reply || reply.status !== "pending" || !currentAttempt(reply, attempt))
       return;
     // The analysis stays on the image. The user's bubble keeps a short line;
     // the chat shows the analysis as a note, and the agent reads it from the

@@ -682,6 +682,82 @@ it("rejects every reply write carrying a superseded attempt", async () => {
   ).toBeUndefined();
 });
 
+it("fences image analyses started before attempts existed", async () => {
+  const t = convexTest(schema, modules);
+  // Pre-attempt analyze actions call complete without the reply or attempt.
+  const legacy = (
+    reply: { imageId?: Id<"images">; userMessageId: Id<"messages"> },
+    status: "analyzed" | "error",
+  ) =>
+    t.mutation(internal.images.complete, {
+      imageId: reply.imageId!,
+      userMessageId: reply.userMessageId,
+      status,
+      analysis: status === "analyzed" ? "Style: oak" : "Late failure",
+    });
+  const state = (reply: {
+    imageId?: Id<"images">;
+    userMessageId: Id<"messages">;
+  }) =>
+    t.run(async (ctx) => ({
+      image: (await ctx.db.get(reply.imageId!))!.status,
+      analysis: (await ctx.db.get(reply.imageId!))!.analysis,
+      user: (await ctx.db.get(reply.userMessageId))!.content,
+    }));
+
+  // A reply that recovery never touched still accepts its legacy analysis.
+  const compatible = await pendingReply(t, await project(t), "pending");
+  await legacy(compatible, "analyzed");
+  expect(await state(compatible)).toEqual({
+    image: "analyzed",
+    analysis: "Style: oak",
+    user: "I uploaded an inspiration image.",
+  });
+
+  // After recovery advances the reply to attempt 1, the old action is stale.
+  const recovered = await pendingReply(t, await project(t), "pending");
+  await recover(t);
+  expect(
+    (await t.run((ctx) => ctx.db.get(recovered.messageId)))?.runAttempt,
+  ).toBe(1);
+  await legacy(recovered, "error");
+  await t.mutation(internal.messages.complete, {
+    messageId: recovered.messageId,
+    status: "error",
+    content: "I couldn’t analyze that image. Please try again.",
+  });
+  expect(await state(recovered)).toEqual({
+    image: "pending",
+    analysis: undefined,
+    user: "Find a lamp",
+  });
+  expect((await t.run((ctx) => ctx.db.get(recovered.messageId)))?.status).toBe(
+    "pending",
+  );
+  // The recovered attempt's own analysis still lands.
+  await t.mutation(internal.images.complete, {
+    imageId: recovered.imageId!,
+    userMessageId: recovered.userMessageId,
+    assistantMessageId: recovered.messageId,
+    attempt: 1,
+    status: "analyzed",
+    analysis: "Style: linen",
+  });
+  expect((await state(recovered)).analysis).toBe("Style: linen");
+
+  // Once a later turn replaces the reply, a late legacy analysis is dropped.
+  const projectId = await project(t);
+  const replaced = await pendingReply(t, projectId, "pending");
+  await t.mutation(internal.messages.complete, {
+    messageId: replaced.messageId,
+    status: "error",
+    content: "The reply took too long. Please try again.",
+  });
+  await pendingReply(t, projectId);
+  await legacy(replaced, "analyzed");
+  expect((await state(replaced)).image).toBe("pending");
+});
+
 it("records a tombstone until a deleted project's children are gone", async () => {
   const t = convexTest(schema, modules);
   const projectId = await t
