@@ -66,7 +66,7 @@ describe("slot planning", () => {
     const { zones, rejected } = reserveZones(
       sampleRoom, model,
       [{ ...base, id: "sofa", category: "loveseat", query: "loveseat", mount: "floor", slotId: target.id, desiredFootprint: { width: 1.5, depth: 0.85 } }],
-      "balanced", sampleRoom.dimensions.height, slots,
+      "balanced", sampleRoom.dimensions.height, [], slots,
     );
     expect(rejected).toEqual([]);
     const sofa = zones[0];
@@ -88,11 +88,11 @@ describe("slot planning", () => {
     const { zones } = reserveZones(
       sampleRoom, model,
       [{ ...base, id: "table", category: "console table", query: "console", mount: "floor", slotId: small.id, desiredFootprint: { width: 5, depth: 5 } }],
-      "balanced", sampleRoom.dimensions.height, slots,
+      "balanced", sampleRoom.dimensions.height, [], slots,
     );
     expect(zones[0].footprint.width).toBeLessThanOrEqual(small.width);
     expect(zones[0].footprint.depth).toBeLessThanOrEqual(small.depth);
-    // A queen asked into a 1.5 m wide slot becomes a full.
+    // A queen frame asked into a 1.45 m wide slot steps down to a twin frame.
     const narrow = { ...emptyRoom, dimensions: { width: 1.5, depth: 3.5, height: 2.7 }, openings: [] };
     if (narrow.shape !== "rectangle") throw new Error("fixture changed");
     const narrowModel = buildSpaceModel(narrow);
@@ -100,10 +100,10 @@ describe("slot planning", () => {
     const bed = reserveZones(
       narrow, narrowModel,
       [{ ...base, id: "bed", category: "queen bed", query: "queen bed", mount: "floor", slotId: narrowSlots[0].id, desiredFootprint: { width: 1.6, depth: 2.1 } }],
-      "balanced", narrow.dimensions.height, narrowSlots,
+      "balanced", narrow.dimensions.height, [], narrowSlots,
     ).zones[0];
-    expect(bed.category).toBe("full bed");
-    expect(bed.footprint.width).toBe(1.45);
+    expect(bed.category).toBe("twin bed");
+    expect(bed.footprint.width).toBe(1.1);
   });
 
   it("keeps the plan to four items, rugs free, and always keeps what the user asked for", () => {
@@ -130,7 +130,7 @@ describe("slot planning", () => {
     expect(kept.filter((category) => category !== "area rug")).toHaveLength(4);
     expect(kept).not.toContain("stool");
     expect(kept).not.toContain("bookcase");
-    expect(plan.rejected.some((item) => item.reason.includes("keeps to 4 items"))).toBe(true);
+    expect(plan.rejected.some((item) => item.reason.includes("initial plan to 4 pieces"))).toBe(true);
     // Directed: five named items all stay; the cap grows to the user's list.
     const named = ["accent chair", "floor lamp", "plant", "bookcase", "stool"];
     const directed = buildDesignPlan({

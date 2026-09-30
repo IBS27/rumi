@@ -32,6 +32,24 @@ async function setup() {
 }
 
 describe("agent integration with the capture workspace", () => {
+  it("persists bed exclusions in the project and room until the user requests a bed again", async () => {
+    const { t, owner, projectId } = await setup();
+    const projects = await owner.query(api.projects.list, { paginationOpts });
+    const roomId = projects.page[0].roomId!;
+    await t.mutation(internal.projects.updateBrief, {
+      projectId, purpose: "bedroom", wants: [], excludedCategories: ["bed"],
+    });
+    await t.mutation(internal.projects.updateBrief, { projectId, styles: ["Modern"] });
+    expect((await t.query(internal.rooms.getRoom, { roomId }))?.brief.excludedCategories).toEqual(["bed"]);
+    expect((await owner.query(api.projects.list, { paginationOpts })).page[0].brief?.excludedCategories).toEqual(["bed"]);
+    await t.mutation(internal.projects.updateBrief, {
+      projectId, excludedCategories: [], wants: [{ category: "bed", notes: "" }],
+    });
+    expect((await t.query(internal.rooms.getRoom, { roomId }))?.brief.excludedCategories).toEqual([]);
+    await t.mutation(internal.rooms.patchBrief, { roomId, excludedCategories: ["sofa"] });
+    expect((await t.query(internal.rooms.getRoom, { roomId }))?.brief.excludedCategories).toEqual(["sofa"]);
+  });
+
   it("requires authentication and derives ownership from the token", async () => {
     const { t, owner, other } = await setup();
     await expect(
