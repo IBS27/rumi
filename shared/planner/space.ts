@@ -396,15 +396,16 @@ export function buildSpaceModel(room: RoomSnapshot): SpaceModel {
     clearances = room.openings
       .filter((opening) => opening.kind === "door")
       .map((door) => {
-        const points = worldCorners(door).map((point) => ({ x: point.x, z: point.z }));
-        const center = points.reduce(
-          (sum, point) => ({ x: sum.x + point.x / points.length, z: sum.z + point.z / points.length }),
-          { x: 0, z: 0 },
-        );
+        const { start, end } = horizontalSpan(door);
+        const width = Math.hypot(end.x - start.x, end.z - start.z);
+        const center = { x: (start.x + end.x) / 2, z: (start.z + end.z) / 2 };
+        const yaw = -Math.atan2(end.z - start.z, end.x - start.x);
         return {
           id: `door-${door.id}`,
           kind: "door" as const,
-          footprint: rectangleRing(center, door.dimensions.width, DOOR_CLEARANCE * 2),
+          // Swing direction is unknown: keep the strip on both sides of the
+          // measured doorway, turned with it.
+          footprint: rectangleRing(center, width, DOOR_CLEARANCE * 2, yaw),
           reason: `Keep ${DOOR_CLEARANCE.toFixed(2)} m clear around door ${door.id}.`,
         };
       });

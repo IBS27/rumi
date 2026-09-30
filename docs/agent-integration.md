@@ -27,6 +27,16 @@ object overlap and conservative doorway clearances. Unknown dimensions and absen
 floor measurements cannot establish fit. Electrical, installation, ergonomic and
 delivery checks remain outside this milestone.
 
+Planning starts with measured free-floor areas, room purpose, existing furniture,
+and explicit shopping exclusions. The area measurements guide category and size
+choices; they are not exclusive slots. Several pieces can share a large area, and
+the placement validator checks every actual reservation against earlier pieces.
+The initial plan defaults to four pieces plus rugs. Explicit requests and furniture
+needed to support a requested accessory take priority over this default, within the
+brief's twelve-item limit. Only successful reservations count toward the default.
+Lower-priority extras appear on the plan card with a reason and can be requested
+later. Rugs retain their measured product dimensions and existing placement checks.
+
 `editDesign` accepts atomic add, move, replace, remove and lock commands. Each write
 checks the current revision, canonical catalog dimensions and prices, product and
 placement locks, and the final budget. A requested savings target is enforced with
@@ -90,6 +100,9 @@ Set these variables on the personal Convex deployment:
   that product search is unavailable and can continue refining the brief.
 - `RUMI_AGENT_MODEL`, `RUMI_EXTRACTION_MODEL`, `RUMI_IMAGE_MODEL`: optional model
   overrides. The existing defaults are `gpt-4o` and `gpt-4o-mini`.
+- `RUMI_PLANNER_MODEL`, `RUMI_PLANNER_REASONING`: optional overrides for the
+  space planner's zone proposal. Defaults are `gpt-6-astra` (falling back to
+  `RUMI_AGENT_MODEL`) and `low` reasoning effort.
 - `RUMI_ASSET_MODEL`: optional model override for approximate product models.
 - `CHAT_ALLOWED_ORIGINS`: comma-separated exact frontend origins allowed to
   upload images, including scheme and port. Add the intended app origin before

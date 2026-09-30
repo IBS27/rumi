@@ -90,8 +90,11 @@ export function describeSpec(brief: DesignBrief): Record<SpecTopic, string> {
 
 export function specSummaryText(brief: DesignBrief): string {
   const lines = describeSpec(brief);
-  const extra = brief.restrictions.length
-    ? `\nRestrictions: ${brief.restrictions.join(", ")}`
+  const restrictions = [...brief.restrictions,
+    ...(brief.excludedCategories?.length ? [`Do not shop for: ${brief.excludedCategories.join(", ")}`] : []),
+  ];
+  const extra = restrictions.length
+    ? `\nRestrictions: ${restrictions.join(", ")}`
     : "";
   return [
     "Here is the brief so far.",

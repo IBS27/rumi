@@ -8,6 +8,7 @@ import { internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
+  MAX_PLAN_ZONES,
   projectPhaseSchema,
   roomObjectSchema,
   roomSchema,
@@ -23,7 +24,7 @@ import {
   type ZoneFill,
 } from "../shared/contracts";
 import { emptyBrief, normalizeBrief } from "./projects";
-import { proposeZones } from "./planner";
+import { proposeZones, removedPlacementHints } from "./planner";
 import { selectionTotal } from "../shared/budget";
 import {
   designPlacementIssue,
@@ -39,6 +40,7 @@ import {
   specStatusLine,
   specSummaryText,
 } from "../shared/chat/spec";
+import { shouldForcePlanSpace } from "../shared/chat/planning";
 
 const SYSTEM_PROMPT = `You are the room designer for rumi. You build rooms from real web products.
 - Start with getRoomContext. Respect owned and locked objects.
@@ -50,6 +52,7 @@ const SYSTEM_PROMPT = `You are the room designer for rumi. You build rooms from 
 - Never invent a budget or use a giant number as an unlimited budget. Unless the user explicitly gives a price or budget, keep budgetCents and search maxPriceCents at 0.
 - Convert dollars to integer cents when saving a budget: $200 is 20000 cents, not 200.
 - The latest user request overrides earlier shopping requirements. In EVERY stage, if they drop or change an item, first call updateBrief with the complete revised wants list, preserving unrelated wants. "Without the painting" removes art/painting/poster wants. Save an exclusion in restrictions so it is not suggested again. If they say "leave it be", "never mind", or otherwise stop shopping, save the revised brief, acknowledge it, and END the turn. Do not call planSpace, fillZones, or ask for confirmation to stop. An empty wants list after cancellation is not permission to furnish the whole room.
+- Save excluded furniture categories in updateBrief.excludedCategories, not only in free-text restrictions. "I do not need the bed" excludes bed and removes any bed want, but does not change the bedroom purpose or remove an existing bed. Explicit exclusions override room-defining defaults: a bedroom plan CAN omit a bed. Preserve all other exclusions; remove an exclusion (and its old restriction) only when the user requests that item again. If they say "go for it" after excluding the bed, plan the remaining furniture without asking about a smaller bed.
 - "Remove art from the plan" changes shopping requirements, not existing room objects. Never remove a mirror or other owned object for that instruction. Retain other requests from the conversation, such as plants, even if a prior turn failed to save them. Continue planning those retained requests after saving the corrected brief.
 
 Editing an existing layout takes priority over the intake stages below. In EVERY stage, including Spec, immediately perform an explicit request to move, keep, remove, replace or place an existing/recommended item with getRoomContext and editDesign. Do not require purpose, style, accessories, a spec summary or a new plan to make these edits. Ask only if the requested edit itself is ambiguous or unsafe. End with the actual edit result; do not restart intake questions after a successful edit. The intake stages apply to planning and shopping for a new design.
@@ -81,6 +84,7 @@ Stage 2, Plan. Reserve space, show the plan, then shop what the user keeps.
 - planSpace shows the user a plan card listing every zone (what, where, footprint, suggested or not) and what did not fit. Your turn ends there; do not describe the zones in text and do not call fillZones in the same turn.
 - The user trims the card and confirms; their next message says which items to search. Then call fillZones with no arguments. It runs one search per kept item, all at once, and the interface shows one product card per zone with its fit (yes, no, unknown). Keep your text to unmet constraints or a necessary next step. Products without dimensions are excluded.
 - planSpace may reject zones that do not fit. Never squeeze furniture into space the plan rejected; if the user asks about a rejected piece, explain the reason from the card.
+- If planning fails for a room-defining piece and the user says it fit before, asks for a smaller size, or approves placing it close to existing furniture, call planSpace again immediately with that placement fact. Do not ask them to choose between a smaller footprint and another anchor; the geometry search tries wall, obstacle-aligned, open-floor, and smaller standard-size placements itself.
 - Use searchProducts directly only when the user asks for one specific item outside the plan.
 - When every kept zone has a product, call setPhase('review'). If the user wants to change the brief, call setPhase('spec').
 - Products without complete dimensions must never be recommended. Search automatically tries alternatives; if it returns no candidates, explain that no suitable product was found and offer to broaden the search.
@@ -287,11 +291,14 @@ function buildAgentTools(
           ids,
         });
         try {
+          const roomDoc = await ctx.runQuery(internal.rooms.getRoom, { roomId });
           const result = await proposeZones(
             room,
             brief.get(),
             products,
             instruction,
+            "",
+            removedPlacementHints(room, roomDoc?.history ?? []),
           );
           plan.set(result.plan);
           if (projectId)
@@ -342,7 +349,7 @@ function buildAgentTools(
       inputSchema: z.object({
         zoneIds: z
           .array(z.string())
-          .max(8)
+          .max(MAX_PLAN_ZONES)
           .optional()
           .describe(
             "Zone ids to search. Leave empty to search exactly the items the user kept on the plan card.",
@@ -591,8 +598,11 @@ function buildAgentTools(
           ),
         materials: z.array(z.string()).max(12).optional(),
         purpose: z.string().max(80).optional(),
-        wants: z.array(wantSchema).max(12).optional().describe(
+        wants: z.array(wantSchema).max(MAX_PLAN_ZONES).optional().describe(
           "The complete current shopping list. Remove canceled items immediately, including art when the user says without the painting. An empty array clears all previous wants.",
+        ),
+        excludedCategories: z.array(z.string().trim().min(1).max(80)).max(12).optional().describe(
+          "Complete list of furniture categories the user does not want to shop for, such as bed. Overrides room-purpose defaults. Preserve unrelated exclusions; clear a category when the user requests it again.",
         ),
         accessories: z.enum(["unspecified", "include", "skip"]).optional(),
         inspiration: z.string().max(1200).optional(),
@@ -798,6 +808,7 @@ async function runAgent(
     },
   ],
   selectedObjectId: string | null = null,
+  forcePlanSpace = false,
 ): Promise<{
   text: string;
   room: RoomSnapshot | null;
@@ -869,6 +880,18 @@ async function runAgent(
     system: SYSTEM_PROMPT,
     prompt,
     tools,
+    prepareStep: forcePlanSpace
+      ? ({ stepNumber }) =>
+          stepNumber === 0
+            ? {
+                activeTools: ["planSpace"],
+                toolChoice: {
+                  type: "tool" as const,
+                  toolName: "planSpace" as const,
+                },
+              }
+            : undefined
+      : undefined,
     stopWhen: [
       stepCountIs(10),
       hasToolCall("askOptions"),
@@ -999,6 +1022,24 @@ export const runForProject = internalAction({
         .join("\n");
       const reply = messages.find((message) => message._id === messageId);
       const stage: ProjectPhase = project.phase ?? "spec";
+      const completed = messages.filter((message) => message.status === "done");
+      let latestUserIndex = -1;
+      for (let index = completed.length - 1; index >= 0; index--) {
+        if (completed[index].role !== "user") continue;
+        latestUserIndex = index;
+        break;
+      }
+      const latestUser =
+        latestUserIndex >= 0 ? completed[latestUserIndex].content : "";
+      const previousAssistant = [...completed]
+        .slice(0, latestUserIndex)
+        .reverse()
+        .find((message) => message.role === "assistant")?.content ?? "";
+      const forcePlanSpace = shouldForcePlanSpace(
+        stage,
+        latestUser,
+        previousAssistant,
+      );
       const roomDoc = project.roomId
         ? await ctx.runQuery(internal.rooms.getRoom, { roomId: project.roomId })
         : null;
@@ -1022,6 +1063,7 @@ export const runForProject = internalAction({
         },
         reply?.activity ?? undefined,
         reply?.selectedObjectId ?? null,
+        forcePlanSpace,
       );
       // A choice written as a text list is not clickable. Turn it into the
       // card the model should have used.
