@@ -127,7 +127,7 @@ it("commits discoveries through the account once a cloud project's design loads"
     format: "rumi.room",
     version: 1,
     room,
-    scanId: "scan-1",
+    scanId: "b".repeat(32),
     cloudProjectId: projectId,
   };
   const state: DesignState = {
