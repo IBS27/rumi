@@ -10,7 +10,9 @@ import {
   buildSpaceModel,
   objectObstacle,
   rectangleRing,
+  ringContains,
   ringInside,
+  type Point2,
   type Ring,
   type SpaceModel,
 } from "../planner/space";
@@ -61,36 +63,125 @@ function overlap(a: Ring, b: Ring) {
   }
   return true;
 }
-function insideFloor(room: RoomSnapshot, footprint: Ring, model: SpaceModel) {
-  const floors =
-    room.shape === "polygon"
-      ? room.floors.map((floor) =>
-          worldCorners(floor).map(({ x, z }) => ({ x, z })),
-        )
-      : model.floor;
-  if (!floors.length) return false;
+// Captured rooms and the furniture captured in them are estimates from the
+// same scan: a scanned bed can cross the scanned wall line by ~10 cm. Such a
+// piece may overrun its measured floor and walls by up to this much. Confirmed
+// rooms and catalog products, whose sizes are not scan estimates, are checked
+// exactly.
+const SCAN_TOLERANCE = 0.15;
+
+function scanTolerance(room: RoomSnapshot, object: RoomObject): number {
+  return room.shape === "polygon" &&
+    room.measurementSource === "estimated" &&
+    object.owned &&
+    object.measurementSource !== "confirmed"
+    ? SCAN_TOLERANCE
+    : 0;
+}
+
+function floorRings(room: RoomSnapshot, model: SpaceModel): Ring[] {
+  return room.shape === "polygon" && room.floors.length
+    ? room.floors.map((floor) =>
+        worldCorners(floor).map(({ x, z }) => ({ x, z })),
+      )
+    : model.floor;
+}
+
+function segmentDistance(point: Point2, a: Point2, b: Point2): number {
+  const dx = b.x - a.x,
+    dz = b.z - a.z;
+  const t = Math.max(
+    0,
+    Math.min(
+      1,
+      ((point.x - a.x) * dx + (point.z - a.z) * dz) / (dx * dx + dz * dz || 1),
+    ),
+  );
+  return Math.hypot(point.x - a.x - dx * t, point.z - a.z - dz * t);
+}
+
+function insideFloor(
+  room: RoomSnapshot,
+  footprint: Ring,
+  model: SpaceModel,
+  tolerance: number,
+) {
+  const floors = floorRings(room, model);
   // Difference against the union preserves concavities, adjoining patches and holes.
   try {
-    return !polygonClipping
+    const outside = polygonClipping
       .difference(polygon(footprint), ...floors.map(polygon))
+      .filter((p) => area(p) > 0.0001);
+    if (!outside.length) return true;
+    if (!tolerance) return false;
+    // The overrun must lie within `tolerance` of a measured floor edge. Test
+    // its corners first, then the whole overrun against a band around every
+    // edge, which also catches a piece bridging a concave cutout.
+    const edges = floors.flatMap((ring) =>
+      ring
+        .map((start, i) => [start, ring[(i + 1) % ring.length]] as const)
+        .filter(([a, b]) => Math.hypot(b.x - a.x, b.z - a.z) > 1e-6),
+    );
+    const near = ([x, z]: number[]) =>
+      edges.some(([a, b]) => segmentDistance({ x, z }, a, b) <= tolerance);
+    if (!outside.every((p) => p.every((ring) => ring.every(near))))
+      return false;
+    const bands = edges.flatMap(([a, b]) => [
+      rectangleRing(
+        { x: (a.x + b.x) / 2, z: (a.z + b.z) / 2 },
+        Math.hypot(b.x - a.x, b.z - a.z),
+        2 * tolerance,
+        -Math.atan2(b.z - a.z, b.x - a.x),
+      ),
+      Array.from({ length: 16 }, (_, i) => ({
+        x: a.x + tolerance * Math.cos((i * Math.PI) / 8),
+        z: a.z + tolerance * Math.sin((i * Math.PI) / 8),
+      })),
+    ]);
+    return !polygonClipping
+      .difference(outside, ...bands.map(polygon))
       .some((p) => area(p) > 0.0001);
   } catch {
     return false;
   }
 }
 
-// Scanned walls and floors are estimates. A footprint may cross the measured
-// line by this much and still count as inside the room and clear of the wall;
-// otherwise the scan's own furniture fails its own boundary.
-const SCAN_TOLERANCE = 0.15;
+// A piece crosses a wall when its footprint overlaps the wall line. Within the
+// scan tolerance, the side of the piece past the line may reach that far.
+function crossesWall(
+  footprint: Ring,
+  wall: SpaceModel["walls"][number],
+  strip: Ring,
+  tolerance: number,
+): boolean {
+  if (!overlap(footprint, strip)) return false;
+  if (!tolerance) return true;
+  const dx = wall.end.x - wall.start.x,
+    dz = wall.end.z - wall.start.z;
+  const length = Math.hypot(dx, dz);
+  const sides = footprint.map(
+    (p) => ((p.x - wall.start.x) * dz - (p.z - wall.start.z) * dx) / length,
+  );
+  return Math.min(Math.max(...sides), -Math.min(...sides)) > tolerance;
+}
 
-function toleratedFootprint(object: RoomObject): Ring {
-  const { width, depth } = object.dimensions;
-  return rectangleRing(
-    { x: object.position.x, z: object.position.z },
-    Math.max(0.05, width - 2 * SCAN_TOLERANCE),
-    Math.max(0.05, depth - 2 * SCAN_TOLERANCE),
-    object.rotation.y,
+// Whether measured floor lies on one side of a wall at a point on it. Scanned
+// floors can stop a few centimetres short of their walls, so look a little
+// way out rather than only at the wall line.
+function floorBeside(
+  room: RoomSnapshot,
+  model: SpaceModel,
+  point: Point2,
+  normal: Point2,
+): boolean {
+  const floors = floorRings(room, model);
+  return [0.05, 0.15, 0.3].some((distance) =>
+    floors.some((ring) =>
+      ringContains(ring, {
+        x: point.x + normal.x * distance,
+        z: point.z + normal.z * distance,
+      }),
+    ),
   );
 }
 
@@ -100,7 +191,7 @@ export function designPlacementIssue(
   model = buildSpaceModel(room),
 ): string | null {
   const body = objectObstacle(object);
-  const tolerated = toleratedFootprint(object);
+  const tolerance = scanTolerance(room, object);
   if (
     body.bottom < model.floorY - EPS ||
     body.top > model.floorY + room.dimensions.height + EPS
@@ -110,7 +201,10 @@ export function designPlacementIssue(
     return "This scan has no measured floor. Import a scan with a floor before placing furniture.";
   // A hung piece lives on the wall line; the wall-contact rule below is its
   // boundary check.
-  if (object.mount !== "wall" && !insideFloor(room, tolerated, model))
+  if (
+    object.mount !== "wall" &&
+    !insideFloor(room, body.footprint, model, tolerance)
+  )
     return "This item extends outside the room's floor boundary.";
 
   if (object.mount === "surface") {
@@ -146,46 +240,63 @@ export function designPlacementIssue(
       0.008,
       yaw,
     );
-    if (object.mount !== "wall" && overlap(tolerated, strip))
-      return "This placement crosses a wall.";
-    if (object.mount === "wall") {
-      const distance =
-        Math.abs(
-          (object.position.x - wall.start.x) * dz -
-            (object.position.z - wall.start.z) * dx,
-        ) / length;
-      const along =
-        ((object.position.x - wall.start.x) * dx +
-          (object.position.z - wall.start.z) * dz) /
-        length;
-      const alignment = Math.abs(
-        (Math.cos(object.rotation.y) * dx) / length -
-          (Math.sin(object.rotation.y) * dz) / length,
-      );
-      if (
-        distance <= object.dimensions.depth / 2 + 0.07 &&
-        along >= object.dimensions.width / 2 - EPS &&
-        along + object.dimensions.width / 2 <= length + EPS &&
-        alignment > 0.99
-      ) {
-        wallContact = true;
-        for (const opening of wall.openings) {
-          const start =
-            ((opening.start.x - wall.start.x) * dx +
-              (opening.start.z - wall.start.z) * dz) /
-            length;
-          const end =
-            ((opening.end.x - wall.start.x) * dx +
-              (opening.end.z - wall.start.z) * dz) /
-            length;
-          if (
-            along + object.dimensions.width / 2 > Math.min(start, end) &&
-            along - object.dimensions.width / 2 < Math.max(start, end)
-          )
-            return "This wall placement covers a door or window.";
-        }
-      }
+    if (object.mount !== "wall") {
+      if (crossesWall(body.footprint, wall, strip, tolerance))
+        return "This placement crosses a wall.";
+      continue;
     }
+    const ux = dx / length,
+      uz = dz / length;
+    const along =
+      (object.position.x - wall.start.x) * ux +
+      (object.position.z - wall.start.z) * uz;
+    const half = object.dimensions.width / 2;
+    // The wall's normal on the side the piece faces, and how far in front of
+    // the wall line its back sits.
+    const forward = {
+      x: Math.sin(object.rotation.y),
+      z: Math.cos(object.rotation.y),
+    };
+    const side = forward.x * -uz + forward.z * ux >= 0 ? 1 : -1;
+    const normal = { x: -uz * side, z: ux * side };
+    const back =
+      (object.position.x - wall.start.x) * normal.x +
+      (object.position.z - wall.start.z) * normal.z -
+      object.dimensions.depth / 2;
+    const inset = Math.max(0, half - 0.02);
+    if (
+      back >= -Math.max(EPS, tolerance) &&
+      back <= 0.07 &&
+      along >= half - EPS &&
+      along + half <= length + EPS &&
+      forward.x * normal.x + forward.z * normal.z > 0.99 &&
+      // It faces into the room: measured floor lies in front of it across
+      // its whole width. A concave room's wall has floor on one side only.
+      [along - inset, along, along + inset].every((t) =>
+        floorBeside(
+          room,
+          model,
+          { x: wall.start.x + ux * t, z: wall.start.z + uz * t },
+          normal,
+        ),
+      )
+    ) {
+      wallContact = true;
+      for (const opening of wall.openings) {
+        const start =
+          (opening.start.x - wall.start.x) * ux +
+          (opening.start.z - wall.start.z) * uz;
+        const end =
+          (opening.end.x - wall.start.x) * ux +
+          (opening.end.z - wall.start.z) * uz;
+        if (
+          along + half > Math.min(start, end) &&
+          along - half < Math.max(start, end)
+        )
+          return "This wall placement covers a door or window.";
+      }
+    } else if (overlap(body.footprint, strip))
+      return "This placement crosses a wall.";
   }
   if (object.mount === "wall" && !wallContact)
     return "Wall decor must stay against a wall and clear of openings.";
@@ -339,15 +450,15 @@ export function objectInZone(
 // Put a hung piece flat on the nearest wall: its back on the wall line, its
 // face toward the room, its span inside the wall's length (clamped to the
 // wall when it is wider, so a long print still hangs rather than failing).
+// The room side is where measured floor lies beside the wall at that spot, so
+// concave rooms and separate floor regions keep art indoors; a wall with floor
+// on both sides keeps the side the reservation is on.
 function snapToWall(room: RoomSnapshot, object: RoomObject): void {
   const model = buildSpaceModel(room);
-  const center = model.floor[0]?.reduce(
-    (sum, point) => ({
-      x: sum.x + point.x / model.floor[0].length,
-      z: sum.z + point.z / model.floor[0].length,
-    }),
-    { x: 0, z: 0 },
-  ) ?? { x: room.dimensions.width / 2, z: room.dimensions.depth / 2 };
+  const forward = {
+    x: Math.sin(object.rotation.y),
+    z: Math.cos(object.rotation.y),
+  };
   let best: { distance: number; x: number; z: number; yaw: number } | null = null;
   for (const wall of model.walls) {
     const dx = wall.end.x - wall.start.x, dz = wall.end.z - wall.start.z;
@@ -356,23 +467,34 @@ function snapToWall(room: RoomSnapshot, object: RoomObject): void {
     const ux = dx / length, uz = dz / length;
     const rawAlong =
       (object.position.x - wall.start.x) * ux + (object.position.z - wall.start.z) * uz;
-    const half = Math.min(object.dimensions.width / 2, length / 2);
+    // Keep clear of the neighbouring wall's line in a corner.
+    const half = Math.min(object.dimensions.width / 2 + 0.005, length / 2);
     const along = Math.min(Math.max(rawAlong, half), length - half);
     const footX = wall.start.x + ux * along, footZ = wall.start.z + uz * along;
     const distance = Math.hypot(object.position.x - footX, object.position.z - footZ);
     if (best && distance >= best.distance) continue;
-    // The inward normal points toward the floor's center.
-    let nx = -uz, nz = ux;
-    if ((center.x - footX) * nx + (center.z - footZ) * nz < 0) {
-      nx = -nx;
-      nz = -nz;
-    }
+    const sides = [1, -1]
+      .map((sign) => ({ x: -uz * sign, z: ux * sign }))
+      .filter((normal) =>
+        floorBeside(room, model, { x: footX, z: footZ }, normal),
+      );
+    if (!sides.length) continue;
+    const offset = (normal: Point2) =>
+      (object.position.x - footX) * normal.x +
+      (object.position.z - footZ) * normal.z;
+    const normal =
+      sides.length === 1 ||
+      offset(sides[0]) > EPS ||
+      (offset(sides[0]) >= -EPS &&
+        forward.x * sides[0].x + forward.z * sides[0].z >= 0)
+        ? sides[0]
+        : sides[1];
     const inset = object.dimensions.depth / 2 + 0.005;
     best = {
       distance,
-      x: footX + nx * inset,
-      z: footZ + nz * inset,
-      yaw: Math.atan2(nx, nz),
+      x: footX + normal.x * inset,
+      z: footZ + normal.z * inset,
+      yaw: Math.atan2(normal.x, normal.z),
     };
   }
   if (!best) return;
