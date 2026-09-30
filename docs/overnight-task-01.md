@@ -48,7 +48,7 @@ Schema changes are additive: an optional `messages.runAttempt` field and a new `
   - If the analysis succeeded, the old action continues its still-pending original reply without the image's analysis, so that reply ignores the inspiration image.
   - If it failed, the reply reports the failure and a retry re-analyzes the image.
 
-  To avoid those degraded replies, deploy only after the Convex dashboard shows no `images:analyze` run in progress. Convex stops actions after 10 minutes, so waiting that long after the last image upload also drains them. No other writer has a legacy path that lacks its reply ID. In both the `2314e32` and current agents, every project writer receives an explicit reply ID.
+  To avoid those degraded replies, pause new image-analysis starts and confirm in the Convex dashboard that no pre-release `images:analyze` execution is pending or running before rollout. Elapsed time since the last upload alone does not prove that scheduled work has drained. No other writer has a legacy path that lacks its reply ID. In both the `2314e32` and current agents, every project writer receives an explicit reply ID.
 
 ## Checks at `2bd1c4e`
 
