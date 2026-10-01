@@ -43,6 +43,17 @@ export const designCommandSchema = z.discriminatedUnion("type", [
   // Scan correction is available to the user, never to the agent.
   z.object({ type: z.literal("correct"), object: roomObjectSchema }),
   z.object({ type: z.literal("discover"), object: roomObjectSchema }),
+  // Reconstruction acceptance, also user-only: remove an unedited discovery a
+  // newer generation no longer models, or record that generation as applied.
+  z.object({
+    type: z.literal("retire"),
+    objectId: idSchema,
+    generation: z.number().finite().nonnegative(),
+  }),
+  z.object({
+    type: z.literal("generation"),
+    generation: z.number().finite().nonnegative(),
+  }),
 ]);
 export const designCommandsSchema = z.array(designCommandSchema).min(1).max(40);
 export type DesignCommand = z.infer<typeof designCommandSchema>;

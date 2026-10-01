@@ -559,10 +559,11 @@ function buildAgentTools(
         }
         const room = state.get();
         return {
-          // Discovery provenance is cleanup bookkeeping, not design context.
+          // Discovery bookkeeping is for reconstruction cleanup, not design context.
           room: room && {
             ...room,
             objects: room.objects.map(withoutProvenance),
+            reconstruction: undefined,
           },
           brief: brief.get(),
           selectedObjectId,

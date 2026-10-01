@@ -2,8 +2,6 @@ import {
   mergeDiscoveredObjects,
   discoveredRoomObject,
   planDiscoveredObjects,
-  recordDiscoveryChanges,
-  type DiscoveryRecord,
 } from "../../../shared/reconstruction/contracts";
 import {
   lazy,
@@ -82,11 +80,6 @@ const objectId = () =>
   Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) =>
     byte.toString(16).padStart(2, "0"),
   ).join("");
-
-const discoveryRecord = (workspace: Workspace): DiscoveryRecord => ({
-  reconstructionObjectIds: workspace.reconstructionObjectIds,
-  reconstructionState: workspace.reconstructionState,
-});
 
 type ScanResource = {
   id: string;
@@ -739,87 +732,47 @@ export function RoomWorkspace({
     )
       return;
     const { scene, generation } = pending;
-    const record = discoveryRecord(current);
     sceneBusy.current = true;
     try {
-      const plan = planDiscoveredObjects(
+      const { commands } = planDiscoveredObjects(
         current.room,
         scene,
-        record,
+        current.reconstructionObjectIds,
         generation,
       );
-      const commands: DesignCommand[] = [
-        ...plan.removals.map((objectId) => ({
-          type: "remove" as const,
-          objectId,
-        })),
-        ...plan.additions.map((object) => ({
-          type: "discover" as const,
-          object,
-        })),
-      ];
-      if (!connection || !commands.length) {
-        // Only this browser holds the room, or every change is already saved.
-        const merged = mergeDiscoveredObjects(
-          current.room,
-          scene,
-          record,
-          generation,
-        );
-        const next = {
+      if (commands.length && !connection) {
+        // Only this browser holds the room: apply the whole plan at once.
+        persist({
           ...current,
-          room: merged.room,
-          reconstructionObjectIds: merged.reconstructionObjectIds,
-          reconstructionState: merged.reconstructionState,
-        };
-        if (
-          merged.room !== current.room ||
-          JSON.stringify(discoveryRecord(next)) !== JSON.stringify(record)
-        )
-          persist(next);
-        setPendingScene((value) => (value === pending ? null : value));
-        setCapture((value) =>
-          value?.id === pending.scanId ? { ...value, scene } : value,
-        );
-        setShowSimulation(true);
-        setShowScan(false);
+          room: mergeDiscoveredObjects(
+            current.room,
+            scene,
+            current.reconstructionObjectIds,
+            generation,
+          ).room,
+        });
+      } else if (commands.length) {
+        // The edit API accepts at most 40 commands per transaction. Each one
+        // commits its objects and their bookkeeping together, so an
+        // interrupted save resumes from the account room alone.
+        try {
+          await execute(commands.slice(0, 40));
+        } catch (cause) {
+          setError("");
+          setSceneError(
+            cause instanceof Error
+              ? cause.message
+              : "The simulated room could not be saved.",
+          );
+        }
         return;
       }
-      // The edit API accepts at most 40 commands per transaction.
-      const batch = commands.slice(0, 40);
-      try {
-        await execute(batch);
-      } catch (cause) {
-        setError("");
-        setSceneError(
-          cause instanceof Error
-            ? cause.message
-            : "The simulated room could not be saved.",
-        );
-        return;
-      }
-      const after = latestWorkspace.current;
-      if (
-        !after ||
-        after.scanId !== pending.scanId ||
-        after.room.id !== current.room.id ||
-        after.cloudProjectId !== current.cloudProjectId
-      )
-        return;
-      // Record exactly what this transaction committed before planning the next.
-      persist({
-        ...after,
-        ...recordDiscoveryChanges(discoveryRecord(after), {
-          generation,
-          removed: batch.flatMap((command) =>
-            command.type === "remove" ? [command.objectId] : [],
-          ),
-          added: batch.flatMap((command) =>
-            command.type === "discover" ? [command.object.id] : [],
-          ),
-          deleted: plan.deleted,
-        }),
-      });
+      setPendingScene((value) => (value === pending ? null : value));
+      setCapture((value) =>
+        value?.id === pending.scanId ? { ...value, scene } : value,
+      );
+      setShowSimulation(true);
+      setShowScan(false);
     } catch (cause) {
       setSceneError(
         cause instanceof Error

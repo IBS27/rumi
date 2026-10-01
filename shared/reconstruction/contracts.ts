@@ -6,12 +6,12 @@ import {
   vectorSchema,
   dimensionsSchema,
   type CapturedRoom,
+  type ReconstructionRecord,
   type RoomObject,
+  type RoomSnapshot,
 } from "../contracts";
-import {
-  captureTransformSchema,
-  type ReconstructionState,
-} from "../capture/roomplan";
+import { captureTransformSchema } from "../capture/roomplan";
+import type { DesignCommand } from "../design/contracts";
 import { materialDetailSchema } from "../assets/materials";
 import {
   materialKindSchema,
@@ -359,12 +359,6 @@ export function validateDiscoveredObjects(
   }
 }
 
-/** Reconstruction metadata saved with a room; see `ReconstructionState`. */
-export type DiscoveryRecord = {
-  reconstructionObjectIds?: string[];
-  reconstructionState?: ReconstructionState;
-};
-
 // Key order and absent optional fields do not count as edits.
 function sameValue(a: unknown, b: unknown): boolean {
   if (a === b) return true;
@@ -402,154 +396,234 @@ export function discoveryUnedited(object: RoomObject) {
   return sameValue(fields, discovery.baseline);
 }
 
+type DiscoveryCommand = Extract<
+  DesignCommand,
+  { type: "discover" | "retire" | "generation" }
+>;
+const emptyRecord: ReconstructionRecord = {
+  applied: [],
+  retired: [],
+  deleted: [],
+};
+const including = (ids: string[], id: string) =>
+  ids.includes(id) ? ids : [...ids, id];
+
+/** The room's bookkeeping, plus discovery IDs earlier versions saved beside it. */
+function discoveryRecord(
+  room: RoomSnapshot,
+  legacyIds: string[] = [],
+): ReconstructionRecord {
+  const record = room.reconstruction ?? emptyRecord;
+  return legacyIds.length
+    ? { ...record, applied: [...new Set([...record.applied, ...legacyIds])] }
+    : record;
+}
+
 /**
- * Plans how a scene changes the room's photo discoveries. Without a generation,
- * only never-applied discoveries are added. With one, a newer generation also
- * retires unedited discoveries it no longer models and restores discoveries an
- * older generation retired. An older generation changes nothing. IDs the user
- * removed never return.
+ * Whether a newer generation may remove this object automatically: an
+ * unprotected photo discovery from an older generation, exactly as supplied.
+ * An object retired before and present again was restored by an undo; keep it.
+ */
+function retirable(
+  room: RoomSnapshot,
+  object: RoomObject,
+  generation: number,
+) {
+  return (
+    object.detectionSource === "photo" &&
+    object.owned &&
+    !object.productId &&
+    !object.assetId &&
+    !object.locked &&
+    !object.productLocked &&
+    object.measurementSource !== "confirmed" &&
+    !room.objects.some((item) => item.supportId === object.id) &&
+    object.discovery !== undefined &&
+    object.discovery.generation < generation &&
+    discoveryUnedited(object) &&
+    !room.reconstruction?.retired.some((entry) => entry.id === object.id)
+  );
+}
+
+/**
+ * Applies a reconstruction command to a room being edited, updating its
+ * bookkeeping in the same step so both always commit together.
+ */
+export function applyDiscoveryCommand(
+  room: RoomSnapshot,
+  command: DiscoveryCommand,
+) {
+  const record = room.reconstruction ?? emptyRecord;
+  const generation =
+    command.type === "discover"
+      ? command.object.discovery?.generation
+      : command.generation;
+  if (
+    generation !== undefined &&
+    record.generation !== undefined &&
+    generation < record.generation
+  )
+    throw new Error("A newer reconstruction already updated this room.");
+  const newest =
+    generation === undefined
+      ? record.generation
+      : Math.max(record.generation ?? generation, generation);
+  if (command.type === "generation") {
+    room.reconstruction = { ...record, generation: newest };
+    return;
+  }
+  if (command.type === "discover") {
+    const { object } = command;
+    if (
+      !object.owned ||
+      object.productId ||
+      object.detectionSource !== "photo"
+    )
+      throw new Error("Only captured possessions can be imported this way.");
+    if (room.objects.some((item) => item.id === object.id)) return;
+    const retiredBy = record.retired.find(
+      (entry) => entry.id === object.id,
+    )?.generation;
+    if (
+      record.deleted.includes(object.id) ||
+      (record.applied.includes(object.id) &&
+        (retiredBy === undefined ||
+          generation === undefined ||
+          retiredBy >= generation))
+    )
+      throw new Error(
+        `${object.name} was removed from this room and will not be added again.`,
+      );
+    room.objects.push(object);
+    room.reconstruction = {
+      generation: newest,
+      applied: including(record.applied, object.id),
+      retired: record.retired.filter((entry) => entry.id !== object.id),
+      deleted: record.deleted,
+    };
+    return;
+  }
+  const object = room.objects.find((item) => item.id === command.objectId);
+  if (!object) throw new Error("This item was removed. Select another item.");
+  if (!retirable(room, object, command.generation))
+    throw new Error(`${object.name} was edited or kept, so it stays.`);
+  room.objects = room.objects.filter((item) => item.id !== object.id);
+  room.reconstruction = {
+    generation: newest,
+    applied: including(record.applied, object.id),
+    retired: [
+      ...record.retired.filter((entry) => entry.id !== object.id),
+      { id: object.id, generation: command.generation },
+    ],
+    deleted: record.deleted.filter((id) => id !== object.id),
+  };
+}
+
+/** Records a photo discovery removed by an edit; no reconstruction restores it. */
+export function recordDiscoveryRemoval(room: RoomSnapshot, object: RoomObject) {
+  if (object.detectionSource !== "photo") return;
+  const record = room.reconstruction ?? emptyRecord;
+  room.reconstruction = {
+    ...record,
+    applied: including(record.applied, object.id),
+    retired: record.retired.filter((entry) => entry.id !== object.id),
+    deleted: including(record.deleted, object.id),
+  };
+}
+
+/**
+ * Plans the commands that bring the room's photo discoveries up to a scene.
+ * Without a generation, only never-applied discoveries are added. With one, a
+ * newer generation also retires unedited discoveries it no longer models and
+ * restores discoveries an older generation retired. An older generation
+ * changes nothing. Removed discoveries never return. `legacyIds` are applied
+ * IDs that earlier versions saved beside the room.
  */
 export function planDiscoveredObjects(
   room: CapturedRoom,
   scene: ReconstructedScene,
-  record: DiscoveryRecord = {},
+  legacyIds: string[] = [],
   generation?: number,
-) {
+): { stale: boolean; commands: DiscoveryCommand[] } {
   if (room.id !== scene.roomId)
     throw new Error("Reconstruction belongs to another room.");
-  const state = record.reconstructionState;
-  const applied = new Set(record.reconstructionObjectIds ?? []);
-  const present = new Set(room.objects.map((object) => object.id));
-  const retired = new Map(
-    (state?.retired ?? []).map((entry) => [entry.id, entry.generation]),
-  );
-  // Applied discoveries that vanished without automatic retirement were removed
-  // by the user (or the agent, or an undo). Legacy rooms record no retirement.
-  const deleted = new Set([
-    ...(state?.deleted ?? []),
-    ...[...applied].filter((id) => !present.has(id) && !retired.has(id)),
-  ]);
-  for (const id of present) deleted.delete(id);
-  const stale =
+  const record = discoveryRecord(room, legacyIds);
+  if (
     generation !== undefined &&
-    state !== undefined &&
-    generation < state.generation;
-  if (stale)
-    return {
-      stale,
-      removals: [] as string[],
-      additions: [] as RoomObject[],
-      deleted: [...deleted],
-    };
+    record.generation !== undefined &&
+    generation < record.generation
+  )
+    return { stale: true, commands: [] };
+  const present = new Set(room.objects.map((object) => object.id));
+  const applied = new Set(record.applied);
+  const retired = new Map(
+    record.retired.map((entry) => [entry.id, entry.generation]),
+  );
+  // Applied discoveries that vanished without retirement were removed by an
+  // edit or undo, including those earlier versions did not record.
+  const deleted = new Set([
+    ...record.deleted,
+    ...record.applied.filter((id) => !present.has(id) && !retired.has(id)),
+  ]);
   const modeled = new Set([
     ...scene.objects.map((object) => object.objectId),
     ...(scene.discoveredObjects ?? []).map((object) => object.objectId),
   ]);
-  const supports = new Set(room.objects.map((object) => object.supportId));
-  const removals =
-    generation === undefined
-      ? []
-      : room.objects
-          .filter(
-            (object) =>
-              applied.has(object.id) &&
-              !modeled.has(object.id) &&
-              object.detectionSource === "photo" &&
-              object.owned &&
-              !object.productId &&
-              !object.assetId &&
-              !object.locked &&
-              !object.productLocked &&
-              object.measurementSource !== "confirmed" &&
-              !supports.has(object.id) &&
-              object.discovery !== undefined &&
-              object.discovery.generation < generation &&
-              discoveryUnedited(object),
-          )
-          .map((object) => object.id);
-  const additions = (scene.discoveredObjects ?? [])
-    .filter((object) => {
-      const id = object.objectId;
-      if (present.has(id) || deleted.has(id)) return false;
-      if (!applied.has(id)) return true;
-      const retiredBy = retired.get(id);
-      return (
-        generation !== undefined &&
+  const commands: DiscoveryCommand[] = [];
+  if (generation !== undefined)
+    for (const object of room.objects)
+      if (
+        applied.has(object.id) &&
+        !modeled.has(object.id) &&
+        retirable(room, object, generation)
+      )
+        commands.push({ type: "retire", objectId: object.id, generation });
+  for (const object of scene.discoveredObjects ?? []) {
+    const id = object.objectId;
+    if (present.has(id) || deleted.has(id)) continue;
+    const retiredBy = retired.get(id);
+    if (
+      !applied.has(id) ||
+      (generation !== undefined &&
         retiredBy !== undefined &&
-        retiredBy < generation
-      );
-    })
-    .map((object) => discoveredRoomObject(object, generation));
-  return { stale, removals, additions, deleted: [...deleted] };
-}
-
-/**
- * Records discovery changes that are committed to the room. Callers that commit
- * a plan in batches record each batch, so metadata never claims uncommitted work.
- */
-export function recordDiscoveryChanges(
-  record: DiscoveryRecord,
-  changes: {
-    generation?: number;
-    removed: string[];
-    added: string[];
-    deleted: string[];
-  },
-): Required<Pick<DiscoveryRecord, "reconstructionObjectIds">> &
-  DiscoveryRecord {
-  const reconstructionObjectIds = [
-    ...new Set([...(record.reconstructionObjectIds ?? []), ...changes.added]),
-  ];
-  const { generation } = changes;
-  if (generation === undefined)
-    return {
-      reconstructionObjectIds,
-      reconstructionState: record.reconstructionState,
-    };
-  const changed = new Set([...changes.removed, ...changes.added]);
-  const added = new Set(changes.added);
-  const state = record.reconstructionState;
-  return {
-    reconstructionObjectIds,
-    reconstructionState: {
-      generation: Math.max(state?.generation ?? generation, generation),
-      retired: [
-        ...(state?.retired ?? []).filter((entry) => !changed.has(entry.id)),
-        ...changes.removed.map((id) => ({ id, generation })),
-      ],
-      deleted: changes.deleted.filter((id) => !added.has(id)),
-    },
-  };
+        retiredBy < generation)
+    )
+      commands.push({
+        type: "discover",
+        object: discoveredRoomObject(object, generation),
+      });
+  }
+  if (
+    !commands.length &&
+    generation !== undefined &&
+    (record.generation === undefined || generation > record.generation)
+  )
+    commands.push({ type: "generation", generation });
+  return { stale: false, commands };
 }
 
 /** Applies a whole plan at once, for rooms edited only in this browser. */
 export function mergeDiscoveredObjects(
   room: CapturedRoom,
   scene: ReconstructedScene,
-  record: DiscoveryRecord = {},
+  legacyIds: string[] = [],
   generation?: number,
 ) {
-  const plan = planDiscoveredObjects(room, scene, record, generation);
-  const removed = new Set(plan.removals);
-  const changed = plan.additions.length > 0 || removed.size > 0;
+  const { stale, commands } = planDiscoveredObjects(
+    room,
+    scene,
+    legacyIds,
+    generation,
+  );
+  const removedObjectIds = commands.flatMap((command) =>
+    command.type === "retire" ? [command.objectId] : [],
+  );
+  if (!commands.length) return { room, stale, removedObjectIds };
+  const next = structuredClone(room);
+  for (const command of commands) applyDiscoveryCommand(next, command);
   return {
-    ...recordDiscoveryChanges(record, {
-      generation: plan.stale ? undefined : generation,
-      removed: plan.removals,
-      added: plan.additions.map((object) => object.id),
-      deleted: plan.deleted,
-    }),
-    stale: plan.stale,
-    removedObjectIds: plan.removals,
-    room: changed
-      ? {
-          ...room,
-          revision: room.revision + 1,
-          objects: [
-            ...room.objects.filter((object) => !removed.has(object.id)),
-            ...plan.additions,
-          ],
-        }
-      : room,
+    room: { ...next, revision: room.revision + 1 },
+    stale,
+    removedObjectIds,
   };
 }

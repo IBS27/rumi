@@ -101,6 +101,60 @@ describe("authoritative room editing", () => {
     ).toEqual(lamp.discovery);
   });
 
+  it("commits reconstruction bookkeeping with the room and restores it through the account query", async () => {
+    const { owner, projectId, edit } = await setup();
+    const found = (objectId: string, generation: number) =>
+      discoveredRoomObject(
+        {
+          objectId,
+          name: "Floor lamp",
+          category: "lighting",
+          dimensions: { width: 0.25, height: 0.5, depth: 0.25 },
+          position: { x: 0.3, y: 0, z: 0.3 },
+          rotation: { x: 0, y: 0, z: 0 },
+          color: "#eee4cc",
+          confidence: 0.8,
+          evidence: "Photo 0",
+          photoIndices: [0],
+        },
+        generation,
+      );
+    await edit(0, [
+      { type: "discover", object: found("photo-old", 100) },
+      { type: "discover", object: found("photo-kept", 100) },
+    ]);
+    // One transaction retires the old discovery and adds its replacement.
+    await edit(1, [
+      { type: "retire", objectId: "photo-old", generation: 200 },
+      { type: "discover", object: found("photo-new", 200) },
+    ]);
+    await edit(2, [{ type: "remove", objectId: "photo-kept" }]);
+    const state = await owner.query(api.design.get, { projectId });
+    expect(state?.room.reconstruction).toEqual({
+      generation: 200,
+      applied: ["photo-old", "photo-kept", "photo-new"],
+      retired: [{ id: "photo-old", generation: 200 }],
+      deleted: ["photo-kept"],
+    });
+    // Rejected commands leave the room and its bookkeeping unchanged.
+    await expect(
+      edit(3, [{ type: "discover", object: found("photo-kept", 300) }]),
+    ).rejects.toThrow("will not be added again");
+    await expect(
+      edit(3, [{ type: "generation", generation: 100 }]),
+    ).rejects.toThrow("newer reconstruction");
+    // Reattaching the same room keeps the account's bookkeeping.
+    const room = state!.room;
+    await owner.mutation(api.projects.attachRoom, {
+      projectId,
+      room: { ...room, reconstruction: undefined },
+      expectedRevision: room.revision,
+    });
+    expect(
+      (await owner.query(api.design.get, { projectId }))?.room.reconstruction,
+    ).toEqual(room.reconstruction);
+  });
+
   it("saves inspector locks on catalog products after database serialization", async () => {
     const { edit } = await setup();
     const room = await edit(0, [add()]);

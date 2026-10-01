@@ -5,7 +5,14 @@ import { createRoot, type Root } from "react-dom/client";
 import { RoomWorkspace } from "../src/features/room-editor/RoomWorkspace";
 import type { ChatContext } from "../src/features/chat/ChatPanel";
 import type { DesignConnection } from "../src/features/room-editor/designConnection";
-import type { Workspace } from "../src/features/workspace/sessions";
+import {
+  activeSession,
+  createSession,
+  readSessions,
+  updateActive,
+  writeSessions,
+  type Workspace,
+} from "../src/features/workspace/sessions";
 import { importRoomPlan, roomPlanSchema } from "../shared/capture/roomplan";
 import type { CapturedRoom } from "../shared/contracts";
 import { applyDesignCommands, type DesignCommand } from "../shared/design";
@@ -164,21 +171,50 @@ function scene(discoveries: DiscoveredObject[]): ReconstructedScene {
   );
 }
 
-/** A workspace whose old lamp came from generation 100 of this scan. */
-async function mount({ cloud = true } = {}) {
+// Browser persistence through the session store, as a reload reads it.
+function throughBrowser(workspace: Workspace): Workspace {
+  const session = createSession();
+  writeSessions(
+    dom.localStorage,
+    "reload",
+    updateActive(
+      { version: 1, activeId: session.id, sessions: [session] },
+      workspace,
+    ),
+  );
+  const restored = activeSession(
+    readSessions(dom.localStorage, "reload"),
+  ).workspace;
+  if (!restored) throw new Error("Workspace was not restored");
+  return restored;
+}
+
+/**
+ * A workspace whose old lamp came from generation 100 of this scan, or a
+ * reopened one. `server` is the account room the design connection reports.
+ */
+async function mount({
+  cloud = true,
+  workspace,
+  server: account,
+}: { cloud?: boolean; workspace?: Workspace; server?: CapturedRoom } = {}) {
   const saved: Workspace[] = [];
-  const initial: Workspace = {
+  const initial: Workspace = workspace ?? {
     format: "rumi.room",
     version: 1,
     room: {
       ...room,
       objects: [...room.objects, discoveredRoomObject(lamp, 100)],
+      reconstruction: {
+        generation: 100,
+        applied: [lamp.objectId],
+        retired: [],
+        deleted: [],
+      },
     },
     original,
-    scanId: "s".repeat(32),
+    scanId: "c".repeat(32),
     ...(cloud ? { cloudProjectId: "p".repeat(32) } : {}),
-    reconstructionObjectIds: [lamp.objectId],
-    reconstructionState: { generation: 100, retired: [], deleted: [] },
   };
   let context: ChatContext | undefined;
   let ready:
@@ -206,7 +242,7 @@ async function mount({ cloud = true } = {}) {
   );
   await flush();
   expect(ready).toBeDefined();
-  let server = initial.room;
+  let server = account ?? initial.room;
   const calls: DesignCommand[][] = [];
   const connect = (execute: DesignConnection["execute"]) =>
     act(async () =>
@@ -270,10 +306,11 @@ it("resumes a reconstruction after its second batch fails, without duplicates", 
   expect(app.calls.map((batch) => batch.length)).toEqual([40, 9]);
   // The committed first batch is recorded; the scene stays pending with a retry.
   expect(app.server().objects.some((o) => o.id === lamp.objectId)).toBe(false);
-  expect(app.latest().reconstructionObjectIds).toHaveLength(40);
-  expect(app.latest().reconstructionState?.retired).toEqual([
-    { id: lamp.objectId, generation: 200 },
-  ]);
+  expect(app.latest().room.reconstruction).toMatchObject({
+    generation: 200,
+    retired: [{ id: lamp.objectId, generation: 200 }],
+  });
+  expect(app.latest().room.reconstruction?.applied).toHaveLength(40);
   expect(app.sceneShown()).toBe(false);
   expect(dom.document.body.textContent).toContain("Temporary network failure");
 
@@ -287,8 +324,9 @@ it("resumes a reconstruction after its second batch fails, without duplicates", 
     ...discoveries.map((item) => item.objectId),
   ]);
   expect(app.latest().room).toEqual(final);
-  expect(app.latest().reconstructionState).toEqual({
+  expect(final.reconstruction).toEqual({
     generation: 200,
+    applied: [lamp.objectId, ...discoveries.map((item) => item.objectId)],
     retired: [{ id: lamp.objectId, generation: 200 }],
     deleted: [],
   });
@@ -331,7 +369,7 @@ it("applies a scene after an edit in progress, keeping the user's removal", asyn
     ],
   ]);
   expect(ids(app.server())).toEqual([...ids(room), "photo-new-0"]);
-  expect(app.latest().reconstructionState?.deleted).toEqual([lamp.objectId]);
+  expect(app.latest().room.reconstruction?.deleted).toEqual([lamp.objectId]);
   expect(app.sceneShown()).toBe(true);
 
   // A reload delivers the same scene again; nothing is written.
@@ -355,7 +393,7 @@ it("waits for the cloud design before committing a cached scene", async () => {
   await flush();
   expect(app.calls).toEqual([
     [
-      { type: "remove", objectId: lamp.objectId },
+      { type: "retire", objectId: lamp.objectId, generation: 200 },
       { type: "discover", object: discoveredRoomObject(fresh(1)[0], 200) },
     ],
   ]);
@@ -381,8 +419,9 @@ it("commits a local-only room without the cloud", async () => {
     "photo-new-0",
     "photo-new-1",
   ]);
-  expect(app.latest().reconstructionState).toEqual({
+  expect(app.latest().room.reconstruction).toEqual({
     generation: 200,
+    applied: [lamp.objectId, "photo-new-0", "photo-new-1"],
     retired: [{ id: lamp.objectId, generation: 200 }],
     deleted: [],
   });
@@ -407,4 +446,62 @@ it("does not write after the workspace is replaced mid-save", async () => {
   // The account saved the edit; this browser session was not overwritten.
   expect(app.calls).toHaveLength(1);
   expect(app.saved).toHaveLength(writes);
+});
+
+it("resumes from the account room after a committed batch's response is lost", async () => {
+  const app = await mount();
+  let respond = () => {};
+  const response = new Promise<void>((resolve) => {
+    respond = resolve;
+  });
+  // The server commits the first batch, then the response is held.
+  await app.connect(async (commands, revision) => {
+    const next = app.commit(commands, revision);
+    await response;
+    return next;
+  });
+  const discoveries = fresh(48);
+  await app.deliver(scene(discoveries), 200);
+  expect(app.calls.map((batch) => batch.length)).toEqual([40]);
+  // The browser closes with only the pre-acceptance workspace saved.
+  const lastSaved = throughBrowser(app.latest());
+  const writes = app.saved.length;
+  await act(async () => root?.unmount());
+  root = undefined;
+  await act(async () => respond());
+  await flush();
+  expect(app.saved).toHaveLength(writes);
+
+  // Reopen: the account room carries the committed batch and its bookkeeping.
+  const reopened = await mount({ workspace: lastSaved, server: app.server() });
+  await reopened.connect(async (commands, revision) =>
+    reopened.commit(commands, revision),
+  );
+  await reopened.deliver(scene(discoveries), 200);
+  await flush();
+  expect(reopened.calls.map((batch) => batch.length)).toEqual([9]);
+  expect(reopened.server().reconstruction).toEqual({
+    generation: 200,
+    applied: [lamp.objectId, ...discoveries.map((item) => item.objectId)],
+    retired: [{ id: lamp.objectId, generation: 200 }],
+    deleted: [],
+  });
+  expect(reopened.sceneShown()).toBe(true);
+
+  // A later generation that omits every discovery retires all 48.
+  const again = throughBrowser(reopened.latest());
+  await act(async () => root?.unmount());
+  root = undefined;
+  const later = await mount({ workspace: again, server: reopened.server() });
+  await later.connect(async (commands, revision) =>
+    later.commit(commands, revision),
+  );
+  await later.deliver(scene([]), 300);
+  await flush();
+  expect(later.calls.map((batch) => batch.length)).toEqual([40, 8]);
+  expect(
+    later.server().objects.filter((item) => item.detectionSource === "photo"),
+  ).toEqual([]);
+  expect(later.server().reconstruction?.deleted).toEqual([]);
+  expect(later.server().reconstruction?.retired).toHaveLength(49);
 });

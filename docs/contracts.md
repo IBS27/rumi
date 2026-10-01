@@ -119,22 +119,27 @@ procedural pattern, repeat dimensions in meters, and roughness. Optional surface
 regions use local XY polygons and front/back/both faces; the renderer clips them
 to measured boundaries and openings. Appearance revision 5 regenerates earlier
 scenes without changing evidence version 1 or deleting old scenes.
-Saved rooms optionally retain `reconstructionObjectIds`, including removed IDs,
-so cached results do not overwrite edits or restore deleted discoveries. Each
-scene has a generation, the creation time of its reconstruction job. A photo
-discovery records `discovery`: the generation that supplied it and a baseline copy
-of the object as supplied. `reconstructionState` records the newest applied
-generation, discoveries retired automatically (with the retiring generation) and
-discoveries the user removed. A newer generation removes applied discoveries it no
-longer models only when they still equal their baseline, and restores an
-automatically retired discovery it models again. User removals never return, and
-an older generation changes nothing. Native captures, untracked objects, objects
-without provenance (older saves), product/asset choices, locks, confirmed
-measurements and objects supporting other items are retained. Corrections cannot
-change provenance. Object provenance travels with the account room; the metadata
-travels in browser storage and exported ZIPs. Cloud rooms apply a scene in
-transactions of at most 40 commands, recording each committed transaction; a
-failed save keeps the scene pending with a retry that replans from the latest room.
+Saved rooms from earlier versions retain `reconstructionObjectIds` beside the
+room; they are still read, so cached results do not restore deleted discoveries.
+Each scene has a generation, the creation time of its reconstruction job. A
+photo discovery records `discovery`: the generation that supplied it and a
+baseline copy of the object as supplied. The room's optional `reconstruction`
+record lists applied discoveries, those retired automatically (with the retiring
+generation), those removed by an edit, and the newest applied generation. The
+design commands that change these objects update the record in the same
+transaction: `discover`, `retire` (an unedited, unprotected discovery from an
+older generation), `remove` of a photo discovery, and `generation`. The record
+therefore travels with the account room, browser storage and exported ZIPs, and
+an interrupted cloud save resumes from the account room alone. A newer
+generation retires applied discoveries it no longer models only when they still
+equal their baseline, and restores an automatically retired discovery it models
+again. Removed discoveries never return, an older generation changes nothing,
+and an object restored by an undo is not retired again. Native captures,
+untracked objects, objects without provenance (older saves), product/asset
+choices, locks, confirmed measurements and objects supporting other items are
+retained. Corrections cannot change provenance. Cloud rooms apply a scene in
+transactions of at most 40 commands; a failed save keeps the scene pending
+with a retry that replans from the latest room.
 Older saved rooms remain valid.
 Both overview and first person consume the scene. See
 [simulated room reconstruction](room-reconstruction-simulation.md).

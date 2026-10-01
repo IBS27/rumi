@@ -5,10 +5,10 @@ import type { CapturedRoom, RoomObject } from "../shared/contracts";
 import { applyDesignCommands, type DesignCommand } from "../shared/design";
 import { sampleBrief } from "../shared/fixtures";
 import {
+  discoveredRoomObject,
   discoveryUnedited,
   mergeDiscoveredObjects,
   planDiscoveredObjects,
-  recordDiscoveryChanges,
   validateSceneForRoom,
   withoutProvenance,
   type DiscoveredObject,
@@ -87,7 +87,7 @@ function accept(
   const merged = mergeDiscoveredObjects(
     workspace.room,
     args[0],
-    workspace,
+    workspace.reconstructionObjectIds,
     args[1],
   );
   return { ...workspace, ...merged };
@@ -131,6 +131,7 @@ function throughBrowser(workspace: Workspace): Workspace {
   if (!restored) throw new Error("Workspace was not restored");
   return restored;
 }
+const record = (workspace: Workspace) => workspace.room.reconstruction;
 const ids = (workspace: Workspace) =>
   workspace.room.objects.map((object) => object.id);
 const object = (workspace: Workspace, id: string) =>
@@ -151,8 +152,9 @@ describe("photo discovery cleanup", () => {
       ...room.objects.map((item) => item.id),
       replacement.objectId,
     ]);
-    expect(second.reconstructionState).toEqual({
+    expect(record(second)).toEqual({
       generation: 200,
+      applied: [lamp.objectId, replacement.objectId],
       retired: [{ id: lamp.objectId, generation: 200 }],
       deleted: [],
     });
@@ -163,7 +165,6 @@ describe("photo discovery cleanup", () => {
     const obsolete = accept(reloaded, scene(lamp), 100);
     expect(obsolete.stale).toBe(true);
     expect(obsolete.room).toBe(reloaded.room);
-    expect(obsolete.reconstructionState).toEqual(reloaded.reconstructionState);
   });
 
   it("keeps discoveries changed by real design commands while measurements stay estimated", () => {
@@ -290,10 +291,7 @@ describe("photo discovery cleanup", () => {
           { ...discovered, id: "photo-untracked" },
         ],
       },
-      reconstructionObjectIds: [
-        ...first.reconstructionObjectIds!,
-        ...protectedObjects.map((item) => item.id),
-      ],
+      reconstructionObjectIds: protectedObjects.map((item) => item.id),
     };
     const result = accept(crowded, scene(), 200);
     expect(result.removedObjectIds).toEqual([lamp.objectId]);
@@ -306,7 +304,7 @@ describe("photo discovery cleanup", () => {
       planDiscoveredObjects(
         { ...crowded.room, id: "another-room" },
         scene(),
-        crowded,
+        crowded.reconstructionObjectIds,
         200,
       ),
     ).toThrow("another room");
@@ -327,9 +325,6 @@ describe("photo discovery cleanup", () => {
     expect(result.removedObjectIds).toEqual([]);
     expect(ids(result)).toEqual([...ids(legacy), "photo-new"]);
     // An applied ID without a retirement record was removed by the user.
-    expect(result.reconstructionState?.deleted).toEqual([
-      "photo-removed-earlier",
-    ]);
     expect(
       accept(
         result,
@@ -348,8 +343,9 @@ describe("photo discovery cleanup", () => {
     );
     // B omits both: the untouched lamp is retired, the vase becomes a tombstone.
     const b = throughZip(accept(removed, scene(), 200));
-    expect(b.reconstructionState).toEqual({
+    expect(record(b)).toEqual({
       generation: 200,
+      applied: [lamp.objectId, vase.objectId],
       retired: [{ id: lamp.objectId, generation: 200 }],
       deleted: [vase.objectId],
     });
@@ -363,8 +359,9 @@ describe("photo discovery cleanup", () => {
       lamp.objectId,
     ]);
     expect(object(c, lamp.objectId).discovery?.generation).toBe(300);
-    expect(c.reconstructionState).toEqual({
+    expect(record(c)).toEqual({
       generation: 300,
+      applied: [lamp.objectId, vase.objectId],
       retired: [],
       deleted: [vase.objectId],
     });
@@ -374,84 +371,106 @@ describe("photo discovery cleanup", () => {
     const gone = edit(c, [{ type: "remove", objectId: lamp.objectId }]);
     const d = accept(gone, scene(lamp, vase), 400);
     expect(ids(d)).toEqual(room.objects.map((item) => item.id));
-    expect(d.reconstructionState?.deleted.sort()).toEqual(
+    expect(record(d)?.deleted.sort()).toEqual(
       [lamp.objectId, vase.objectId].sort(),
     );
   });
 
-  it("undoes a tombstone when the user restores the object", () => {
+  it("keeps objects an account undo restores", () => {
     const vase = discovery("photo-vase");
-    const a = accept(initial, scene(vase), 100);
-    const removed = accept(
-      edit(a, [{ type: "remove", objectId: vase.objectId }]),
-      scene(vase),
-      100,
-    );
-    expect(removed.reconstructionState?.deleted).toEqual([vase.objectId]);
-    // Undo returns the object; it is no longer a deletion.
-    const undone = { ...removed, room: a.room };
-    expect(
-      accept(undone, scene(vase), 100).reconstructionState?.deleted,
-    ).toEqual([]);
+    const a = accept(initial, scene(lamp, vase), 100);
+    // Account undo restores objects but keeps the bookkeeping.
+    const removed = edit(a, [{ type: "remove", objectId: vase.objectId }]);
+    expect(record(removed)?.deleted).toEqual([vase.objectId]);
+    const undone = {
+      ...removed,
+      room: { ...removed.room, objects: a.room.objects },
+    };
+    expect(accept(undone, scene(lamp, vase), 100).room).toBe(undone.room);
+    // An undone automatic retirement is not retired again.
+    const retired = accept(a, scene(vase), 200);
+    expect(retired.removedObjectIds).toEqual([lamp.objectId]);
+    const restored = {
+      ...retired,
+      room: { ...retired.room, objects: a.room.objects },
+    };
+    expect(accept(restored, scene(vase), 300).removedObjectIds).toEqual([]);
   });
 
-  it("records batched commits without claiming uncommitted work", () => {
+  it("validates reconstruction commands where they commit", () => {
+    const first = accept(initial, scene(lamp), 200);
+    const renamed = edit(first, [
+      {
+        type: "correct",
+        object: { ...object(first, lamp.objectId), name: "Mine" },
+      },
+    ]);
+    expect(() =>
+      edit(renamed, [
+        { type: "retire", objectId: lamp.objectId, generation: 300 },
+      ]),
+    ).toThrow("edited or kept");
+    expect(() =>
+      edit(first, [
+        { type: "retire", objectId: lamp.objectId, generation: 200 },
+      ]),
+    ).toThrow("edited or kept");
+    expect(() =>
+      edit(first, [{ type: "generation", generation: 100 }]),
+    ).toThrow("newer reconstruction");
+    expect(() =>
+      applyDesignCommands(
+        first.room,
+        [{ type: "retire", objectId: lamp.objectId, generation: 300 }],
+        [],
+        sampleBrief,
+        "agent",
+      ),
+    ).toThrow();
+    const gone = edit(first, [{ type: "remove", objectId: lamp.objectId }]);
+    expect(() =>
+      edit(gone, [
+        { type: "discover", object: discoveredRoomObject(lamp, 300) },
+      ]),
+    ).toThrow("will not be added again");
+  });
+
+  it("commits bookkeeping with each batch, so an interrupted save resumes from the room", () => {
     const old = discovery("photo-old");
     const first = accept(initial, scene(old), 100);
     const fresh = Array.from({ length: 48 }, (_, index) =>
       discovery(`photo-new-${index}`),
     );
     const next = scene(...fresh);
-    let workspace: Workspace = first;
+    // Only the authoritative room survives between batches.
+    let current = first.room;
     const batches: number[] = [];
     for (;;) {
-      const plan = planDiscoveredObjects(workspace.room, next, workspace, 200);
-      const commands: DesignCommand[] = [
-        ...plan.removals.map((objectId) => ({
-          type: "remove" as const,
-          objectId,
-        })),
-        ...plan.additions.map((item) => ({
-          type: "discover" as const,
-          object: item,
-        })),
-      ].slice(0, 40);
+      const { commands } = planDiscoveredObjects(current, next, [], 200);
       if (!commands.length) break;
-      batches.push(commands.length);
-      workspace = edit(workspace, commands);
-      workspace = throughBrowser({
-        ...workspace,
-        ...recordDiscoveryChanges(workspace, {
-          generation: 200,
-          removed: commands.flatMap((command) =>
-            command.type === "remove" ? [command.objectId] : [],
-          ),
-          added: commands.flatMap((command) =>
-            command.type === "discover" ? [command.object.id] : [],
-          ),
-          deleted: plan.deleted,
-        }),
-      });
-      // After the first batch only committed additions are recorded.
+      batches.push(Math.min(commands.length, 40));
+      current = edit({ ...first, room: current }, commands.slice(0, 40)).room;
       if (batches.length === 1)
-        expect(workspace.reconstructionObjectIds).toHaveLength(40);
+        expect(current.reconstruction).toMatchObject({
+          generation: 200,
+          applied: [
+            old.objectId,
+            ...fresh.slice(0, 39).map((item) => item.objectId),
+          ],
+          retired: [{ id: old.objectId, generation: 200 }],
+          deleted: [],
+        });
     }
     expect(batches).toEqual([40, 9]);
-    expect(ids(workspace)).toEqual([
-      ...room.objects.map((item) => item.id),
-      ...fresh.map((item) => item.objectId),
-    ]);
-    expect(workspace.reconstructionState).toEqual({
-      generation: 200,
-      retired: [{ id: old.objectId, generation: 200 }],
-      deleted: [],
-    });
-    // The whole-plan merge reaches the same state in one step.
     const whole = accept(first, next, 200);
     // JSON drops negative zero from native scan rotations, as storage does.
     expect(JSON.parse(JSON.stringify(whole.room.objects))).toEqual(
-      JSON.parse(JSON.stringify(workspace.room.objects)),
+      JSON.parse(JSON.stringify(current.objects)),
     );
-    expect(whole.reconstructionState).toEqual(workspace.reconstructionState);
+    expect(whole.room.reconstruction).toEqual(current.reconstruction);
+    // A later generation that omits them retires all 48.
+    expect(
+      mergeDiscoveredObjects(current, scene(), [], 300).removedObjectIds,
+    ).toHaveLength(48);
   });
 });
