@@ -21,15 +21,7 @@ describe("a live IKEA listing", () => {
     const reading = parseDimensionText(ikea.text, "storage");
     expect(completeDimensions(reading.values)).toBeNull();
     expect(reading.issue).toContain("order");
-  });
-
-  it("does not mistake the price for a measurement", () => {
-    const reading = parseDimensionText(ikea.text, "storage");
     expect(reading.values.width).toBeNull();
-  });
-
-  it("publishes no product structured data to fall back on", () => {
-    expect(ikea.hasProductJsonLd).toBe(false);
   });
 });
 

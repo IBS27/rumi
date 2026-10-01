@@ -123,10 +123,6 @@ function titleKey(name: string): string {
     .join(" ");
 }
 
-function completeness(product: ProductCandidate): number {
-  return completenessScore(product);
-}
-
 // The same product listed by several merchants must not fill the whole result.
 export function dedupeListings(
   products: ProductCandidate[],
@@ -147,9 +143,11 @@ export function dedupeListings(
       continue;
     }
     const existing = kept[index];
+    const productScore = completenessScore(product);
+    const existingScore = completenessScore(existing);
     const better =
-      completeness(product) > completeness(existing) ||
-      (completeness(product) === completeness(existing) &&
+      productScore > existingScore ||
+      (productScore === existingScore &&
         product.priceCents < existing.priceCents);
     if (better) kept[index] = product;
   }
