@@ -1,4 +1,7 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
+import { zodToConvex } from "convex-helpers/server/zod4";
+import { roomSchema } from "../shared/contracts";
+import { replaceRoom } from "./projects";
 import {
   httpAction,
   internalMutation,
@@ -107,19 +110,57 @@ export const append = internalMutation({
     await ctx.db.patch(fileId, { chunks, complete });
   },
 });
-/** Publish the room metadata and matching scan together after all chunks commit. */
+const scanIntent = v.union(
+  // Reuse the published scan; only valid for the same room and recorded scan.
+  v.object({ action: v.literal("keep"), scanId: v.string() }),
+  v.object({
+    action: v.literal("replace"),
+    fileId: v.id("files"),
+    scanId: v.string(),
+  }),
+  // The new source deliberately has no scan.
+  v.object({ action: v.literal("remove") }),
+);
+
+/**
+ * Commit a room's source files, and optionally the room itself, in one
+ * transaction after every chunk has uploaded. A failed or conflicting publish
+ * leaves the previous room and source pair untouched.
+ */
 export const publish = mutation({
   args: {
     projectId: v.id("projects"),
     workspaceFileId: v.id("files"),
-    scanFileId: v.optional(v.id("files")),
     roomId: v.optional(v.string()),
+    scan: v.optional(scanIntent),
+    // Older clients name a replacement scan directly and omit everything else.
+    scanFileId: v.optional(v.id("files")),
+    room: v.optional(zodToConvex(roomSchema)),
+    expectedRevision: v.optional(v.union(v.number(), v.null())),
+    expectedGeneration: v.optional(v.number()),
   },
-  handler: async (ctx, { projectId, workspaceFileId, scanFileId, roomId }) => {
+  returns: v.object({ generation: v.number() }),
+  handler: async (ctx, args) => {
     const ownerId = await requireOwner(ctx);
-    const project = await ctx.db.get(projectId);
+    const project = await ctx.db.get(args.projectId);
     if (project?.ownerId !== ownerId) throw new Error("Project not found.");
+    const generation = project.sourceGeneration ?? 0;
     if (
+      args.expectedGeneration !== undefined &&
+      args.expectedGeneration !== generation
+    )
+      throw new Error(
+        "This project's saved source changed in another tab. Reload before saving.",
+      );
+    if (args.scan && args.scanFileId) throw new Error("Name the scan once.");
+    const roomId = args.room?.id ?? args.roomId;
+    if (args.room) {
+      if (args.expectedRevision === undefined)
+        throw new Error("Replacing a room requires its expected revision.");
+      if (args.roomId !== undefined && args.roomId !== args.room.id)
+        throw new Error("The source belongs to another room.");
+      await replaceRoom(ctx, project, args.room, args.expectedRevision);
+    } else if (
       roomId &&
       (!project.roomId ||
         (await ctx.db.get(project.roomId))?.snapshot.id !== roomId)
@@ -127,15 +168,41 @@ export const publish = mutation({
       throw new Error(
         "The room changed during upload. Import the source again.",
       );
+    const sameRoom =
+      project.sourceRoomId === undefined || project.sourceRoomId === roomId;
+    let scanFileId: Id<"files"> | undefined;
+    let sourceScanId: string | undefined;
+    if (args.scan?.action === "replace") {
+      scanFileId = args.scan.fileId;
+      sourceScanId = args.scan.scanId;
+    } else if (args.scanFileId) scanFileId = args.scanFileId;
+    else if (args.scan?.action === "keep") {
+      if (
+        !project.scanFileId ||
+        project.sourceRoomId !== roomId ||
+        project.sourceScanId !== args.scan.scanId
+      )
+        throw new Error(
+          "The saved scan does not match this room. Upload it again.",
+        );
+      scanFileId = project.scanFileId;
+      sourceScanId = project.sourceScanId;
+    } else if (!args.scan && project.scanFileId && sameRoom)
+      // Missing local data must not downgrade a saved scan for this room.
+      throw new ConvexError({
+        code: "SCAN_WOULD_BE_LOST",
+        message:
+          "This room already has a saved scan. Re-import its ZIP, or remove the scan explicitly.",
+      });
     for (const [id, kind] of [
-      [workspaceFileId, "workspace"],
+      [args.workspaceFileId, "workspace"],
       [scanFileId, "scan"],
     ] as const) {
       if (!id) continue;
       const file = await ctx.db.get(id);
       if (
         !file?.complete ||
-        file.projectId !== projectId ||
+        file.projectId !== args.projectId ||
         file.ownerId !== ownerId ||
         file.kind !== kind
       )
@@ -147,10 +214,17 @@ export const publish = mutation({
       )
         throw new Error("The source upload expired. Retry the upload.");
     }
-    await ctx.db.patch(projectId, { workspaceFileId, scanFileId });
+    await ctx.db.patch(args.projectId, {
+      workspaceFileId: args.workspaceFileId,
+      scanFileId,
+      sourceRoomId: roomId,
+      sourceScanId,
+      sourceGeneration: generation + 1,
+    });
     for (const old of [project.workspaceFileId, project.scanFileId])
-      if (old && old !== workspaceFileId && old !== scanFileId)
+      if (old && old !== args.workspaceFileId && old !== scanFileId)
         await ctx.scheduler.runAfter(0, internal.files.remove, { fileId: old });
+    return { generation: generation + 1 };
   },
 });
 export const remove = internalMutation({

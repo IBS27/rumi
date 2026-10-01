@@ -50,18 +50,49 @@ export async function downloadFile(ticket: {
   return blob;
 }
 
+/** The project's published source, as the server last recorded it. */
+export type PublishedSource = {
+  roomId?: string;
+  scanId?: string;
+  generation: number;
+};
+
+/**
+ * Upload a source pair, then publish it in one mutation. With `room`, that
+ * mutation also replaces the project's room at its expected revision, so a
+ * failed upload leaves the previous room and source intact.
+ */
 export async function saveWorkspaceFiles(
   projectId: Id<"projects">,
   workspace: Workspace,
-  scan: Blob | undefined,
   begin: (
     args: FunctionArgs<typeof api.files.begin>,
   ) => Promise<FunctionReturnType<typeof api.files.begin>>,
   publish: (
     args: FunctionArgs<typeof api.files.publish>,
   ) => Promise<FunctionReturnType<typeof api.files.publish>>,
+  options: {
+    loadScan: (scanId: string) => Promise<Blob | undefined>;
+    /** Omit only when the published state is unknown, as during migration. */
+    published?: PublishedSource;
+    room?: { expectedRevision: number | null };
+    /**
+     * What a workspace without a scan means: "remove" deliberately saves a
+     * JSON-only source; "preserve" refuses to discard a saved scan.
+     */
+    withoutScan: "remove" | "preserve";
+  },
 ) {
-  if (workspace.scanId && !scan)
+  const { published } = options;
+  const keepScan =
+    workspace.scanId !== undefined &&
+    published?.scanId === workspace.scanId &&
+    published.roomId === workspace.room.id;
+  const scanBlob =
+    workspace.scanId && !keepScan
+      ? await options.loadScan(workspace.scanId)
+      : undefined;
+  if (workspace.scanId && !keepScan && !scanBlob)
     throw new Error(
       "The original scan is unavailable. Re-import its ZIP before saving.",
     );
@@ -70,20 +101,32 @@ export async function saveWorkspaceFiles(
   });
   const source = await begin({ projectId, kind: "workspace", size: blob.size });
   await uploadFile(blob, source);
-  let scanFileId: Id<"files"> | undefined;
-  if (scan) {
+  let scan: FunctionArgs<typeof api.files.publish>["scan"];
+  if (keepScan) scan = { action: "keep", scanId: workspace.scanId! };
+  else if (workspace.scanId && scanBlob) {
     const authorization = await begin({
       projectId,
       kind: "scan",
-      size: scan.size,
+      size: scanBlob.size,
     });
-    await uploadFile(scan, authorization);
-    scanFileId = authorization.fileId;
-  }
-  await publish({
+    await uploadFile(scanBlob, authorization);
+    scan = {
+      action: "replace",
+      fileId: authorization.fileId,
+      scanId: workspace.scanId,
+    };
+  } else if (options.withoutScan === "remove") scan = { action: "remove" };
+  return publish({
     projectId,
     workspaceFileId: source.fileId,
-    scanFileId,
     roomId: workspace.room.id,
+    scan,
+    expectedGeneration: published?.generation,
+    ...(options.room
+      ? {
+          room: workspace.room,
+          expectedRevision: options.room.expectedRevision,
+        }
+      : {}),
   });
 }

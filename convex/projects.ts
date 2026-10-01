@@ -24,6 +24,7 @@ import {
   specTopicSchema,
   wantSchema,
   type DesignBrief,
+  type RoomSnapshot,
 } from "../shared/contracts";
 import { inferBriefPurpose } from "../shared/chat/purpose";
 
@@ -289,37 +290,47 @@ export const attachRoom = mutation({
     const project = await ctx.db.get(projectId);
     if (!project || project.ownerId !== ownerId)
       throw new Error("This project does not exist.");
-    if (project.activeMessageId)
-      throw new Error("Wait for the current reply before updating the room.");
-    const snapshot = roomSchema.parse(room);
-    const existing = project.roomId ? await ctx.db.get(project.roomId) : null;
-    if ((existing?.snapshot.revision ?? null) !== expectedRevision)
-      throw new Error("The chat room changed. Refresh before updating it.");
-    if (
-      existing?.snapshot.id === snapshot.id &&
-      JSON.stringify(roomSchema.parse(existing.snapshot).objects) !==
-        JSON.stringify(snapshot.objects)
-    )
-      throw new Error(
-        "Use the room editor to change this design. Attaching an older snapshot would overwrite saved edits.",
-      );
-    if (snapshot.shape === "polygon" && snapshot.capture.synthetic)
-      await ensureSampleDesign(ctx);
-    if (existing) {
-      await ctx.db.patch(existing._id, {
-        snapshot: { ...snapshot, revision: existing.snapshot.revision + 1 },
-        history: [],
-      });
-    } else {
-      const roomId = await ctx.db.insert("rooms", {
-        ownerId,
-        snapshot,
-        brief: project.brief ?? emptyBrief(),
-      });
-      await ctx.db.patch(projectId, { roomId });
-    }
+    await replaceRoom(ctx, project, room, expectedRevision);
   },
 });
+
+/** Replace a project's room at the expected revision. Callers check ownership. */
+export async function replaceRoom(
+  ctx: MutationCtx,
+  project: Doc<"projects">,
+  room: RoomSnapshot,
+  expectedRevision: number | null,
+) {
+  if (project.activeMessageId)
+    throw new Error("Wait for the current reply before updating the room.");
+  const snapshot = roomSchema.parse(room);
+  const existing = project.roomId ? await ctx.db.get(project.roomId) : null;
+  if ((existing?.snapshot.revision ?? null) !== expectedRevision)
+    throw new Error("The chat room changed. Refresh before updating it.");
+  if (
+    existing?.snapshot.id === snapshot.id &&
+    JSON.stringify(roomSchema.parse(existing.snapshot).objects) !==
+      JSON.stringify(snapshot.objects)
+  )
+    throw new Error(
+      "Use the room editor to change this design. Attaching an older snapshot would overwrite saved edits.",
+    );
+  if (snapshot.shape === "polygon" && snapshot.capture.synthetic)
+    await ensureSampleDesign(ctx);
+  if (existing) {
+    await ctx.db.patch(existing._id, {
+      snapshot: { ...snapshot, revision: existing.snapshot.revision + 1 },
+      history: [],
+    });
+  } else {
+    const roomId = await ctx.db.insert("rooms", {
+      ownerId: project.ownerId,
+      snapshot,
+      brief: project.brief ?? emptyBrief(),
+    });
+    await ctx.db.patch(project._id, { roomId });
+  }
+}
 
 export const setPhase = internalMutation({
   args: {

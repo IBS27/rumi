@@ -78,7 +78,12 @@ it("restores a saved room source and multi-chunk scan on another device", async 
   const publish = (
     args: Parameters<typeof owner.mutation<typeof api.files.publish>>[1],
   ) => owner.mutation(api.files.publish, args);
-  await saveWorkspaceFiles(projectId, workspace, scan, begin, publish);
+  const first = await saveWorkspaceFiles(projectId, workspace, begin, publish, {
+    loadScan: async () => scan,
+    published: { generation: 0 },
+    withoutScan: "remove",
+  });
+  expect(first.generation).toBe(1);
 
   // Another device has only the account session.
   const source = await owner.mutation(api.files.ticket, {
@@ -103,13 +108,20 @@ it("restores a saved room source and multi-chunk scan on another device", async 
   );
   expect(downloaded).toEqual(scanBytes);
 
-  // Saving a new source pair replaces the old one without breaking restore.
+  // A metadata update reuses the saved scan instead of uploading it again.
+  const scans = await t.run((ctx) => ctx.db.query("files").collect());
   await saveWorkspaceFiles(
     projectId,
     { ...workspace, reconstructionObjectIds: [] },
-    scan,
     begin,
     publish,
+    {
+      loadScan: async () => {
+        throw new Error("An unchanged scan must not be reloaded.");
+      },
+      published: { roomId: room.id, scanId: workspace.scanId, generation: 1 },
+      withoutScan: "remove",
+    },
   );
   for (let i = 0; i < 10; i++) {
     await new Promise((resolve) => setTimeout(resolve, 5));
@@ -117,6 +129,9 @@ it("restores a saved room source and multi-chunk scan on another device", async 
   }
   const files = await t.run((ctx) => ctx.db.query("files").collect());
   expect(files).toHaveLength(2);
+  expect(files.find((file) => file.kind === "scan")?._id).toBe(
+    scans.find((file) => file.kind === "scan")?._id,
+  );
   const latest = await owner.mutation(api.files.ticket, {
     projectId,
     kind: "workspace",
