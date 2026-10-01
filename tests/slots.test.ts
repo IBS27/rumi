@@ -550,3 +550,226 @@ describe("planner slot and count rules", () => {
     expect(describeSlots([])).toContain("slotId null");
   });
 });
+
+// Beds and the furniture that goes with them, across rooms, relations and slot
+// choices. Each case must keep the priority-1 king exactly as it is reserved
+// alone, keep slotted bodies in their slots, never overlap bodies or doors,
+// keep unrelated front strips clear (a companion and its host are exempt from
+// each other's fronts only), and place atomically with catalog dimensions.
+describe("bed and companion matrix", () => {
+  const rooms: Record<string, RoomSnapshot> = {
+    open: emptyRoom,
+    narrow: { ...emptyRoom, dimensions: { width: 2.2, depth: 3, height: 2.7 } },
+    door: { ...sampleRoom, objects: [] },
+  };
+  const king = piece("bed", "king bed", 1, { desiredFootprint: { width: 2.05, depth: 2.2 } });
+  const desk = (priority: number) =>
+    piece("desk", "desk", priority, { desiredFootprint: { width: 1.2, depth: 0.6 } });
+  const nightstand = (relatedObjectId: string | null) =>
+    piece("nightstand", "nightstand", 2, {
+      relatedObjectId,
+      desiredFootprint: { width: 0.5, depth: 0.4 },
+    });
+  const sets: Record<string, ZoneRequest[]> = {
+    "king and desk": [king, desk(2)],
+    "king and its nightstand": [king, nightstand("bed")],
+    "king and an unrelated nightstand": [king, nightstand(null)],
+    "king, its nightstand and a desk": [king, nightstand("bed"), desk(3)],
+  };
+  const modes = ["every piece slotted", "bed slotted", "no slots"] as const;
+  const strip = (zone: { position: { x: number; z: number }; footprint: { width: number; depth: number }; rotationY: number; margins: { front: number } }) => {
+    const depth = Math.max(Math.min(zone.margins.front, 0.3), 0.01);
+    const reach = zone.footprint.depth / 2 + depth / 2;
+    return rectangleRing(
+      {
+        x: zone.position.x + Math.sin(zone.rotationY) * reach,
+        z: zone.position.z + Math.cos(zone.rotationY) * reach,
+      },
+      zone.footprint.width,
+      depth,
+      zone.rotationY,
+    );
+  };
+
+  for (const [roomName, room] of Object.entries(rooms))
+    for (const [setName, set] of Object.entries(sets))
+      for (const mode of modes)
+        it(`${setName}, ${mode}, ${roomName} room`, () => {
+          const bedroom: DesignBrief = {
+            ...brief,
+            purpose: "bedroom",
+            wants: set.map((zone) => ({ category: zone.category, notes: "" })),
+          };
+          const model = buildSpaceModel(room);
+          const slots = findSlots(model, { count: planScope(bedroom).maxZones });
+          const zones = set.map((zone, index) => ({
+            ...zone,
+            slotId:
+              mode === "no slots" || (mode === "bed slotted" && index > 0)
+                ? null
+                : (slots[index]?.id ?? null),
+          }));
+          const { plan } = buildDesignPlan({ room, brief: bedroom, products: [], request: request(zones) });
+
+          // Later pieces never change the priority-1 king.
+          const alone = reserveZones(room, model, [zones[0]], "balanced", room.dimensions.height, [], slots).zones[0];
+          const bed = plan.zones.find((zone) => zone.id === "bed")!;
+          expect(alone.category).toBe("king bed");
+          expect([bed.category, bed.footprint, bed.position, bed.rotationY]).toEqual([
+            alone.category,
+            alone.footprint,
+            alone.position,
+            alone.rotationY,
+          ]);
+          // Only a desk without a slot misses the narrow room, as on main.
+          const unslottedDesk = zones.some((zone) => zone.id === "desk" && !zone.slotId);
+          expect(plan.rejected.map((item) => item.zoneId)).toEqual(
+            roomName === "narrow" && unslottedDesk ? ["desk"] : [],
+          );
+
+          for (const zone of plan.zones) {
+            const slotId = zones.find((item) => item.id === zone.id)?.slotId;
+            const slot = slots.find((item) => item.id === slotId);
+            if (slot) expect(ringInside(bodyRing(zone), [slotRing(slot)])).toBe(true);
+            for (const door of model.clearances)
+              expect(ringsOverlap(bodyRing(zone), door.footprint)).toBe(false);
+          }
+          for (const a of plan.zones)
+            for (const b of plan.zones) {
+              if (a === b) continue;
+              expect(ringsOverlap(bodyRing(a), bodyRing(b))).toBe(false);
+              const pair = a.relatedObjectId === b.id || b.relatedObjectId === a.id;
+              if (!pair) expect(ringsOverlap(bodyRing(a), strip(b))).toBe(false);
+            }
+
+          const products: ProductCandidate[] = plan.zones.map((zone) => ({
+            ...sampleProducts[0],
+            id: zone.id,
+            name: zone.category,
+            category: zone.category,
+            availability: "available",
+            measurement: {
+              ...sampleProducts[0].measurement,
+              source: "confirmed",
+              dimensions: { ...zone.footprint, height: zone.id === "bed" ? 0.6 : 0.75 },
+            },
+          }));
+          const placed = applyDesignCommands(
+            room,
+            plan.zones.map((zone) => ({ type: "add" as const, productId: zone.id, instanceId: zone.id, zone })),
+            products,
+            bedroom,
+            "agent",
+          );
+          expect(placed.objects).toHaveLength(plan.zones.length);
+          for (const object of placed.objects) {
+            expect(object.dimensions).toEqual(
+              products.find((product) => product.id === object.id)!.measurement.dimensions!,
+            );
+            expect(designPlacementIssue(placed, object)).toBeNull();
+          }
+        });
+
+  it("keeps a related nightstand at its size but shrinks an unrelated one off the bed's front", () => {
+    const room = rooms.narrow;
+    const bedroom: DesignBrief = {
+      ...brief,
+      purpose: "bedroom",
+      wants: [
+        { category: "king bed", notes: "" },
+        { category: "nightstand", notes: "" },
+      ],
+    };
+    const slots = findSlots(buildSpaceModel(room), { count: planScope(bedroom).maxZones });
+    const plan = (relatedObjectId: string | null) =>
+      buildDesignPlan({
+        room,
+        brief: bedroom,
+        products: [],
+        request: request([
+          { ...king, slotId: slots[0].id },
+          { ...nightstand(relatedObjectId), slotId: slots[1].id },
+        ]),
+      }).plan;
+    const related = plan("bed").zones.find((zone) => zone.id === "nightstand")!;
+    const unrelated = plan(null).zones.find((zone) => zone.id === "nightstand")!;
+    const bed = plan(null).zones.find((zone) => zone.id === "bed")!;
+    expect(related.footprint).toEqual({ width: 0.5, depth: 0.4 });
+    expect(unrelated.footprint.width).toBeLessThan(0.5);
+    expect(ringsOverlap(strip(unrelated), bodyRing(bed))).toBe(false);
+  });
+
+  it("never lets a companion stand on its host", () => {
+    const room: RoomSnapshot = { ...emptyRoom, dimensions: { width: 2.1, depth: 2.6, height: 2.7 } };
+    const bedroom: DesignBrief = {
+      ...brief,
+      purpose: "bedroom",
+      wants: [
+        { category: "king bed", notes: "" },
+        { category: "nightstand", notes: "" },
+      ],
+    };
+    const slots = findSlots(buildSpaceModel(room), { count: planScope(bedroom).maxZones });
+    const { plan } = buildDesignPlan({
+      room,
+      brief: bedroom,
+      products: [],
+      request: request([
+        { ...king, slotId: slots[0].id },
+        piece("nightstand", "nightstand", 2, {
+          relatedObjectId: "bed",
+          desiredFootprint: { width: 0.9, depth: 0.7 },
+        }),
+      ]),
+    });
+    expect(plan.zones.map((zone) => [zone.id, zone.category])).toEqual([["bed", "king bed"]]);
+    expect(plan.rejected).toEqual([
+      {
+        zoneId: "nightstand",
+        reason: "Could not reserve 0.9 × 0.7 m for nightstand: overlaps another reserved zone.",
+      },
+    ]);
+  });
+
+  it("rejects a bed whose dimensions differ from its catalog variant", () => {
+    const room = rooms.narrow;
+    const bedroom: DesignBrief = { ...brief, purpose: "bedroom", wants: [{ category: "king bed", notes: "" }] };
+    const slots = findSlots(buildSpaceModel(room), { count: planScope(bedroom).maxZones });
+    const { plan } = buildDesignPlan({
+      room,
+      brief: bedroom,
+      products: [],
+      request: request([{ ...king, slotId: slots[0].id }]),
+    });
+    const zone = plan.zones[0];
+    const product: ProductCandidate = {
+      ...sampleProducts[0],
+      id: "king",
+      name: "King bed",
+      category: "bed",
+      availability: "available",
+      measurement: {
+        ...sampleProducts[0].measurement,
+        source: "confirmed",
+        dimensions: { ...zone.footprint, height: 0.6 },
+      },
+    };
+    const object = applyDesignCommands(
+      room,
+      [{ type: "add", productId: product.id, instanceId: "king", zone }],
+      [product],
+      bedroom,
+    ).objects[0];
+    const proposal = (dimensions: typeof object.dimensions) => ({
+      id: "king-proposal",
+      roomId: room.id,
+      baseRevision: room.revision,
+      summary: "Place the king",
+      additions: [{ ...object, dimensions }],
+    });
+    expect(applyProposal(room, proposal(object.dimensions), [product], bedroom).revision).toBe(room.revision + 1);
+    expect(() =>
+      applyProposal(room, proposal({ ...object.dimensions, width: 1.65 }), [product], bedroom),
+    ).toThrow(/dimensions must match/);
+  });
+});

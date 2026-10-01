@@ -571,9 +571,22 @@ function isSoftHost(category: string): boolean {
 }
 
 // A floor reservation keeps both rings: the piece itself, and the piece plus
-// its clearance. A companion (nightstand by a bed) may stand in the host's
-// clearance but never on the host.
-type Reservation = { zoneId: string; body: Ring; front: Ring; withMargins: Ring };
+// its clearance. hostId is the piece it belongs beside, if any.
+type Reservation = {
+  zoneId: string;
+  hostId: string | null;
+  body: Ring;
+  front: Ring;
+  withMargins: Ring;
+};
+
+// A companion (a nightstand by its bed) may stand in its host's clearance and
+// face its host, but never stand on it. The relation belongs to the pair, so
+// it holds whichever of the two is checked against the other: an actual
+// reservation, or a later piece's projected spot.
+function related(a: Pick<Reservation, "zoneId" | "hostId">, b: Pick<Reservation, "zoneId" | "hostId">): boolean {
+  return a.hostId === b.zoneId || b.hostId === a.zoneId;
+}
 
 function fits(
   model: SpaceModel,
@@ -582,7 +595,7 @@ function fits(
   ring: Ring,
   reserved: Reservation[],
   mount: ZoneMount,
-  hostId: string | null,
+  self: Pick<Reservation, "zoneId" | "hostId">,
 ): string | null {
   // The piece and the room in front of it must be inside the floor. Side
   // clearance may be cut by a wall: a nightstand can stand against one.
@@ -600,13 +613,14 @@ function fits(
   // Only the front strip is a hard clearance: a person must be able to stand
   // there. Side clearance is a preference that shapes candidate positions,
   // never a reason to reject. Two fronts may overlap (a shared walkway); a
-  // body may not stand in a front, and a front may not cover a body. The host
-  // a companion belongs beside is exempt. Things mounted above waist height
+  // body may not stand in a front, and a front may not cover a body. A
+  // companion and its host are exempt from each other's fronts, never from
+  // body overlap. Things mounted above waist height
   // (a wall mirror, a towel rack, a ceiling light) do not take floor.
   for (const obstacle of model.obstacles) {
     if (obstacle.category === "rug" || obstacle.bottom > OVERHEAD_BOTTOM) continue;
     if (ringsOverlap(body, obstacle.footprint)) return `overlaps ${obstacle.name}`;
-    if (obstacle.id !== hostId && ringsOverlap(front, obstacle.footprint))
+    if (obstacle.id !== self.hostId && ringsOverlap(front, obstacle.footprint))
       return `${obstacle.name} would block its front`;
   }
   const clearance = model.clearances.find(
@@ -615,7 +629,7 @@ function fits(
   if (clearance) return clearance.reason;
   for (const other of reserved) {
     if (ringsOverlap(body, other.body)) return "overlaps another reserved zone";
-    if (other.zoneId === hostId) continue;
+    if (related(self, other)) continue;
     if (ringsOverlap(body, other.front)) return "stands in front of another piece";
     if (ringsOverlap(front, other.body)) return "another piece would block its front";
   }
@@ -841,6 +855,11 @@ function reserveOnSurface(
   };
 }
 
+const pairOf = (request: ZoneRequest) => ({
+  zoneId: request.id,
+  hostId: request.relatedObjectId,
+});
+
 interface FloorFit {
   step: SizeStep;
   margins: Margins;
@@ -891,7 +910,7 @@ function searchFloor(
           depth,
           position,
           rotationY: candidate.rotationY,
-          reservation: { zoneId: request.id, body, front, withMargins: ring },
+          reservation: { ...pairOf(request), body, front, withMargins: ring },
         };
       }
     }
@@ -955,7 +974,7 @@ export function reserveZones(
       slot,
       (width, depth, active) => slotCandidates(slot, width, depth, active),
       (body, front, ring) =>
-        fits(model, body, front, ring, [...projected.values()], "floor", request.relatedObjectId),
+        fits(model, body, front, ring, [...projected.values()], "floor", pairOf(request)),
     );
     if (fit) projected.set(request.id, fit.reservation);
   }
@@ -1011,7 +1030,7 @@ export function reserveZones(
         const taken = claimed.find((other) => ringsOverlap(body, slotRing(other)));
         return taken
           ? `it would take ${taken.id}, which another piece in this plan needs`
-          : fits(model, body, front, ring, [...reserved, ...ahead], mount, request.relatedObjectId);
+          : fits(model, body, front, ring, [...reserved, ...ahead], mount, pairOf(request));
       },
       issues,
     );

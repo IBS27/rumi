@@ -33,8 +33,11 @@ conservatively so a thin divider or angled edge is never inside one, and capped 
 depth and width so open floor yields several. The planner may give each slot to one
 floor piece, which is then reserved inside it or rejected. Other floor pieces take
 `slotId: null` and are placed in the remaining free floor, clear of slots still
-claimed by later pieces. The placement validator checks every actual reservation
-against earlier pieces.
+claimed by later pieces. Earlier pieces keep clear of each later slotted piece's
+projected spot but may use the rest of its slot. A companion and the piece it
+names in relatedObjectId may use each other's front clearance whichever is
+reserved first; their bodies never overlap. The placement validator checks every
+actual reservation against earlier pieces.
 The initial plan defaults to four pieces plus rugs. Explicit requests and furniture
 needed to support a requested accessory take priority over this default, within the
 brief's twelve-item limit. Only successful reservations count toward the default.
