@@ -507,4 +507,77 @@ describe("photo discovery cleanup", () => {
       ]),
     ).toThrow();
   });
+
+  it("treats an unlocked or unchanged inspector save as unedited", () => {
+    const first = accept(initial, scene(lamp), 100);
+    const original = object(first, lamp.objectId);
+    const baseline = structuredClone(original.discovery);
+    const lock = (
+      workspace: Workspace,
+      placementLocked: boolean,
+      productLocked: boolean,
+    ) =>
+      edit(workspace, [
+        {
+          type: "lock",
+          objectId: lamp.objectId,
+          placementLocked,
+          productLocked,
+        },
+      ]);
+    // Lock then unlock writes productLocked: false, absent from the baseline.
+    const unlocked = throughBrowser(
+      throughZip(lock(lock(first, true, true), false, false)),
+    );
+    expect(object(unlocked, lamp.objectId).productLocked).toBe(false);
+    expect(object(unlocked, lamp.objectId).discovery).toEqual(baseline);
+    expect(accept(unlocked, scene(), 200).removedObjectIds).toEqual([
+      lamp.objectId,
+    ]);
+    // So does saving the inspector without changes.
+    const saved = edit(first, [
+      { type: "correct", object: { ...original, productLocked: false } },
+    ]);
+    expect(accept(saved, scene(), 200).removedObjectIds).toEqual([
+      lamp.objectId,
+    ]);
+    // A historical baseline that recorded false matches an absent flag.
+    const recorded = {
+      ...first,
+      room: {
+        ...first.room,
+        objects: first.room.objects.map((item) =>
+          item.id === lamp.objectId
+            ? {
+                ...item,
+                discovery: {
+                  ...item.discovery!,
+                  baseline: {
+                    ...item.discovery!.baseline,
+                    productLocked: false,
+                  },
+                },
+              }
+            : item,
+        ),
+      },
+    };
+    expect(accept(recorded, scene(), 200).removedObjectIds).toEqual([
+      lamp.objectId,
+    ]);
+    // True locks and real edits still keep the object.
+    expect(
+      accept(lock(first, false, true), scene(), 200).removedObjectIds,
+    ).toEqual([]);
+    expect(
+      accept(lock(first, true, false), scene(), 200).removedObjectIds,
+    ).toEqual([]);
+    const renamed = edit(lock(lock(first, true, true), false, false), [
+      {
+        type: "correct",
+        object: { ...original, productLocked: false, name: "Mine" },
+      },
+    ]);
+    expect(accept(renamed, scene(), 200).removedObjectIds).toEqual([]);
+  });
 });
