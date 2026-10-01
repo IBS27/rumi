@@ -148,8 +148,8 @@ describe("space model", () => {
       surface.transform = rotation.clone()
         .multiply(new Matrix4().fromArray(surface.transform)).toArray();
     const rotated = buildSpaceModel(room).clearances[0];
-    // Aperture 0.9 m plus a 0.3 m shoulder past each jamb, 0.9 m approach both sides.
-    expect(polygonArea([rotated.footprint])).toBeCloseTo(1.5 * 1.8, 6);
+    // The 0.9 m door's swing on both sides of the aperture.
+    expect(polygonArea([rotated.footprint])).toBeCloseTo(0.9 * 1.8, 6);
     for (const point of original.footprint) {
       const expected = {
         x: point.x * Math.cos(yaw) + point.z * Math.sin(yaw),

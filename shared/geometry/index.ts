@@ -46,6 +46,7 @@ export function placementIssue(
   )
     return "This item extends outside the room.";
   for (const door of room.openings.filter((item) => item.kind === "door")) {
+    // The door-width square its leaf sweeps, as in the planner's space model.
     const clearance = door.width;
     const across =
       door.wall === "north" || door.wall === "south"
