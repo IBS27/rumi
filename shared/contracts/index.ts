@@ -96,7 +96,7 @@ export const productSchema = z.object({
   assetId: idSchema.nullable(),
   synthetic: z.boolean(),
 });
-export const roomObjectSchema = z.object({
+const roomObjectFields = z.object({
   id: idSchema,
   name: z.string(),
   category: categorySchema,
@@ -116,6 +116,18 @@ export const roomObjectSchema = z.object({
   detectionConfidence: z.enum(["high", "medium", "low", "unknown"]).optional(),
   sourceCategory: z.string().optional(),
   detectionSource: z.literal("photo").optional(),
+});
+/**
+ * Where a photo discovery came from: the reconstruction generation that supplied
+ * it and the object exactly as supplied. Any difference from the baseline is a
+ * user or design edit, so automatic cleanup keeps the object.
+ */
+export const discoveryProvenanceSchema = z.object({
+  generation: z.number().finite().nonnegative(),
+  baseline: roomObjectFields,
+});
+export const roomObjectSchema = roomObjectFields.extend({
+  discovery: discoveryProvenanceSchema.optional(),
 });
 export const capturedSurfaceSchema = z.object({
   id: idSchema,
@@ -140,6 +152,26 @@ export const openingSchema = z.object({
   height: z.number().positive(),
   sill: z.number().nonnegative(),
 });
+/**
+ * Photo discovery bookkeeping, changed only by the same design commands that
+ * change the objects. `applied` lists every discovery ever added; `retired`
+ * those a newer reconstruction generation removed automatically (with that
+ * generation); `deleted` those removed by an edit, which never return.
+ * `generation` is the newest reconstruction applied.
+ */
+export const reconstructionRecordSchema = z.object({
+  generation: z.number().finite().nonnegative().optional(),
+  applied: z.array(idSchema).max(2000),
+  retired: z
+    .array(
+      z.object({
+        id: idSchema,
+        generation: z.number().finite().nonnegative(),
+      }),
+    )
+    .max(2000),
+  deleted: z.array(idSchema).max(2000),
+});
 const roomFields = {
   id: idSchema,
   name: z.string(),
@@ -147,6 +179,7 @@ const roomFields = {
   dimensions: dimensionsSchema,
   measurementSource: z.enum(["confirmed", "estimated"]),
   objects: z.array(roomObjectSchema),
+  reconstruction: reconstructionRecordSchema.optional(),
 };
 export const roomSchema = z
   .discriminatedUnion("shape", [
@@ -417,6 +450,8 @@ export type DesignPlan = z.infer<typeof designPlanSchema>;
 export type ZoneFill = z.infer<typeof zoneFillSchema>;
 export type RoomSnapshot = z.infer<typeof roomSchema>;
 export type RoomObject = z.infer<typeof roomObjectSchema>;
+export type DiscoveryProvenance = z.infer<typeof discoveryProvenanceSchema>;
+export type ReconstructionRecord = z.infer<typeof reconstructionRecordSchema>;
 export type CapturedSurface = z.infer<typeof capturedSurfaceSchema>;
 export type CapturedRoom = Extract<RoomSnapshot, { shape: "polygon" }>;
 export type ProductCandidate = z.infer<typeof productSchema>;

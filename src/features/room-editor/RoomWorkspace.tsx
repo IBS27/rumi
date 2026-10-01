@@ -1,12 +1,14 @@
 import {
   mergeDiscoveredObjects,
   discoveredRoomObject,
+  planDiscoveredObjects,
 } from "../../../shared/reconstruction/contracts";
 import {
   lazy,
   Suspense,
   useCallback,
   useEffect,
+  useEffectEvent,
   useMemo,
   useId,
   useRef,
@@ -24,6 +26,7 @@ import { readScan, saveScan } from "./capture/storage";
 import {
   Download,
   MessageCircle,
+  RotateCcw,
   Undo2,
   Upload,
   ShoppingBag,
@@ -124,11 +127,19 @@ export function RoomWorkspace({
   chat: (context: ChatContext) => ReactNode;
   reconstruct?: (
     input: ReconstructionInput,
-    onReady: (scene: ReconstructedScene) => void,
+    onReady: (scene: ReconstructedScene, generation?: number) => void,
   ) => ReactNode;
 }) {
   const [workspace, setWorkspace] = useState<Workspace | null>(initial);
   const latestWorkspace = useRef(workspace);
+  // Late completions must not write into the session that replaced this one.
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const persistCallback = useRef(onPersist);
   useEffect(() => {
     persistCallback.current = onPersist;
@@ -286,6 +297,26 @@ export function RoomWorkspace({
   }, []);
   const scanId = workspace?.scanId;
   const resource = capture?.id === scanId ? capture : null;
+  // A finished scene waits here until its discoveries are committed: through an
+  // edit in progress, a cloud design that has not loaded, or a failed save. Each
+  // attempt replans from the latest authoritative room, so retries never
+  // duplicate objects or restore removed ones.
+  const [pendingScene, setPendingScene] = useState<{
+    scanId: string;
+    scene: ReconstructedScene;
+    generation?: number;
+  } | null>(null);
+  const [sceneError, setSceneError] = useState("");
+  const [sceneStep, setSceneStep] = useState(0);
+  const sceneBusy = useRef(false);
+  const scenePending = Boolean(
+    pendingScene && resource && pendingScene.scanId === resource.id,
+  );
+  const canApplyScene =
+    scenePending &&
+    (!workspace?.cloudProjectId || Boolean(connection)) &&
+    !editing &&
+    !sceneError;
   const simulationVisible =
     showSimulation && view === "3d" && !!resource?.scene;
   const scanVisible =
@@ -359,6 +390,7 @@ export function RoomWorkspace({
   }
 
   function persist(next: Workspace | null) {
+    if (!mounted.current) return;
     latestWorkspace.current = next;
     setWorkspace(next);
     try {
@@ -674,40 +706,88 @@ export function RoomWorkspace({
       root.current?.querySelector<HTMLTextAreaElement>("textarea")?.focus(),
     );
   }
-  function acceptReconstruction(scene: ReconstructedScene) {
-    if (!resource) return;
-    if (!workspace || workspace.scanId !== resource.id) return;
-    const merged = mergeDiscoveredObjects(
-      workspace.room,
-      scene,
-      workspace.reconstructionObjectIds,
+  function receiveScene(
+    id: string,
+    scene: ReconstructedScene,
+    generation?: number,
+  ) {
+    setPendingScene((current) =>
+      current?.scanId === id &&
+      generation !== undefined &&
+      current.generation === generation
+        ? current
+        : { scanId: id, scene, generation },
     );
-    if (!connection) persist({ ...workspace, ...merged });
-    else {
-      const discoveries = merged.room.objects.filter(
-        (object) =>
-          !workspace.room.objects.some((existing) => existing.id === object.id),
-      );
-      if (discoveries.length)
-        void execute(
-          discoveries.map((object) => ({ type: "discover", object })),
-        )
-          .then(() => {
-            const current = latestWorkspace.current;
-            if (current)
-              persist({
-                ...current,
-                reconstructionObjectIds: merged.reconstructionObjectIds,
-              });
-          })
-          .catch(() => undefined);
-    }
-    setCapture((current) =>
-      current?.id === resource.id ? { ...current, scene } : current,
-    );
-    setShowSimulation(true);
-    setShowScan(false);
   }
+  /** Commits one step of the pending scene; the effect below runs the next. */
+  async function applyScene() {
+    const pending = pendingScene;
+    const current = latestWorkspace.current;
+    if (
+      !pending ||
+      !current ||
+      current.scanId !== pending.scanId ||
+      sceneBusy.current ||
+      editPending.current
+    )
+      return;
+    const { scene, generation } = pending;
+    sceneBusy.current = true;
+    try {
+      const { commands } = planDiscoveredObjects(
+        current.room,
+        scene,
+        current.reconstructionObjectIds,
+        generation,
+      );
+      if (commands.length && !connection) {
+        // Only this browser holds the room: apply the whole plan at once.
+        persist({
+          ...current,
+          room: mergeDiscoveredObjects(
+            current.room,
+            scene,
+            current.reconstructionObjectIds,
+            generation,
+          ).room,
+        });
+      } else if (commands.length) {
+        // The edit API accepts at most 40 commands per transaction. Each one
+        // commits its objects and their bookkeeping together, so an
+        // interrupted save resumes from the account room alone.
+        try {
+          await execute(commands.slice(0, 40));
+        } catch (cause) {
+          setError("");
+          setSceneError(
+            cause instanceof Error
+              ? cause.message
+              : "The simulated room could not be saved.",
+          );
+        }
+        return;
+      }
+      setPendingScene((value) => (value === pending ? null : value));
+      setCapture((value) =>
+        value?.id === pending.scanId ? { ...value, scene } : value,
+      );
+      setShowSimulation(true);
+      setShowScan(false);
+    } catch (cause) {
+      setSceneError(
+        cause instanceof Error
+          ? cause.message
+          : "The simulated room could not be applied.",
+      );
+    } finally {
+      sceneBusy.current = false;
+      if (mounted.current) setSceneStep((step) => step + 1);
+    }
+  }
+  const applyPendingScene = useEffectEvent(() => void applyScene());
+  useEffect(() => {
+    if (canApplyScene) applyPendingScene();
+  }, [canApplyScene, sceneStep]);
   async function download() {
     if (!workspace) return;
     setBusy(true);
@@ -1047,9 +1127,9 @@ export function RoomWorkspace({
               !resource.scene &&
               reconstruct && (
                 <div key={resource.id} hidden={walking}>
-                  {/* The renderer registers this completion callback; it runs after reconstruction. */}
-                  {/* eslint-disable-next-line react-hooks/refs */}
-                  {reconstruct(resource.evidence, acceptReconstruction)}
+                  {reconstruct(resource.evidence, (scene, generation) =>
+                    receiveScene(resource.id, scene, generation),
+                  )}
                 </div>
               )}
 
@@ -1246,6 +1326,18 @@ export function RoomWorkspace({
               {error && (
                 <Notice tone="error" onDismiss={() => setError("")}>
                   {error}
+                </Notice>
+              )}
+              {scenePending && sceneError && (
+                <Notice
+                  tone="warn"
+                  action={
+                    <Button size="sm" onClick={() => setSceneError("")}>
+                      <RotateCcw /> Retry
+                    </Button>
+                  }
+                >
+                  Your simulated room is not fully saved. {sceneError}
                 </Notice>
               )}
               {resource?.error && <Notice tone="warn">{resource.error}</Notice>}

@@ -287,9 +287,7 @@ describe("room reconstruction", () => {
           : o,
       ),
     };
-    expect(
-      mergeDiscoveredObjects(edited, scene, first.reconstructionObjectIds).room,
-    ).toEqual(edited);
+    expect(mergeDiscoveredObjects(edited, scene).room).toEqual(edited);
     const removed = {
       ...edited,
       objects: edited.objects.filter((o) => o.id !== lamp.objectId),
@@ -303,17 +301,12 @@ describe("room reconstruction", () => {
       exportPackage(syntheticCaptureZip(), saved),
     ).saved;
     if (reloaded.room.shape !== "polygon") throw new Error("Missing room");
-    expect(
-      mergeDiscoveredObjects(
-        reloaded.room,
-        scene,
-        reloaded.reconstructionObjectIds,
-      ).room.objects,
-    ).toEqual(JSON.parse(JSON.stringify(removed.objects)));
-    expect(
-      mergeDiscoveredObjects(first.room, scene, first.reconstructionObjectIds)
-        .room.objects,
-    ).toHaveLength(input.room.objects.length + 1);
+    expect(mergeDiscoveredObjects(reloaded.room, scene).room.objects).toEqual(
+      JSON.parse(JSON.stringify(removed.objects)),
+    );
+    expect(mergeDiscoveredObjects(first.room, scene).room.objects).toHaveLength(
+      input.room.objects.length + 1,
+    );
   });
 
   it("retains measured geometry, scales calibration and carries synthetic provenance", async () => {
