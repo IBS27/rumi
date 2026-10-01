@@ -9,6 +9,10 @@ import {
 import { selectionTotal } from "../budget";
 import { designCommandsSchema, type DesignCommand } from "./contracts";
 import {
+  applyDiscoveryCommand,
+  recordDiscoveryRemoval,
+} from "../reconstruction/contracts";
+import {
   autoPlaceProduct,
   designPlacementIssue,
   objectInZone,
@@ -56,16 +60,14 @@ export function applyDesignCommands(
     return product;
   };
   for (const command of commands) {
-    if (command.type === "discover") {
-      if (
-        actor !== "user" ||
-        !command.object.owned ||
-        command.object.productId ||
-        command.object.detectionSource !== "photo"
-      )
-        throw new Error("Only captured possessions can be imported this way.");
-      if (!next.objects.some((item) => item.id === command.object.id))
-        next.objects.push(command.object);
+    if (
+      command.type === "discover" ||
+      command.type === "retire" ||
+      command.type === "generation"
+    ) {
+      if (actor !== "user")
+        throw new Error("Scan discoveries are applied by the room workspace.");
+      applyDiscoveryCommand(next, command);
       continue;
     }
     if (command.type === "add") {
@@ -168,6 +170,7 @@ export function applyDesignCommands(
         throw new Error(`Move or remove the items on ${object.name} first.`);
       if (command.type === "remove") {
         next.objects = next.objects.filter((item) => item.id !== id);
+        recordDiscoveryRemoval(next, object);
         changed.delete(id);
       } else {
         const replacement = {
@@ -190,6 +193,9 @@ export function applyDesignCommands(
       if (actor !== "user")
         throw new Error("Scan corrections require the room inspector.");
       const corrected = roomObjectSchema.parse(command.object);
+      // Provenance records the discovery, not the edit; corrections cannot rewrite it.
+      delete corrected.discovery;
+      if (object.discovery) corrected.discovery = object.discovery;
       if (
         corrected.productId !== object.productId ||
         corrected.owned !== object.owned ||

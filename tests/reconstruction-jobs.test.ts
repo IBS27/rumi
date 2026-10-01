@@ -170,6 +170,23 @@ describe("reconstruction jobs", () => {
       t.action(api.roomReconstruction.start, { inputJson: "{}" }),
     ).rejects.toThrow("UNAUTHENTICATED");
   });
+  it("reports a stable generation that orders newer jobs after older ones", async () => {
+    const { t, id, args, owner } = await setup();
+    const first = (await owner.query(api.roomReconstruction.get, { id }))!;
+    expect(
+      (await owner.query(api.roomReconstruction.get, { id }))?.generation,
+    ).toBe(first.generation);
+    // A newer appearance revision is a different digest and a later job.
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    const newer = await t.mutation(internal.roomReconstruction.enqueue, {
+      ...args,
+      digest: "b".repeat(64),
+    });
+    const second = (await owner.query(api.roomReconstruction.get, {
+      id: newer.id,
+    }))!;
+    expect(second.generation).toBeGreaterThan(first.generation);
+  });
   it("deduplicates repeated imports and retains completed results", async () => {
     const { t, id, args, owner } = await setup();
     expect(await t.mutation(internal.roomReconstruction.enqueue, args)).toEqual(

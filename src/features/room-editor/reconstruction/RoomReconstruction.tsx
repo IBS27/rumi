@@ -17,7 +17,8 @@ export function RoomReconstruction({
 }: {
   projectId?: string;
   input: ReconstructionInput;
-  onReady: (scene: ReconstructedScene) => void;
+  /** `generation` orders scenes for this scan; see `planDiscoveredObjects`. */
+  onReady: (scene: ReconstructedScene, generation: number) => void;
 }) {
   const start = useAction(api.roomReconstruction.start);
   const retry = useMutation(api.roomReconstruction.retry);
@@ -37,6 +38,7 @@ export function RoomReconstruction({
     try {
       return {
         scene: validateSceneForRoom(JSON.parse(job.sceneJson), input.room),
+        generation: job.generation,
         error: "",
       };
     } catch {
@@ -67,7 +69,7 @@ export function RoomReconstruction({
     };
   }, [input, start, request, projectId]);
   useEffect(() => {
-    if (result?.scene) ready(result.scene);
+    if (result?.scene) ready(result.scene, result.generation);
   }, [result]);
   if (result?.scene) return null;
   const failure =

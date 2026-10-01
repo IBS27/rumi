@@ -209,5 +209,6 @@ it("commits discoveries through the account once a cloud project's design loads"
   expect(edits[0]).toMatchObject([
     { type: "discover", object: { id: "photo-lamp" } },
   ]);
-  expect(saved.at(-1)?.reconstructionObjectIds).toContain("photo-lamp");
+  // The discovery's bookkeeping commits with it in the account room.
+  expect(saved.at(-1)?.room.reconstruction?.applied).toContain("photo-lamp");
 });

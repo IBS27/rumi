@@ -42,6 +42,7 @@ import {
   specSummaryText,
 } from "../shared/chat/spec";
 import { shouldForcePlanSpace } from "../shared/chat/planning";
+import { withoutProvenance } from "../shared/reconstruction/contracts";
 
 const SYSTEM_PROMPT = `You are the room designer for rumi. You build rooms from real web products.
 - Start with getRoomContext. Respect owned and locked objects.
@@ -580,7 +581,11 @@ function buildAgentTools(
             maxTotalCents,
           });
           state.set(next);
-          return { ok: true, revision: next.revision, objects: next.objects };
+          return {
+            ok: true,
+            revision: next.revision,
+            objects: next.objects.map(withoutProvenance),
+          };
         } catch (error) {
           return {
             ok: false,
@@ -602,8 +607,14 @@ function buildAgentTools(
           state.set(design.room);
           brief.set(design.brief);
         }
+        const room = state.get();
         return {
-          room: state.get(),
+          // Discovery bookkeeping is for reconstruction cleanup, not design context.
+          room: room && {
+            ...room,
+            objects: room.objects.map(withoutProvenance),
+            reconstruction: undefined,
+          },
           brief: brief.get(),
           selectedObjectId,
           products: design?.products ?? [],

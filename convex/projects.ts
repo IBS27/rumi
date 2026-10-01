@@ -318,8 +318,16 @@ export async function replaceRoom(
   if (snapshot.shape === "polygon" && snapshot.capture.synthetic)
     await ensureSampleDesign(ctx);
   if (existing) {
+    // The same room keeps the account's reconstruction bookkeeping.
+    const record =
+      existing.snapshot.id === snapshot.id
+        ? existing.snapshot.reconstruction
+        : snapshot.reconstruction;
+    const next = { ...snapshot, revision: existing.snapshot.revision + 1 };
+    delete next.reconstruction;
+    if (record) next.reconstruction = record;
     await ctx.db.patch(existing._id, {
-      snapshot: { ...snapshot, revision: existing.snapshot.revision + 1 },
+      snapshot: next,
       history: [],
     });
   } else {
