@@ -325,13 +325,13 @@ export const setPhase = internalMutation({
   args: {
     projectId: v.id("projects"),
     phase: zodToConvex(projectPhaseSchema),
-    messageId: v.optional(v.id("messages")),
+    messageId: v.id("messages"),
     attempt: v.optional(v.number()),
   },
   returns: v.null(),
   handler: async (ctx, { projectId, phase, messageId, attempt }) => {
     const project = await requireTurn(ctx, projectId, messageId, attempt);
-    if (messageId && phase === "plan" && (project.phase ?? "spec") === "spec") {
+    if (phase === "plan" && (project.phase ?? "spec") === "spec") {
       const messages = await ctx.db
         .query("messages")
         .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
@@ -348,7 +348,7 @@ export const setPhase = internalMutation({
       )
         throw new Error("Confirm the completed brief before planning.");
     }
-    if (messageId && phase === "review") {
+    if (phase === "review") {
       const plan = await ctx.db
         .query("plans")
         .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
@@ -365,7 +365,7 @@ export const setPhase = internalMutation({
 export const updateBrief = internalMutation({
   args: {
     projectId: v.id("projects"),
-    messageId: v.optional(v.id("messages")),
+    messageId: v.id("messages"),
     attempt: v.optional(v.number()),
     prompt: v.optional(v.string()),
     styles: v.optional(v.array(v.string())),

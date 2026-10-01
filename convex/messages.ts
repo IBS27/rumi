@@ -326,7 +326,7 @@ export const ask = internalMutation({
   returns: v.id("messages"),
   args: {
     projectId: v.id("projects"),
-    turnId: v.optional(v.id("messages")),
+    turnId: v.id("messages"),
     attempt: v.optional(v.number()),
     operationKey: v.optional(v.string()),
     question: v.string(),

@@ -7,7 +7,13 @@ import { api, internal } from "../convex/_generated/api";
 import { sampleBrief, sampleProducts, sampleRoom } from "../shared/fixtures";
 import { MAX_IMAGE_BYTES } from "../shared/chat/uploads";
 import { buildDesignPlan } from "../shared/planner";
-import { SPEC_SUMMARY_OPTIONS, specStatus } from "../shared/chat/spec";
+import {
+  SPEC_SUMMARY_OPTIONS,
+  SPEC_TOPICS,
+  specStatus,
+} from "../shared/chat/spec";
+import type { Id } from "../convex/_generated/dataModel";
+import { inTurn } from "./fixtures/turn";
 
 // Provider actions are excluded from these deterministic boundary tests.
 const skipAgent = internalAction({
@@ -157,6 +163,7 @@ describe("live chat boundaries", () => {
     });
     await t.mutation(internal.projects.updateBrief, {
       projectId,
+      messageId: messages[1]._id,
       budgetCents: 50000,
       styles: ["warm"],
     });
@@ -249,16 +256,52 @@ describe("live chat boundaries", () => {
     expect(before?.brief.wants).toEqual([]);
     expect(before?.brief.palette).toEqual([]);
     expect(before?.brief.inspiration).toBe("");
-    const saved = await t.mutation(internal.projects.updateBrief, {
-      projectId,
-      wants: [{ category: "floor lamp", notes: "warm light" }],
-      palette: ["sage green"],
-      materials: ["oak"],
-      inspiration: "Soft, sage-toned Scandinavian bedroom.",
-    });
+    const saved = await inTurn(t, projectId, (messageId) =>
+      t.mutation(internal.projects.updateBrief, {
+        projectId,
+        messageId,
+        wants: [{ category: "floor lamp", notes: "warm light" }],
+        palette: ["sage green"],
+        materials: ["oak"],
+        inspiration: "Soft, sage-toned Scandinavian bedroom.",
+      }),
+    );
     expect(saved.wants[0].category).toBe("floor lamp");
     expect(saved.styles).toEqual(["Minimalist"]);
-    await t.mutation(internal.projects.setPhase, { projectId, phase: "plan" });
+    // The agent cannot start planning until the brief is complete, a room is
+    // attached, and the user asked to plan.
+    const toPlan = (messageId: Id<"messages">) =>
+      t.mutation(internal.projects.setPhase, {
+        projectId,
+        messageId,
+        phase: "plan",
+      });
+    await expect(inTurn(t, projectId, toPlan)).rejects.toThrow(
+      "Confirm the completed brief before planning.",
+    );
+    await t.mutation(internal.messages.complete, {
+      messageId: (await owner.query(api.projects.context, { projectId }))!
+        .project.activeMessageId!,
+      content: "",
+      status: "done",
+    });
+    await owner.mutation(api.projects.attachRoom, {
+      projectId,
+      room: sampleRoom,
+      expectedRevision: null,
+    });
+    await inTurn(t, projectId, (messageId) =>
+      t.mutation(internal.projects.updateBrief, {
+        projectId,
+        messageId,
+        decided: [...SPEC_TOPICS],
+      }),
+    );
+    const request = await owner.mutation(api.messages.send, {
+      projectId,
+      content: "Start planning.",
+    });
+    await toPlan(request);
     const after = await owner.query(api.projects.context, { projectId });
     expect(after?.phase).toBe("plan");
     expect(after?.brief.materials).toEqual(["oak"]);
@@ -271,13 +314,16 @@ describe("live chat boundaries", () => {
       room: sampleRoom,
       expectedRevision: null,
     });
-    const summary = await t.mutation(internal.messages.ask, {
-      projectId,
-      question:
-        "Here is the brief so far.\nPurpose: bedroom\nStyle: cozy\n\nReady to start planning?",
-      options: [...SPEC_SUMMARY_OPTIONS],
-      multiSelect: false,
-    });
+    const summary = await inTurn(t, projectId, (turnId) =>
+      t.mutation(internal.messages.ask, {
+        projectId,
+        turnId,
+        question:
+          "Here is the brief so far.\nPurpose: bedroom\nStyle: cozy\n\nReady to start planning?",
+        options: [...SPEC_SUMMARY_OPTIONS],
+        multiSelect: false,
+      }),
+    );
     await owner.mutation(api.messages.answer, {
       messageId: summary,
       choice: ["Start planning"],
@@ -294,12 +340,15 @@ describe("live chat boundaries", () => {
       content: "ok",
       status: "done",
     });
-    const style = await t.mutation(internal.messages.ask, {
-      projectId,
-      question: "Which style direction appeals to you?\nPick one.",
-      options: ["Scandinavian", "Industrial"],
-      multiSelect: false,
-    });
+    const style = await inTurn(t, projectId, (turnId) =>
+      t.mutation(internal.messages.ask, {
+        projectId,
+        turnId,
+        question: "Which style direction appeals to you?\nPick one.",
+        options: ["Scandinavian", "Industrial"],
+        multiSelect: false,
+      }),
+    );
     await owner.mutation(api.messages.answer, {
       messageId: style,
       choice: ["Industrial"],
@@ -357,11 +406,14 @@ describe("live chat boundaries", () => {
         ],
       },
     });
-    const planId = await t.mutation(internal.plans.propose, {
-      projectId,
-      roomId,
-      plan,
-    });
+    const planId = await inTurn(t, projectId, (messageId) =>
+      t.mutation(internal.plans.propose, {
+        projectId,
+        messageId,
+        roomId,
+        plan,
+      }),
+    );
     const page = async () =>
       (
         await owner.query(api.messages.list, {
@@ -443,11 +495,14 @@ describe("live chat boundaries", () => {
         product: expect.objectContaining({ id: sampleProducts[0].id }),
       },
     ]);
-    const second = await t.mutation(internal.plans.propose, {
-      projectId,
-      roomId,
-      plan,
-    });
+    const second = await inTurn(t, projectId, (messageId) =>
+      t.mutation(internal.plans.propose, {
+        projectId,
+        messageId,
+        roomId,
+        plan,
+      }),
+    );
     expect((await t.query(internal.plans.get, { planId }))?.status).toBe(
       "searching",
     );
@@ -502,11 +557,14 @@ describe("live chat boundaries", () => {
         })),
       },
     });
-    const planId = await t.mutation(internal.plans.propose, {
-      projectId,
-      roomId,
-      plan,
-    });
+    const planId = await inTurn(t, projectId, (messageId) =>
+      t.mutation(internal.plans.propose, {
+        projectId,
+        messageId,
+        roomId,
+        plan,
+      }),
+    );
     const page = () =>
       owner.query(api.messages.list, {
         projectId,
@@ -567,11 +625,14 @@ describe("live chat boundaries", () => {
           ],
         },
       });
-      const planId = await t.mutation(internal.plans.propose, {
-        projectId,
-        roomId,
-        plan,
-      });
+      const planId = await inTurn(t, projectId, (messageId) =>
+        t.mutation(internal.plans.propose, {
+          projectId,
+          messageId,
+          roomId,
+          plan,
+        }),
+      );
       const card = (
         await owner.query(api.messages.list, {
           projectId,
@@ -655,20 +716,30 @@ describe("live chat boundaries", () => {
 
   it("accepts custom answers once and persists the pending reply", async () => {
     const { t, owner, projectId } = await setup();
-    const messageId = await t.mutation(internal.messages.ask, {
-      projectId,
-      question: "Which palette?",
-      options: ["Warm", "Cool"],
-      multiSelect: true,
-    });
+    const messageId = await inTurn(t, projectId, (turnId) =>
+      t.mutation(internal.messages.ask, {
+        projectId,
+        turnId,
+        question: "Which palette?",
+        options: ["Warm", "Cool"],
+        multiSelect: true,
+      }),
+    );
     const replyId = await owner.mutation(api.messages.answer, {
       messageId,
       choice: ["Warm", "Sage and oak"],
     });
+    // The reply that asked, its question, the user's answer, then the new reply.
     const messages = await t.query(internal.messages.history, { projectId });
-    expect(messages[0].answer).toEqual(["Warm", "Sage and oak"]);
-    expect(messages[1].content).toContain("Sage and oak");
-    expect(messages[2]._id).toBe(replyId);
+    expect(messages.map((row) => row.kind ?? row.role)).toEqual([
+      "assistant",
+      "question",
+      "user",
+      "assistant",
+    ]);
+    expect(messages[1].answer).toEqual(["Warm", "Sage and oak"]);
+    expect(messages[2].content).toContain("Sage and oak");
+    expect(messages[3]._id).toBe(replyId);
     await expect(
       owner.mutation(api.messages.answer, { messageId, choice: ["Cool"] }),
     ).rejects.toThrow();

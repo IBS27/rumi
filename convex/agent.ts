@@ -258,6 +258,11 @@ function buildAgentTools(
   attempt: number | undefined,
   selectedObjectId: string | null,
 ): ToolSet {
+  // Project writes must name the reply they belong to; none is ever inferred.
+  const reply = () => {
+    if (!messageId) throw new Error("This design turn has no reply.");
+    return messageId;
+  };
   const specGate = () =>
     phase.get() === "spec"
       ? {
@@ -308,7 +313,7 @@ function buildAgentTools(
           if (projectId)
             await ctx.runMutation(internal.plans.propose, {
               projectId,
-              messageId: messageId ?? undefined,
+              messageId: reply(),
               attempt,
               operationKey: toolCallId,
               roomId,
@@ -474,7 +479,7 @@ function buildAgentTools(
           if (planId)
             await ctx.runMutation(internal.plans.setStatus, {
               planId,
-              messageId: messageId ?? undefined,
+              messageId: reply(),
               attempt,
               status: results.every((result) => result.product !== null)
                 ? "searched"
@@ -511,7 +516,7 @@ function buildAgentTools(
                 };
               await ctx.runMutation(internal.messages.ask, {
                 projectId,
-                turnId: messageId ?? undefined,
+                turnId: reply(),
                 attempt,
                 operationKey: toolCallId,
                 question: specSummaryText(brief.get()),
@@ -538,7 +543,7 @@ function buildAgentTools(
             ) => {
               await ctx.runMutation(internal.messages.ask, {
                 projectId,
-                turnId: messageId ?? undefined,
+                turnId: reply(),
                 attempt,
                 operationKey: toolCallId,
                 question,
@@ -620,7 +625,7 @@ function buildAgentTools(
         if (projectId)
           await ctx.runMutation(internal.projects.setPhase, {
             projectId,
-            messageId: messageId ?? undefined,
+            messageId: reply(),
             attempt,
             phase: next,
           });
@@ -672,7 +677,7 @@ function buildAgentTools(
         const next = projectId
           ? await ctx.runMutation(internal.projects.updateBrief, {
               projectId,
-              messageId: messageId ?? undefined,
+              messageId: reply(),
               attempt,
               ...patch,
             })

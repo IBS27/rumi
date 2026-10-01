@@ -12,25 +12,27 @@ import { requireActiveOwner } from "./ownership";
 export const currentAttempt = (message: Doc<"messages">, attempt?: number) =>
   (message.runAttempt ?? 0) === (attempt ?? 0);
 
-/** Every write from a model run must still belong to the active, pending reply and attempt. */
+/**
+ * Every write from a model run must name its reply, which must still be the
+ * project's active, pending reply at the same attempt. Validators make the
+ * reply ID required, so writers that omit it are rejected before this runs.
+ */
 export async function requireTurn(
   ctx: QueryCtx,
   projectId: Id<"projects">,
-  messageId?: Id<"messages">,
+  messageId: Id<"messages">,
   attempt?: number,
 ) {
   const project = await ctx.db.get(projectId);
   if (!project) throw new Error("This project does not exist.");
   await requireActiveOwner(ctx, project.ownerId);
-  if (messageId) {
-    const message = await ctx.db.get(messageId);
-    if (
-      project.activeMessageId !== messageId ||
-      message?.projectId !== projectId ||
-      message.status !== "pending" ||
-      !currentAttempt(message, attempt)
-    )
-      throw new Error("This design turn is no longer active.");
-  }
+  const message = await ctx.db.get(messageId);
+  if (
+    project.activeMessageId !== messageId ||
+    message?.projectId !== projectId ||
+    message.status !== "pending" ||
+    !currentAttempt(message, attempt)
+  )
+    throw new Error("This design turn is no longer active.");
   return project;
 }

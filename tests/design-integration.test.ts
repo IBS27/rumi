@@ -11,6 +11,7 @@ import { importRoomPlan } from "../shared/capture/roomplan";
 import { syntheticRoomPlan } from "../shared/fixtures/roomplan";
 import { selectionTotal } from "../shared/budget";
 import type { DesignCommand } from "../shared/design";
+import { inTurn } from "./fixtures/turn";
 
 const modules = {
   "../convex/agent.ts": async () => ({
@@ -47,10 +48,13 @@ async function setup() {
     title: "Demo",
     room,
   });
-  await t.mutation(internal.projects.updateBrief, {
-    projectId,
-    budgetCents: 50000,
-  });
+  await inTurn(t, projectId, (messageId) =>
+    t.mutation(internal.projects.updateBrief, {
+      projectId,
+      messageId,
+      budgetCents: 50000,
+    }),
+  );
   const edit = (expectedRevision: number, commands: DesignCommand[]) =>
     owner.mutation(api.design.edit, { projectId, expectedRevision, commands });
   return { t, owner, other, projectId, room, edit };
