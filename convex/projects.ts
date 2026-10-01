@@ -24,6 +24,7 @@ import {
   specTopicSchema,
   wantSchema,
   type DesignBrief,
+  type RoomSnapshot,
 } from "../shared/contracts";
 import { inferBriefPurpose } from "../shared/chat/purpose";
 
@@ -289,49 +290,67 @@ export const attachRoom = mutation({
     const project = await ctx.db.get(projectId);
     if (!project || project.ownerId !== ownerId)
       throw new Error("This project does not exist.");
-    if (project.activeMessageId)
-      throw new Error("Wait for the current reply before updating the room.");
-    const snapshot = roomSchema.parse(room);
-    const existing = project.roomId ? await ctx.db.get(project.roomId) : null;
-    if ((existing?.snapshot.revision ?? null) !== expectedRevision)
-      throw new Error("The chat room changed. Refresh before updating it.");
-    if (
-      existing?.snapshot.id === snapshot.id &&
-      JSON.stringify(roomSchema.parse(existing.snapshot).objects) !==
-        JSON.stringify(snapshot.objects)
-    )
-      throw new Error(
-        "Use the room editor to change this design. Attaching an older snapshot would overwrite saved edits.",
-      );
-    if (snapshot.shape === "polygon" && snapshot.capture.synthetic)
-      await ensureSampleDesign(ctx);
-    if (existing) {
-      await ctx.db.patch(existing._id, {
-        snapshot: { ...snapshot, revision: existing.snapshot.revision + 1 },
-        history: [],
-      });
-    } else {
-      const roomId = await ctx.db.insert("rooms", {
-        ownerId,
-        snapshot,
-        brief: project.brief ?? emptyBrief(),
-      });
-      await ctx.db.patch(projectId, { roomId });
-    }
+    await replaceRoom(ctx, project, room, expectedRevision);
   },
 });
+
+/** Replace a project's room at the expected revision. Callers check ownership. */
+export async function replaceRoom(
+  ctx: MutationCtx,
+  project: Doc<"projects">,
+  room: RoomSnapshot,
+  expectedRevision: number | null,
+) {
+  if (project.activeMessageId)
+    throw new Error("Wait for the current reply before updating the room.");
+  const snapshot = roomSchema.parse(room);
+  const existing = project.roomId ? await ctx.db.get(project.roomId) : null;
+  if ((existing?.snapshot.revision ?? null) !== expectedRevision)
+    throw new Error("The chat room changed. Refresh before updating it.");
+  if (
+    existing?.snapshot.id === snapshot.id &&
+    JSON.stringify(roomSchema.parse(existing.snapshot).objects) !==
+      JSON.stringify(snapshot.objects)
+  )
+    throw new Error(
+      "Use the room editor to change this design. Attaching an older snapshot would overwrite saved edits.",
+    );
+  if (snapshot.shape === "polygon" && snapshot.capture.synthetic)
+    await ensureSampleDesign(ctx);
+  if (existing) {
+    // The same room keeps the account's reconstruction bookkeeping.
+    const record =
+      existing.snapshot.id === snapshot.id
+        ? existing.snapshot.reconstruction
+        : snapshot.reconstruction;
+    const next = { ...snapshot, revision: existing.snapshot.revision + 1 };
+    delete next.reconstruction;
+    if (record) next.reconstruction = record;
+    await ctx.db.patch(existing._id, {
+      snapshot: next,
+      history: [],
+    });
+  } else {
+    const roomId = await ctx.db.insert("rooms", {
+      ownerId: project.ownerId,
+      snapshot,
+      brief: project.brief ?? emptyBrief(),
+    });
+    await ctx.db.patch(project._id, { roomId });
+  }
+}
 
 export const setPhase = internalMutation({
   args: {
     projectId: v.id("projects"),
     phase: zodToConvex(projectPhaseSchema),
-    messageId: v.optional(v.id("messages")),
+    messageId: v.id("messages"),
     attempt: v.optional(v.number()),
   },
   returns: v.null(),
   handler: async (ctx, { projectId, phase, messageId, attempt }) => {
     const project = await requireTurn(ctx, projectId, messageId, attempt);
-    if (messageId && phase === "plan" && (project.phase ?? "spec") === "spec") {
+    if (phase === "plan" && (project.phase ?? "spec") === "spec") {
       const messages = await ctx.db
         .query("messages")
         .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
@@ -348,7 +367,7 @@ export const setPhase = internalMutation({
       )
         throw new Error("Confirm the completed brief before planning.");
     }
-    if (messageId && phase === "review") {
+    if (phase === "review") {
       const plan = await ctx.db
         .query("plans")
         .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
@@ -365,7 +384,7 @@ export const setPhase = internalMutation({
 export const updateBrief = internalMutation({
   args: {
     projectId: v.id("projects"),
-    messageId: v.optional(v.id("messages")),
+    messageId: v.id("messages"),
     attempt: v.optional(v.number()),
     prompt: v.optional(v.string()),
     styles: v.optional(v.array(v.string())),

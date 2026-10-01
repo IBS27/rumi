@@ -183,6 +183,11 @@ export default defineSchema({
     migrationVersion: v.optional(v.number()),
     workspaceFileId: v.optional(v.id("files")),
     scanFileId: v.optional(v.id("files")),
+    // The published source pair belongs to this room and scan. Older pairs omit them.
+    sourceRoomId: v.optional(v.string()),
+    sourceScanId: v.optional(v.string()),
+    // Incremented by every publish so a stale tab cannot overwrite newer source metadata.
+    sourceGeneration: v.optional(v.number()),
     roomId: v.optional(v.id("rooms")),
     brief: v.optional(storedBrief),
     phase: v.optional(zodToConvex(projectPhaseSchema)),

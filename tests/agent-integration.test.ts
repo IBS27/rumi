@@ -10,6 +10,7 @@ import {
 } from "../shared/fixtures";
 import { importRoomPlan } from "../shared/capture/roomplan";
 import { syntheticRoomPlan } from "../shared/fixtures/roomplan";
+import { inTurn } from "./fixtures/turn";
 
 const modules = {
   "../convex/_generated/server.js": () =>
@@ -36,18 +37,45 @@ describe("agent integration with the capture workspace", () => {
     const { t, owner, projectId } = await setup();
     const projects = await owner.query(api.projects.list, { paginationOpts });
     const roomId = projects.page[0].roomId!;
-    await t.mutation(internal.projects.updateBrief, {
-      projectId, purpose: "bedroom", wants: [], excludedCategories: ["bed"],
+    const brief = (patch: {
+      purpose?: string;
+      styles?: string[];
+      wants?: { category: string; notes: string }[];
+      excludedCategories?: string[];
+    }) =>
+      inTurn(t, projectId, (messageId) =>
+        t.mutation(internal.projects.updateBrief, {
+          projectId,
+          messageId,
+          ...patch,
+        }),
+      );
+    await brief({ purpose: "bedroom", wants: [], excludedCategories: ["bed"] });
+    await brief({ styles: ["Modern"] });
+    expect(
+      (await t.query(internal.rooms.getRoom, { roomId }))?.brief
+        .excludedCategories,
+    ).toEqual(["bed"]);
+    expect(
+      (await owner.query(api.projects.list, { paginationOpts })).page[0].brief
+        ?.excludedCategories,
+    ).toEqual(["bed"]);
+    await brief({
+      excludedCategories: [],
+      wants: [{ category: "bed", notes: "" }],
     });
-    await t.mutation(internal.projects.updateBrief, { projectId, styles: ["Modern"] });
-    expect((await t.query(internal.rooms.getRoom, { roomId }))?.brief.excludedCategories).toEqual(["bed"]);
-    expect((await owner.query(api.projects.list, { paginationOpts })).page[0].brief?.excludedCategories).toEqual(["bed"]);
-    await t.mutation(internal.projects.updateBrief, {
-      projectId, excludedCategories: [], wants: [{ category: "bed", notes: "" }],
+    expect(
+      (await t.query(internal.rooms.getRoom, { roomId }))?.brief
+        .excludedCategories,
+    ).toEqual([]);
+    await t.mutation(internal.rooms.patchBrief, {
+      roomId,
+      excludedCategories: ["sofa"],
     });
-    expect((await t.query(internal.rooms.getRoom, { roomId }))?.brief.excludedCategories).toEqual([]);
-    await t.mutation(internal.rooms.patchBrief, { roomId, excludedCategories: ["sofa"] });
-    expect((await t.query(internal.rooms.getRoom, { roomId }))?.brief.excludedCategories).toEqual(["sofa"]);
+    expect(
+      (await t.query(internal.rooms.getRoom, { roomId }))?.brief
+        .excludedCategories,
+    ).toEqual(["sofa"]);
   });
 
   it("requires authentication and derives ownership from the token", async () => {
@@ -71,12 +99,15 @@ describe("agent integration with the capture workspace", () => {
 
   it("prevents another user from reading, changing, or answering a project's chat", async () => {
     const { t, owner, other, projectId } = await setup();
-    const messageId = await t.mutation(internal.messages.ask, {
-      projectId,
-      question: "Which style?",
-      options: ["Warm", "Cool"],
-      multiSelect: false,
-    });
+    const messageId = await inTurn(t, projectId, (turnId) =>
+      t.mutation(internal.messages.ask, {
+        projectId,
+        turnId,
+        question: "Which style?",
+        options: ["Warm", "Cool"],
+        multiSelect: false,
+      }),
+    );
     expect(
       await other.query(api.messages.list, { projectId, paginationOpts }),
     ).toEqual({ page: [], isDone: true, continueCursor: "" });
@@ -96,7 +127,11 @@ describe("agent integration with the capture workspace", () => {
       projectId,
       paginationOpts,
     });
-    expect(messages?.page).toHaveLength(1);
+    // The finished reply that asked, then its unanswered question.
+    expect(messages?.page.map((row) => row.kind ?? row.role)).toEqual([
+      "question",
+      "assistant",
+    ]);
     expect(messages?.page[0].answer).toBeUndefined();
     expect(messages?.page[0].status).toBe("pending");
     await owner.mutation(api.projects.rename, {
@@ -155,6 +190,7 @@ describe("agent integration with the capture workspace", () => {
     await expect(
       t.mutation(internal.messages.ask, {
         projectId,
+        turnId: ids[0],
         question: "Late?",
         options: ["Yes", "No"],
         multiSelect: false,

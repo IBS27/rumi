@@ -41,7 +41,7 @@ export const propose = internalMutation({
     projectId: v.id("projects"),
     roomId: v.id("rooms"),
     plan: zodToConvex(designPlanSchema),
-    messageId: v.optional(v.id("messages")),
+    messageId: v.id("messages"),
     attempt: v.optional(v.number()),
     operationKey: v.optional(v.string()),
   },
@@ -125,7 +125,7 @@ export const setStatus = internalMutation({
   returns: v.null(),
   args: {
     planId: v.id("plans"),
-    messageId: v.optional(v.id("messages")),
+    messageId: v.id("messages"),
     attempt: v.optional(v.number()),
     status: v.union(v.literal("searching"), v.literal("searched")),
   },

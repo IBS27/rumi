@@ -6,19 +6,33 @@ import {
   useState,
   type ComponentProps,
 } from "react";
-import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
+import {
+  useConvex,
+  useMutation,
+  usePaginatedQuery,
+  useQuery,
+} from "convex/react";
 import { api } from "../../../convex/_generated/api";
-import type { Id } from "../../../convex/_generated/dataModel";
+import type { Doc, Id } from "../../../convex/_generated/dataModel";
 import { RoomWorkspace } from "../room-editor/RoomWorkspace";
 import { SessionMenu } from "./SessionMenu";
 import { SessionTitle } from "./SessionTitle";
 import { readSessions, workspaceSchema, type Workspace } from "./sessions";
 import { readScan, saveScan, deleteScan } from "../room-editor/capture/storage";
-import { saveWorkspaceFiles, downloadFile } from "./cloudFiles";
+import {
+  saveWorkspaceFiles,
+  downloadFile,
+  type PublishedSource,
+} from "./cloudFiles";
 import { useClerk } from "@clerk/react";
 import { Button, Notice } from "../../ui";
 
 type Props = ComponentProps<typeof RoomWorkspace>;
+const published = (project: Doc<"projects">): PublishedSource => ({
+  roomId: project.sourceRoomId,
+  scanId: project.sourceScanId,
+  generation: project.sourceGeneration ?? 0,
+});
 const routeId = () =>
   location.pathname.match(/^\/projects\/([a-z0-9]{32})\/?$/)?.[1] as
     Id<"projects"> | undefined;
@@ -40,6 +54,7 @@ export function CloudWorkspace(props: Props) {
   const rename = useMutation(api.projects.rename);
   const begin = useMutation(api.files.begin);
   const publish = useMutation(api.files.publish);
+  const convex = useConvex();
   const migration = useRef(false);
   const draft = useRef<Promise<Id<"projects">> | null>(null);
   const navigation = useRef(0);
@@ -77,10 +92,17 @@ export function CloudWorkspace(props: Props) {
             room: workspace.room,
             importKey: session.id,
           }));
-        const scan = workspace.scanId
-          ? await readScan(identity, workspace.scanId)
-          : undefined;
-        await saveWorkspaceFiles(projectId, workspace, scan, begin, publish);
+        // A published account source is authoritative. An older browser copy
+        // must never replace it, even when it lacks the scan the account has.
+        const project = (
+          await convex.query(api.projects.context, { projectId })
+        )?.project;
+        if (project && !project.workspaceFileId)
+          await saveWorkspaceFiles(projectId, workspace, begin, publish, {
+            loadScan: (scanId) => readScan(identity, scanId),
+            published: published(project),
+            withoutScan: "preserve",
+          });
         localStorage.setItem(marker, projectId);
       }
     })().catch((cause) => {
@@ -91,7 +113,7 @@ export function CloudWorkspace(props: Props) {
           : "Browser import paused. Your local rooms are still saved.",
       );
     });
-  }, [begin, publish, create, props.identity]);
+  }, [begin, publish, create, convex, props.identity]);
   const newProject = async () => {
     try {
       navigate(await create({ title: "New project" }));
@@ -215,10 +237,11 @@ export function CloudWorkspace(props: Props) {
                 throw cause;
               });
               const id = await draft.current;
-              const scan = workspace.scanId
-                ? await readScan(props.identity ?? "local", workspace.scanId)
-                : undefined;
-              await saveWorkspaceFiles(id, workspace, scan, begin, publish);
+              await saveWorkspaceFiles(id, workspace, begin, publish, {
+                loadScan: (scanId) =>
+                  readScan(props.identity ?? "local", scanId),
+                withoutScan: "remove",
+              });
               if (started === navigation.current) navigate(id);
             })().catch((cause) => {
               setError(String(cause));
@@ -251,7 +274,7 @@ function ProjectWorkspace({
   const migrate = useMutation(api.migrations.project);
   const begin = useMutation(api.files.begin);
   const publish = useMutation(api.files.publish);
-  const attach = useMutation(api.projects.attachRoom);
+  const source = useRef<PublishedSource | undefined>(undefined);
   const [loaded, setLoaded] = useState<{ workspace: Workspace | null } | null>(
     null,
   );
@@ -306,6 +329,7 @@ function ProjectWorkspace({
         }
       }
       if (!canceled) {
+        source.current = published(initial.project);
         savedOriginal.current = workspace?.original;
         savedScan.current = workspace?.scanId;
         savedObjects.current = workspace?.reconstructionObjectIds;
@@ -375,16 +399,27 @@ function ProjectWorkspace({
     pending.current = pending.current
       .catch(() => undefined)
       .then(async () => {
-        if (workspace.room.id !== context?.room?.id)
-          await attach({
-            projectId,
-            room: workspace.room,
-            expectedRevision: context?.room?.revision ?? null,
-          });
-        const scan = workspace.scanId
-          ? await loadScan(workspace.scanId)
-          : undefined;
-        await saveWorkspaceFiles(projectId, workspace, scan, begin, publish);
+        // Upload first; the room changes only when its source publishes with it.
+        const { generation } = await saveWorkspaceFiles(
+          projectId,
+          workspace,
+          begin,
+          publish,
+          {
+            loadScan,
+            published: source.current,
+            room:
+              workspace.room.id !== context?.room?.id
+                ? { expectedRevision: context?.room?.revision ?? null }
+                : undefined,
+            withoutScan: "remove",
+          },
+        );
+        source.current = {
+          roomId: workspace.room.id,
+          scanId: workspace.scanId,
+          generation,
+        };
         setError("");
       })
       .catch((cause) => {

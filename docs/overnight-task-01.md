@@ -50,7 +50,34 @@ Schema changes are additive: an optional `messages.runAttempt` field and a new `
   - If the analysis succeeded, the old action continues its still-pending original reply without the image's analysis, so that reply ignores the inspiration image.
   - If it failed, the reply reports the failure and a retry re-analyzes the image.
 
-  To avoid those degraded replies, pause new image-analysis starts and confirm in the Convex dashboard that no pre-release `images:analyze` execution is pending or running before rollout. Elapsed time since the last upload alone does not prove that scheduled work has drained. No other writer has a legacy path that lacks its reply ID. In both the `2314e32` and current agents, every project writer receives an explicit reply ID.
+  To avoid those degraded replies, pause new image-analysis starts and confirm in the Convex dashboard that no pre-release `images:analyze` execution is pending or running before rollout. Elapsed time since the last upload alone does not prove that scheduled work has drained. An earlier version of this section said no other writer had such a path. That was wrong: `main`'s agent sends unnamed brief and phase writes, and those writers accepted any write without a reply ID. `9052d23` makes the reply ID required, so those writes now fail validation.
+
+## PR #37 review repairs
+
+The independent #37 review at `e9fa319` (`/tmp/pr-babysit-20260930/reviews/rumi-37/review.md`) reproduced three P1 defects. All three are fixed, and the approved #36 candidate is merged.
+
+| Commit    | Change                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `9052d23` | Agent writes must name their reply. The reply ID is now required by `requireTurn` and by the `updateBrief`, `setPhase`, `messages.ask`, `plans.propose` and `plans.setStatus` validators. The agent fails a project write that has no reply rather than infer one. Unnamed writes had also skipped `setPhase`'s planning and review gates.                                                                                                                                                                                                                                                                                             |
+| `50ad1cb` | `files.publish` is the single guarded commit for a source pair, and optionally its replacement room. Each publish states its scan intent: keep (same recorded room and scan only), replace (validated owner, project and kind) or remove. A publish naming no scan cannot discard a saved scan for the same or an unknown room. The project records the source's room, scan and generation, and publish checks the expected generation and room revision. The client uploads first and publishes once. Metadata-only saves keep the scan instead of uploading it again. Migration skips projects that already have a published source. |
+| `b503d35` | Merges #36 `bc6b1de` unchanged, after its limit recheck verdict `review_complete_ready_scoped`. #36's same-room reconstruction-record preservation moves into the shared `replaceRoom`, so attach and atomic publish both keep it. #36's pending-scene flow replaces the earlier `readyScene` wait; #37's `projectId`/`loadScan` guards are kept.                                                                                                                                                                                                                                                                                      |
+
+### Evidence
+
+- New tests:
+  - `tests/source-publish.test.ts` (7). Covers the legacy same-room publish without a scan, the migration-intent downgrade, keep/replace/remove, keep bound to room, scan and generation, foreign owner and project files, and upload failure before begin and midway through a three-chunk scan. Also covers a concurrent room edit and an atomic room and source commit.
+  - `tests/recovery.test.ts`: one test sending all five writers the old unnamed shapes while a recovered reply is active. It fails on `e9fa319`.
+  - All seven publish tests fail against the `9052d23` server files.
+- The reviewer's own reproductions, pointed at this tree and run in separate processes from `/tmp/t37-after`, all now fail, so the defects no longer occur:
+  - The unnamed writes are rejected for a missing `messageId`.
+  - After the failed upload, the room stays `scan-sample-wall-0`.
+  - The same-room migration publish is rejected with `SCAN_WOULD_BE_LOST`.
+- Existing tests now run agent writes inside a real pending reply (`tests/fixtures/turn.ts`). The planning-gate test goes through the real gate instead of the unnamed bypass.
+- At `b503d35`: `bun run typecheck`, `tsc -p convex`, `bun run typecheck:shared`, `bun run lint` and `git diff --check` pass. `bun test` passes 502 of 502.
+- Browser tests on Fedora:
+  - Runs intermittently failed on both `50ad1cb` and `b503d35`, with Chromium `net::ERR_INSUFFICIENT_RESOURCES` on dev-server module loads. `/tmp` is a RAM-backed tmpfs at 80% with many other dev servers running.
+  - With `TMPDIR` on disk, `b503d35` passed 5 of 5 in each of 3 runs. This is a Fedora environment condition, not a code change; CI is authoritative.
+- Not run: native tests (no Swift on Fedora), production build, deployment, live staging, physical iPhone and a backup drill.
 
 ## Convex build integration (`56c481d`)
 

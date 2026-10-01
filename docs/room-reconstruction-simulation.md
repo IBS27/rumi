@@ -106,8 +106,9 @@ This produces an approximate architectural simulation. It does not recover
 manufacturer meshes, separate individual objects from the raw LiDAR mesh, or guarantee exact dimensions for items RoomPlan missed. Source photos and mesh remain preserved in the original
 ZIP. The generated scene is cached in the backend; Download room currently exports
 the original ZIP, layout edits and applied discovery IDs, and reimport reconnects to the cached generation
-for the same signed-in owner. Edits and removals of discovered objects survive reload and reimport; cached results
-only add previously unapplied IDs. Offline reconstruction is not available.
+for the same signed-in owner. Edits and removals of discovered objects survive reload and reimport. A cached
+result of the same generation only adds previously unapplied IDs; a newer generation also replaces unedited
+discoveries it no longer models (see [contracts](contracts.md)). Offline reconstruction is not available.
 
 Tests cover coordinate normalization, camera selection, calibration scaling,
 bounded model output, physical texture scale, clipped finish regions, photo evidence,

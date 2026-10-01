@@ -11,6 +11,11 @@ import { importRoomPlan } from "../shared/capture/roomplan";
 import { syntheticRoomPlan } from "../shared/fixtures/roomplan";
 import { selectionTotal } from "../shared/budget";
 import type { DesignCommand } from "../shared/design";
+import { inTurn } from "./fixtures/turn";
+import {
+  discoveredRoomObject,
+  discoveryUnedited,
+} from "../shared/reconstruction/contracts";
 
 const modules = {
   "../convex/agent.ts": async () => ({
@@ -47,10 +52,13 @@ async function setup() {
     title: "Demo",
     room,
   });
-  await t.mutation(internal.projects.updateBrief, {
-    projectId,
-    budgetCents: 50000,
-  });
+  await inTurn(t, projectId, (messageId) =>
+    t.mutation(internal.projects.updateBrief, {
+      projectId,
+      messageId,
+      budgetCents: 50000,
+    }),
+  );
   const edit = (expectedRevision: number, commands: DesignCommand[]) =>
     owner.mutation(api.design.edit, { projectId, expectedRevision, commands });
   return { t, owner, other, projectId, room, edit };
@@ -62,6 +70,115 @@ const add = (index = 0, instanceId = "lamp"): DesignCommand => ({
 });
 
 describe("authoritative room editing", () => {
+  it("keeps discovery provenance through database serialization and edits", async () => {
+    const { owner, projectId, edit } = await setup();
+    const lamp = discoveredRoomObject(
+      {
+        objectId: "photo-floor-lamp",
+        name: "Floor lamp",
+        category: "lighting",
+        dimensions: { width: 0.25, height: 0.5, depth: 0.25 },
+        position: { x: 0.3, y: 0, z: 0.3 },
+        rotation: { x: 0, y: 0, z: 0 },
+        color: "#eee4cc",
+        confidence: 0.8,
+        evidence: "Photo 0",
+        photoIndices: [0],
+      },
+      1_700_000_000_000.5,
+    );
+    const discovered = await edit(0, [{ type: "discover", object: lamp }]);
+    const stored = discovered.objects.find((item) => item.id === lamp.id)!;
+    expect(stored.discovery).toEqual(lamp.discovery);
+    expect(discoveryUnedited(stored)).toBe(true);
+    // A correction cannot rewrite provenance, so the edit stays visible.
+    const renamed = await edit(1, [
+      {
+        type: "correct",
+        object: {
+          ...stored,
+          name: "Reading lamp",
+          discovery: {
+            ...lamp.discovery!,
+            baseline: { ...lamp.discovery!.baseline, name: "Reading lamp" },
+          },
+        },
+      },
+    ]);
+    const edited = renamed.objects.find((item) => item.id === lamp.id)!;
+    expect(edited.discovery).toEqual(lamp.discovery);
+    expect(discoveryUnedited(edited)).toBe(false);
+    const moved = await edit(2, [
+      {
+        type: "move",
+        objectId: lamp.id,
+        position: { x: 0.4, y: 0, z: 0.3 },
+        rotationY: 0,
+      },
+    ]);
+    expect(
+      moved.objects.find((item) => item.id === lamp.id)?.discovery,
+    ).toEqual(lamp.discovery);
+    const state = await owner.query(api.design.get, { projectId });
+    expect(
+      state?.room.objects.find((item) => item.id === lamp.id)?.discovery,
+    ).toEqual(lamp.discovery);
+  });
+
+  it("commits reconstruction bookkeeping with the room and restores it through the account query", async () => {
+    const { owner, projectId, edit } = await setup();
+    const found = (objectId: string, generation: number) =>
+      discoveredRoomObject(
+        {
+          objectId,
+          name: "Floor lamp",
+          category: "lighting",
+          dimensions: { width: 0.25, height: 0.5, depth: 0.25 },
+          position: { x: 0.3, y: 0, z: 0.3 },
+          rotation: { x: 0, y: 0, z: 0 },
+          color: "#eee4cc",
+          confidence: 0.8,
+          evidence: "Photo 0",
+          photoIndices: [0],
+        },
+        generation,
+      );
+    await edit(0, [
+      { type: "discover", object: found("photo-old", 100) },
+      { type: "discover", object: found("photo-kept", 100) },
+    ]);
+    // One transaction retires the old discovery and adds its replacement.
+    await edit(1, [
+      { type: "retire", objectId: "photo-old", generation: 200 },
+      { type: "discover", object: found("photo-new", 200) },
+    ]);
+    await edit(2, [{ type: "remove", objectId: "photo-kept" }]);
+    const state = await owner.query(api.design.get, { projectId });
+    expect(state?.room.reconstruction).toEqual({
+      generation: 200,
+      applied: ["photo-old", "photo-kept", "photo-new"],
+      retired: [{ id: "photo-old", generation: 200 }],
+      deleted: ["photo-kept"],
+    });
+    // Rejected commands leave the room and its bookkeeping unchanged.
+    await expect(
+      edit(3, [{ type: "discover", object: found("photo-kept", 300) }]),
+    ).rejects.toThrow("will not be added again");
+    await expect(
+      edit(3, [{ type: "generation", generation: 100 }]),
+    ).rejects.toThrow("newer reconstruction");
+    // Reattaching the same room keeps the account's bookkeeping.
+    const room = state!.room;
+    await owner.mutation(api.projects.attachRoom, {
+      projectId,
+      room: { ...room, reconstruction: undefined },
+      expectedRevision: room.revision,
+    });
+    expect(
+      (await owner.query(api.design.get, { projectId }))?.room.reconstruction,
+    ).toEqual(room.reconstruction);
+  });
+
   it("saves inspector locks on catalog products after database serialization", async () => {
     const { edit } = await setup();
     const room = await edit(0, [add()]);

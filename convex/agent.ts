@@ -42,6 +42,7 @@ import {
   specSummaryText,
 } from "../shared/chat/spec";
 import { shouldForcePlanSpace } from "../shared/chat/planning";
+import { withoutProvenance } from "../shared/reconstruction/contracts";
 
 const SYSTEM_PROMPT = `You are the room designer for rumi. You build rooms from real web products.
 - Start with getRoomContext. Respect owned and locked objects.
@@ -258,6 +259,11 @@ function buildAgentTools(
   attempt: number | undefined,
   selectedObjectId: string | null,
 ): ToolSet {
+  // Project writes must name the reply they belong to; none is ever inferred.
+  const reply = () => {
+    if (!messageId) throw new Error("This design turn has no reply.");
+    return messageId;
+  };
   const specGate = () =>
     phase.get() === "spec"
       ? {
@@ -308,7 +314,7 @@ function buildAgentTools(
           if (projectId)
             await ctx.runMutation(internal.plans.propose, {
               projectId,
-              messageId: messageId ?? undefined,
+              messageId: reply(),
               attempt,
               operationKey: toolCallId,
               roomId,
@@ -474,7 +480,7 @@ function buildAgentTools(
           if (planId)
             await ctx.runMutation(internal.plans.setStatus, {
               planId,
-              messageId: messageId ?? undefined,
+              messageId: reply(),
               attempt,
               status: results.every((result) => result.product !== null)
                 ? "searched"
@@ -511,7 +517,7 @@ function buildAgentTools(
                 };
               await ctx.runMutation(internal.messages.ask, {
                 projectId,
-                turnId: messageId ?? undefined,
+                turnId: reply(),
                 attempt,
                 operationKey: toolCallId,
                 question: specSummaryText(brief.get()),
@@ -538,7 +544,7 @@ function buildAgentTools(
             ) => {
               await ctx.runMutation(internal.messages.ask, {
                 projectId,
-                turnId: messageId ?? undefined,
+                turnId: reply(),
                 attempt,
                 operationKey: toolCallId,
                 question,
@@ -575,7 +581,11 @@ function buildAgentTools(
             maxTotalCents,
           });
           state.set(next);
-          return { ok: true, revision: next.revision, objects: next.objects };
+          return {
+            ok: true,
+            revision: next.revision,
+            objects: next.objects.map(withoutProvenance),
+          };
         } catch (error) {
           return {
             ok: false,
@@ -597,8 +607,14 @@ function buildAgentTools(
           state.set(design.room);
           brief.set(design.brief);
         }
+        const room = state.get();
         return {
-          room: state.get(),
+          // Discovery bookkeeping is for reconstruction cleanup, not design context.
+          room: room && {
+            ...room,
+            objects: room.objects.map(withoutProvenance),
+            reconstruction: undefined,
+          },
           brief: brief.get(),
           selectedObjectId,
           products: design?.products ?? [],
@@ -620,7 +636,7 @@ function buildAgentTools(
         if (projectId)
           await ctx.runMutation(internal.projects.setPhase, {
             projectId,
-            messageId: messageId ?? undefined,
+            messageId: reply(),
             attempt,
             phase: next,
           });
@@ -672,7 +688,7 @@ function buildAgentTools(
         const next = projectId
           ? await ctx.runMutation(internal.projects.updateBrief, {
               projectId,
-              messageId: messageId ?? undefined,
+              messageId: reply(),
               attempt,
               ...patch,
             })

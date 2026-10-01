@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { convexTest } from "convex-test";
 import { v, type PropertyValidators } from "convex/values";
+import type { FunctionArgs } from "convex/server";
 import { internalAction } from "../convex/_generated/server";
 import schema from "../convex/schema";
 import { api, internal } from "../convex/_generated/api";
@@ -505,6 +506,100 @@ it("rejects a paused earlier run once recovery starts a newer attempt", async ()
     if (key === undefined) delete process.env.OPENAI_API_KEY;
     else process.env.OPENAI_API_KEY = key;
   }
+});
+
+it("rejects agent writes that do not name their reply", async () => {
+  const t = convexTest(schema, modules);
+  const projectId = await project(t);
+  const { messageId } = await pendingReply(t, projectId);
+  await t.run((ctx) => ctx.db.patch(messageId, { runAttempt: 1 }));
+  const { roomId, snapshot } = await t.run(async (ctx) => {
+    const roomId = (await ctx.db.get(projectId))!.roomId!;
+    return { roomId, snapshot: (await ctx.db.get(roomId))!.snapshot };
+  });
+  const plan = {
+    roomId: snapshot.id,
+    baseRevision: snapshot.revision,
+    summary: "Plan",
+    spacing: "balanced" as const,
+    zones: [],
+    rejected: [],
+    tasks: [],
+  };
+  const planId = await t.run((ctx) =>
+    ctx.db.insert("plans", {
+      projectId,
+      roomId,
+      status: "proposed",
+      createdAt: Date.now(),
+      plan,
+    }),
+  );
+  const before = await t.run(async (ctx) => ({
+    project: await ctx.db.get(projectId),
+    room: await ctx.db.get(roomId),
+    messages: await ctx.db.query("messages").collect(),
+    plans: await ctx.db.query("plans").collect(),
+  }));
+  // The exact argument shapes the pre-release agent sent: no reply, no attempt.
+  const unnamed = <T>(args: Record<string, unknown>) => args as unknown as T;
+  const calls = [
+    () =>
+      t.mutation(
+        internal.projects.updateBrief,
+        unnamed<FunctionArgs<typeof internal.projects.updateBrief>>({
+          projectId,
+          budgetCents: 11100,
+        }),
+      ),
+    () =>
+      t.mutation(
+        internal.projects.setPhase,
+        unnamed<FunctionArgs<typeof internal.projects.setPhase>>({
+          projectId,
+          phase: "review",
+        }),
+      ),
+    () =>
+      t.mutation(
+        internal.messages.ask,
+        unnamed<FunctionArgs<typeof internal.messages.ask>>({
+          projectId,
+          question: "Stale question",
+          options: ["A", "B"],
+          multiSelect: false,
+        }),
+      ),
+    () =>
+      t.mutation(
+        internal.plans.propose,
+        unnamed<FunctionArgs<typeof internal.plans.propose>>({
+          projectId,
+          roomId,
+          plan,
+        }),
+      ),
+    () =>
+      t.mutation(
+        internal.plans.setStatus,
+        unnamed<FunctionArgs<typeof internal.plans.setStatus>>({
+          planId,
+          status: "searching",
+        }),
+      ),
+  ];
+  for (const call of calls)
+    await expect(call()).rejects.toThrow(
+      /Missing required field `(messageId|turnId)`/,
+    );
+  expect(
+    await t.run(async (ctx) => ({
+      project: await ctx.db.get(projectId),
+      room: await ctx.db.get(roomId),
+      messages: await ctx.db.query("messages").collect(),
+      plans: await ctx.db.query("plans").collect(),
+    })),
+  ).toEqual(before);
 });
 
 it("rejects every reply write carrying a superseded attempt", async () => {
