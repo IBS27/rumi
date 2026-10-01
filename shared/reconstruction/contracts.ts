@@ -393,7 +393,14 @@ export function withoutProvenance(object: RoomObject): RoomObject {
 export function discoveryUnedited(object: RoomObject) {
   if (!object.discovery) return false;
   const { discovery, ...fields } = object;
-  return sameValue(fields, discovery.baseline);
+  return sameValue(canonical(fields), canonical(discovery.baseline));
+}
+// An absent `productLocked` means false; unlocking or saving the inspector
+// writes false explicitly. Compare copies so saved baselines stay unchanged.
+function canonical(fields: Omit<RoomObject, "discovery">) {
+  return fields.productLocked === false
+    ? { ...fields, productLocked: undefined }
+    : fields;
 }
 
 type DiscoveryCommand = Extract<

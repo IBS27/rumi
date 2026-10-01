@@ -74,7 +74,7 @@ the resulting full selection subtotal and the current room revision. The public
 `design.get` returns the authoritative room, brief, selected/recommended products,
 asset states, reserved zones and undo availability together.
 
-`RoomObject.locked` keeps the placement; `productLocked` keeps the selected product.
+`RoomObject.locked` keeps the placement; `productLocked` keeps the selected product. An absent `productLocked` means false.
 Only the user can unlock either. `mount` records floor, wall, surface or under;
 `supportId` ties an accessory to its host instance and `zoneId` ties a placed product
 to its planned spot. Supported accessories move with their host. Remove accessories
