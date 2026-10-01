@@ -13,6 +13,7 @@ import { readPackage } from "../shared/capture/package";
 import { syntheticRoomPlan } from "../shared/fixtures/roomplan";
 
 const modules = {
+  "../convex/files.ts": () => import("../convex/files"),
   "../convex/_generated/server.js": () =>
     import("../convex/_generated/server.js"),
   "../convex/capturePackages.ts": () => import("../convex/capturePackages"),
@@ -145,7 +146,8 @@ describe("capture pairing", () => {
       sessionId: session.sessionId,
     });
     expect(accepted?.state).toBe("uploaded");
-    expect(accepted?.fileUrl).toBeTruthy();
+    expect(accepted?.available).toBe(true);
+    expect(accepted?.fileUrl).toBeNull();
     const stored = await t.run(async (ctx) => {
       const capture = await ctx.db.get(session.sessionId);
       return capture?.storageId
@@ -266,11 +268,24 @@ describe("complete scan transfer", () => {
       sessionId: c.body.sessionId,
     });
     expect(result?.format).toBe("zip");
-    expect(result?.fileUrl).toBeTruthy();
+    expect(result?.available).toBe(true);
+    expect(result?.fileUrl).toBeNull();
     const stored = await c.t.run(async (ctx) =>
       (await ctx.storage.get(storageId))!.arrayBuffer(),
     );
     expect(new Uint8Array(stored)).toEqual(c.bytes);
+    const privateTicket = await owner.mutation(api.files.captureTicket, {
+      captureId: c.session.sessionId,
+    });
+    expect(privateTicket.ready).toBe(true);
+    const response = await c.t.fetch(
+      `/files/download?${privateTicket.url.split("?")[1]}&index=0`,
+    );
+    expect(response.status).toBe(200);
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(c.bytes);
+    expect(
+      (await c.t.fetch("/files/download?token=invalid&index=0")).status,
+    ).toBe(404);
     expect(readPackage(new Uint8Array(stored)).manifest.frames).toHaveLength(1);
     await owner.mutation(api.captures.cancel, { sessionId: c.body.sessionId });
     expect(

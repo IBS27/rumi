@@ -25,6 +25,14 @@ when preferences change, and clears an exclusion when that item is requested aga
 - Unknown product dimensions are `null` with source `unknown`. Never infer a physical fit from an unscaled image. Search must resolve all three dimensions before recommending a product; failed extraction triggers alternatives, never an unsized recommendation. Synthetic data is explicitly marked.
 - GLB assets use meters after applying their normalization scale/rotation. A `ready` asset requires either a URL or a validated parametric scene. Parametric scenes use normalized part coordinates and carry their physical dimensions in meters; placeholders need no external asset. Geometry accuracy and availability are independent.
 
+## Persistent product and source facts
+
+New catalog IDs use SHA-256 over a canonical merchant URL and variant identity. Unknown or non-USD currency never becomes a USD price. Size-dependent dimensions require evidence for the selected variant. `observedAt` records when a candidate was read; it is optional for older records.
+
+A selected `RoomObject.productSnapshot` pins the product facts used for placement and price. Budget totals prefer this snapshot; refreshing the catalog cannot change a saved selection. Older objects without a snapshot remain readable and are backfilled using the facts still available. Asset identity includes dimensions, image inputs, and generator version.
+
+`SavedRoom.original` is optional for historical projects whose source was never uploaded. Missing means unavailable, not a reconstructed original. Signed-in source metadata and ZIP chunks publish together after upload, bound to their room and scan. A replacement room publishes in the same transaction as its source; direct attachment cannot replace a room that has a published source, and only an explicit removal discards a saved scan. The database room remains authoritative for edits. See [production rollout](production-rollout.md) for migration and retention behavior.
+
 ## Boundaries
 
 | Input/output                      | Owner          | Consumer                         |

@@ -1,5 +1,6 @@
+import { executeRecordedCalls } from "../shared/agent/execute";
 import { openai } from "@ai-sdk/openai";
-import { streamText, stepCountIs, hasToolCall, tool, type ToolSet } from "ai";
+import { streamText, tool, type ToolSet, type ModelMessage } from "ai";
 import { z } from "zod";
 import { v } from "convex/values";
 import { zodToConvex } from "convex-helpers/server/zod4";
@@ -255,8 +256,14 @@ function buildAgentTools(
   fills: State<ZoneFill[] | null>,
   report: Reporter,
   messageId: Id<"messages"> | null,
+  attempt: number | undefined,
   selectedObjectId: string | null,
 ): ToolSet {
+  // Project writes must name the reply they belong to; none is ever inferred.
+  const reply = () => {
+    if (!messageId) throw new Error("This design turn has no reply.");
+    return messageId;
+  };
   const specGate = () =>
     phase.get() === "spec"
       ? {
@@ -276,7 +283,7 @@ function buildAgentTools(
             "What the user wants for the room, in one or two sentences.",
           ),
       }),
-      execute: async ({ instruction }) => {
+      execute: async ({ instruction }, { toolCallId }) => {
         const gated = specGate();
         if (gated) return gated;
         const room = state.get();
@@ -292,7 +299,9 @@ function buildAgentTools(
           ids,
         });
         try {
-          const roomDoc = await ctx.runQuery(internal.rooms.getRoom, { roomId });
+          const roomDoc = await ctx.runQuery(internal.rooms.getRoom, {
+            roomId,
+          });
           const result = await proposeZones(
             room,
             brief.get(),
@@ -305,6 +314,9 @@ function buildAgentTools(
           if (projectId)
             await ctx.runMutation(internal.plans.propose, {
               projectId,
+              messageId: reply(),
+              attempt,
+              operationKey: toolCallId,
               roomId,
               plan: result.plan,
             });
@@ -403,6 +415,18 @@ function buildAgentTools(
             explanation: string;
           })[] = await Promise.all(
             selected.map(async ({ zone, task }) => {
+              if (planId) {
+                const saved = await ctx.runQuery(
+                  internal.recommendations.forZone,
+                  { planId, zoneId: zone.id },
+                );
+                if (saved?.product)
+                  return {
+                    ...saved.result,
+                    product: saved.product,
+                    explanation: saved.explanation,
+                  };
+              }
               const rowId = `search-${zone.id}`;
               await report.push({
                 id: rowId,
@@ -417,6 +441,17 @@ function buildAgentTools(
                   { task },
                 );
                 const product = result.candidates[0]?.product ?? null;
+                if (projectId && messageId)
+                  await ctx.runMutation(internal.recommendations.save, {
+                    projectId,
+                    messageId,
+                    attempt,
+                    planId: planId ?? undefined,
+                    zone,
+                    product,
+                    result: evaluateFill(zone, product),
+                    explanation: result.explanation,
+                  });
                 await report.finish(rowId, product ? "done" : "error");
                 return {
                   ...evaluateFill(zone, product),
@@ -445,7 +480,11 @@ function buildAgentTools(
           if (planId)
             await ctx.runMutation(internal.plans.setStatus, {
               planId,
-              status: "searched",
+              messageId: reply(),
+              attempt,
+              status: results.every((result) => result.product !== null)
+                ? "searched"
+                : "searching",
             });
           return {
             ok: true as const,
@@ -469,7 +508,7 @@ function buildAgentTools(
             description:
               "Show the finished brief as a read-only summary card with two buttons, Start planning and Modify details, plus a free-text field. Call this when every Spec topic is decided. End your turn after it.",
             inputSchema: z.object({}),
-            execute: async () => {
+            execute: async (_input, { toolCallId }) => {
               const status = specStatus(brief.get());
               if (!status.complete)
                 return {
@@ -478,6 +517,9 @@ function buildAgentTools(
                 };
               await ctx.runMutation(internal.messages.ask, {
                 projectId,
+                turnId: reply(),
+                attempt,
+                operationKey: toolCallId,
                 question: specSummaryText(brief.get()),
                 options: SPEC_SUMMARY_OPTIONS,
                 multiSelect: false,
@@ -496,9 +538,15 @@ function buildAgentTools(
               options: z.array(z.string()).min(2).max(4),
               multiSelect: z.boolean().default(false),
             }),
-            execute: async ({ question, options, multiSelect }) => {
+            execute: async (
+              { question, options, multiSelect },
+              { toolCallId },
+            ) => {
               await ctx.runMutation(internal.messages.ask, {
                 projectId,
+                turnId: reply(),
+                attempt,
+                operationKey: toolCallId,
                 question,
                 options,
                 multiSelect,
@@ -518,14 +566,16 @@ function buildAgentTools(
         commands: designCommandsSchema,
         maxTotalCents: z.number().int().nonnegative().optional(),
       }),
-      execute: async ({ commands, maxTotalCents }) => {
+      execute: async ({ commands, maxTotalCents }, { toolCallId }) => {
         const room = state.get();
         if (!projectId || !messageId || !room)
           return { ok: false, error: "Attach a room first." };
         try {
           const next = await ctx.runMutation(internal.design.editByAgent, {
             projectId,
+            operationKey: toolCallId,
             messageId,
+            attempt,
             expectedRevision: room.revision,
             commands,
             maxTotalCents,
@@ -586,6 +636,8 @@ function buildAgentTools(
         if (projectId)
           await ctx.runMutation(internal.projects.setPhase, {
             projectId,
+            messageId: reply(),
+            attempt,
             phase: next,
           });
         phase.set(next);
@@ -609,12 +661,20 @@ function buildAgentTools(
           ),
         materials: z.array(z.string()).max(12).optional(),
         purpose: z.string().max(80).optional(),
-        wants: z.array(wantSchema).max(MAX_PLAN_ZONES).optional().describe(
-          "The complete current shopping list. Remove canceled items immediately, including art when the user says without the painting. An empty array clears all previous wants.",
-        ),
-        excludedCategories: z.array(z.string().trim().min(1).max(80)).max(12).optional().describe(
-          "Complete list of furniture categories the user does not want to shop for, such as bed. Overrides room-purpose defaults. Preserve unrelated exclusions; clear a category when the user requests it again.",
-        ),
+        wants: z
+          .array(wantSchema)
+          .max(MAX_PLAN_ZONES)
+          .optional()
+          .describe(
+            "The complete current shopping list. Remove canceled items immediately, including art when the user says without the painting. An empty array clears all previous wants.",
+          ),
+        excludedCategories: z
+          .array(z.string().trim().min(1).max(80))
+          .max(12)
+          .optional()
+          .describe(
+            "Complete list of furniture categories the user does not want to shop for, such as bed. Overrides room-purpose defaults. Preserve unrelated exclusions; clear a category when the user requests it again.",
+          ),
         accessories: z.enum(["unspecified", "include", "skip"]).optional(),
         inspiration: z.string().max(1200).optional(),
         decided: z
@@ -628,6 +688,8 @@ function buildAgentTools(
         const next = projectId
           ? await ctx.runMutation(internal.projects.updateBrief, {
               projectId,
+              messageId: reply(),
+              attempt,
               ...patch,
             })
           : roomId
@@ -679,7 +741,23 @@ function buildAgentTools(
           const result = await ctx.runAction(internal.search.searchProducts, {
             task,
           });
-          recommendation.set(result.candidates[0]?.product.id ?? null);
+          const product = result.candidates[0]?.product ?? null;
+          if (projectId && messageId && product)
+            await ctx.runMutation(internal.recommendations.save, {
+              projectId,
+              messageId,
+              attempt,
+              zone: null,
+              product,
+              result: {
+                zoneId: product.id,
+                productId: product.id,
+                fits: "unknown",
+                issues: [],
+              },
+              explanation: result.explanation,
+            });
+          recommendation.set(product?.id ?? null);
           return result;
         } catch (error) {
           recommendation.set(null);
@@ -758,7 +836,7 @@ function buildAgentTools(
         summary: z.string(),
         additions: z.array(roomObjectSchema),
       }),
-      execute: async ({ summary, additions }) => {
+      execute: async ({ summary, additions }, { toolCallId }) => {
         const room = state.get();
         if (!room || !roomId)
           return { ok: false as const, error: "Import a room scan first." };
@@ -774,7 +852,9 @@ function buildAgentTools(
             projectId && messageId
               ? await ctx.runMutation(internal.design.editByAgent, {
                   projectId,
+                  operationKey: toolCallId,
                   messageId,
+                  attempt,
                   expectedRevision: room.revision,
                   commands: additions.map((object) => ({
                     type: "add" as const,
@@ -820,10 +900,14 @@ async function runAgent(
   ],
   selectedObjectId: string | null = null,
   forcePlanSpace = false,
+  messageId: Id<"messages"> | null = null,
+  history: ModelMessage[] = [],
+  attempt?: number,
 ): Promise<{
   text: string;
   room: RoomSnapshot | null;
   askedOptions: boolean;
+  continued?: boolean;
 }> {
   const doc = roomId
     ? await ctx.runQuery(internal.rooms.getRoom, { roomId })
@@ -834,15 +918,21 @@ async function runAgent(
   if (!doc && !project) throw new Error("This project does not exist.");
   let brief = normalizeBrief(doc?.brief ?? project?.brief ?? emptyBrief());
   let currentRoom: RoomSnapshot | null = doc?.snapshot ?? null;
-  let recommendationProductId: string | null = null;
-  let zoneFills: ZoneFill[] | null = null;
+  const priorReply =
+    projectId && messageId
+      ? (await ctx.runQuery(internal.messages.history, { projectId })).find(
+          (row) => row._id === messageId,
+        )
+      : null;
+  let recommendationProductId: string | null =
+    priorReply?.recommendationProductId ?? null;
+  let zoneFills: ZoneFill[] | null = priorReply?.recommendations ?? null;
   let currentPlan: DesignPlan | null = null;
   // A room-only chat (no project) has no stage gate.
   let currentPhase: ProjectPhase = project ? (project.phase ?? "spec") : "plan";
   let streamedText = "";
   let activity = initialActivity.map((item) => ({ ...item }));
   let lastPublished = 0;
-  let step = 0;
   const finish = (predicate: (item: AgentActivity) => boolean) => {
     activity = activity.map((item) =>
       item.status === "running" && predicate(item)
@@ -853,7 +943,7 @@ async function runAgent(
   const publish = async (force = false) => {
     if (!progress) return;
     const now = Date.now();
-    if (!force && now - lastPublished < 150) return;
+    if (!force && now - lastPublished < 500) return;
     lastPublished = now;
     await progress(streamedText, activity, recommendationProductId, zoneFills);
   };
@@ -883,109 +973,137 @@ async function runAgent(
     { get: () => currentPhase, set: (next) => (currentPhase = next) },
     { get: () => zoneFills, set: (next) => (zoneFills = next) },
     report,
-    project?.activeMessageId ?? null,
+    messageId,
+    attempt,
     selectedObjectId,
   );
-  const result = streamText({
-    model: openai(process.env.RUMI_AGENT_MODEL ?? "gpt-4o"),
-    system: SYSTEM_PROMPT,
-    prompt,
-    tools,
-    prepareStep: forcePlanSpace
-      ? ({ stepNumber }) =>
-          stepNumber === 0
-            ? {
-                activeTools: ["planSpace"],
-                toolChoice: {
-                  type: "tool" as const,
-                  toolName: "planSpace" as const,
-                },
-              }
-            : undefined
-      : undefined,
-    stopWhen: [
-      stepCountIs(10),
-      hasToolCall("askOptions"),
-      hasToolCall("showSpecSummary"),
-      // A shown plan card ends the turn; the user chooses what to search.
-      ({ steps }) =>
-        steps
-          .at(-1)
-          ?.toolResults.some(
-            (item) =>
-              item.toolName === "planSpace" &&
-              typeof item.output === "object" &&
-              item.output !== null &&
-              (item.output as { cardShown?: boolean }).cardShown === true,
-          ) ?? false,
-    ],
-    abortSignal: AbortSignal.timeout(110000),
-  });
-  for await (const part of result.fullStream) {
-    switch (part.type) {
-      case "start-step":
-        step++;
-        finish((item) => item.tool === "responding");
-        if (step > 1) {
-          activity.push({
-            id: `planning-${step}`,
-            tool: "planning",
-            label: "Planning next step",
-            status: "running",
-          });
-          await publish(true);
+  const stored = messageId
+    ? await ctx.runQuery(internal.agentSteps.list, { messageId })
+    : [];
+  const messages: ModelMessage[] = [
+    ...history,
+    { role: "user", content: prompt },
+  ];
+  let askedOptions = false;
+  let text = "";
+  // One durable record per model step. Persist calls before executing them, then
+  // record each result. Restarting a reply reuses calls and completed results.
+  for (let number = 0; number < 10; number++) {
+    const previous = stored.find((item) => item.step === number);
+    let response: ModelMessage[];
+    let calls: { toolCallId: string; toolName: string; input: unknown }[];
+    let outputs: Record<string, unknown>;
+    let stepId = previous?._id;
+    if (previous) {
+      response = JSON.parse(previous.response) as ModelMessage[];
+      calls = JSON.parse(previous.calls) as typeof calls;
+      outputs = JSON.parse(previous.outputs) as Record<string, unknown>;
+      text = previous.text;
+    } else {
+      const definitions = Object.fromEntries(
+        Object.entries(tools).map(([name, definition]) => [
+          name,
+          { ...definition, execute: undefined },
+        ]),
+      );
+      const startedAt = Date.now();
+      const result = streamText({
+        model: openai(process.env.RUMI_AGENT_MODEL ?? "gpt-4o"),
+        system: SYSTEM_PROMPT,
+        messages,
+        tools: definitions,
+        toolChoice:
+          forcePlanSpace && number === 0
+            ? { type: "tool", toolName: "planSpace" }
+            : "auto",
+        providerOptions: { openai: { parallelToolCalls: false } },
+        abortSignal: AbortSignal.timeout(110000),
+        maxRetries: 1,
+      });
+      streamedText = "";
+      for await (const part of result.fullStream) {
+        if (part.type === "text-delta") {
+          streamedText += part.text;
+          await publish();
         }
-        break;
-      case "text-delta":
-        finish((item) => item.tool === "planning");
-        if (
-          !activity.some(
-            (item) => item.tool === "responding" && item.status === "running",
-          )
-        )
-          activity.push({
-            id: `responding-${step}`,
-            tool: "responding",
-            label: "Writing response",
-            status: "running",
-          });
-        streamedText += part.text;
-        await publish();
-        break;
-      case "tool-call":
-        finish(
-          (item) => item.tool === "planning" || item.tool === "responding",
-        );
-        activity.push(toolActivity(part.toolCallId, part.toolName, part.input));
-        await publish(true);
-        break;
-      case "tool-result":
-        finish((item) => item.id === part.toolCallId);
-        await publish(true);
-        break;
-      case "tool-error":
-        activity = activity.map((item) =>
-          item.id === part.toolCallId
-            ? { ...item, status: "error" as const }
-            : item,
-        );
-        await publish(true);
-        break;
-      case "error":
-        throw part.error;
+        if (part.type === "error") throw part.error;
+      }
+      text = await result.text;
+      response = (await result.response).messages;
+      calls = (await result.toolCalls).map((call) => ({
+        toolCallId: call.toolCallId,
+        toolName: call.toolName,
+        input: call.input,
+      }));
+      outputs = {};
+      if (projectId && messageId) {
+        stepId = await ctx.runMutation(internal.agentSteps.save, {
+          projectId,
+          messageId,
+          attempt,
+          step: number,
+          response: JSON.stringify(response),
+          calls: JSON.stringify(calls),
+          outputs: "{}",
+          text,
+          model: process.env.RUMI_AGENT_MODEL ?? "gpt-4o",
+          usage: JSON.stringify(await result.usage),
+          durationMs: Date.now() - startedAt,
+        });
+        const committed = (
+          await ctx.runQuery(internal.agentSteps.list, { messageId })
+        ).find((item) => item._id === stepId)!;
+        response = JSON.parse(committed.response) as ModelMessage[];
+        calls = JSON.parse(committed.calls) as typeof calls;
+        outputs = JSON.parse(committed.outputs) as Record<string, unknown>;
+        text = committed.text;
+      }
     }
+    messages.push(...response);
+    await executeRecordedCalls({
+      calls,
+      outputs,
+      tools,
+      messages,
+      started: (call) =>
+        report.push(toolActivity(call.toolCallId, call.toolName, call.input)),
+      finished: (call) => report.finish(call.toolCallId),
+      save: async (callId, output) => {
+        if (stepId)
+          await ctx.runMutation(internal.agentSteps.output, {
+            id: stepId,
+            attempt,
+            callId,
+            output: JSON.stringify(output),
+          });
+      },
+    });
+    askedOptions ||= calls.some(
+      (call) =>
+        (call.toolName === "askOptions" &&
+          z
+            .object({ presented: z.literal(true) })
+            .safeParse(outputs[call.toolCallId]).success) ||
+        (call.toolName === "showSpecSummary" &&
+          z.object({ ok: z.literal(true) }).safeParse(outputs[call.toolCallId])
+            .success),
+    );
+    const planShown = calls.some(
+      (call) =>
+        call.toolName === "planSpace" &&
+        z
+          .object({ cardShown: z.literal(true) })
+          .safeParse(outputs[call.toolCallId]).success,
+    );
+    if (!calls.length || askedOptions || planShown) break;
+    // Each new model step runs in a fresh action; the caller schedules it.
+    if (!previous && projectId && messageId)
+      return { text, room: currentRoom, askedOptions, continued: true };
   }
   finish(() => true);
-  const text = await result.text;
   streamedText = text;
   await publish(true);
-  return {
-    text,
-    room: currentRoom,
-    askedOptions: activity.some(
-      (item) => item.tool === "askOptions" || item.tool === "showSpecSummary",
-    ),
-  };
+  return { text, room: currentRoom, askedOptions };
 }
 
 export const designRoom = internalAction({
@@ -1002,11 +1120,16 @@ export const designRoom = internalAction({
 
 export const runForProject = internalAction({
   returns: v.null(),
-  args: { projectId: v.id("projects"), messageId: v.id("messages") },
-  handler: async (ctx, { projectId, messageId }): Promise<void> => {
+  args: {
+    projectId: v.id("projects"),
+    messageId: v.id("messages"),
+    attempt: v.optional(v.number()),
+  },
+  handler: async (ctx, { projectId, messageId, attempt }): Promise<void> => {
     const complete = (content: string, status: "done" | "error") =>
       ctx.runMutation(internal.messages.complete, {
         messageId,
+        attempt,
         content,
         status,
       });
@@ -1016,22 +1139,20 @@ export const runForProject = internalAction({
         { projectId },
       );
       if (!project || project.activeMessageId !== messageId) return;
+      const messages = await ctx.runQuery(internal.messages.history, {
+        projectId,
+      });
+      const reply = messages.find((message) => message._id === messageId);
+      // Recovery started a newer chain for this reply; stop this one.
+      if ((reply?.runAttempt ?? 0) !== (attempt ?? 0)) return;
       if (!process.env.OPENAI_API_KEY)
         throw new Error(
           "Chat is not configured yet. Add the OpenAI API key to the development deployment.",
         );
-      const messages = await ctx.runQuery(internal.messages.history, {
-        projectId,
-      });
-      const transcript = messages
+      const transcript: ModelMessage[] = messages
         .filter((message) => message.status === "done")
-        .slice(-10)
-        .map(
-          (message) =>
-            `${message.role === "user" ? "User" : "Assistant"}: ${message.content}`,
-        )
-        .join("\n");
-      const reply = messages.find((message) => message._id === messageId);
+        .slice(-40)
+        .map((message) => ({ role: message.role, content: message.content }));
       const stage: ProjectPhase = project.phase ?? "spec";
       const completed = messages.filter((message) => message.status === "done");
       let latestUserIndex = -1;
@@ -1042,10 +1163,11 @@ export const runForProject = internalAction({
       }
       const latestUser =
         latestUserIndex >= 0 ? completed[latestUserIndex].content : "";
-      const previousAssistant = [...completed]
-        .slice(0, latestUserIndex)
-        .reverse()
-        .find((message) => message.role === "assistant")?.content ?? "";
+      const previousAssistant =
+        [...completed]
+          .slice(0, latestUserIndex)
+          .reverse()
+          .find((message) => message.role === "assistant")?.content ?? "";
       const forcePlanSpace = shouldForcePlanSpace(
         stage,
         latestUser,
@@ -1058,14 +1180,15 @@ export const runForProject = internalAction({
         stage === "spec"
           ? `\n${specStatusLine(normalizeBrief(roomDoc?.brief ?? project.brief ?? emptyBrief()))}`
           : "";
-      const { text, askedOptions } = await runAgent(
+      const { text, askedOptions, continued } = await runAgent(
         ctx,
         project.roomId ?? null,
-        `Current stage: ${stage}${project.roomId ? "" : " (no room attached yet)"}.${status}\n\nConversation so far:\n${transcript}\n\nRespond to the user's latest message.`,
+        `Current stage: ${stage}${project.roomId ? "" : " (no room attached yet)"}.${status}\n\nRespond to the user's latest message.`,
         projectId,
         async (content, activity, recommendationProductId, recommendations) => {
           await ctx.runMutation(internal.messages.updateProgress, {
             messageId,
+            attempt,
             content,
             activity,
             recommendationProductId,
@@ -1075,7 +1198,18 @@ export const runForProject = internalAction({
         reply?.activity ?? undefined,
         reply?.selectedObjectId ?? null,
         forcePlanSpace,
+        messageId,
+        transcript,
+        attempt,
       );
+      if (continued) {
+        await ctx.scheduler.runAfter(0, internal.agent.runForProject, {
+          projectId,
+          messageId,
+          attempt,
+        });
+        return;
+      }
       // A choice written as a text list is not clickable. Turn it into the
       // card the model should have used.
       const card =
@@ -1083,13 +1217,16 @@ export const runForProject = internalAction({
           ? null
           : choiceListToCard(text);
       if (card) {
-        await complete(card.intro, "done");
         await ctx.runMutation(internal.messages.ask, {
           projectId,
+          turnId: messageId,
+          attempt,
+          operationKey: `${messageId}:fallback-question`,
           question: card.question,
           options: card.options,
           multiSelect: card.multiSelect,
         });
+        await complete(card.intro, "done");
         return;
       }
       await complete(text, "done");

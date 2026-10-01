@@ -80,6 +80,8 @@ export const assetSchema = z
 export const productSchema = z.object({
   id: idSchema,
   variantId: idSchema,
+  variantLabel: z.string().optional(),
+  observedAt: z.number().optional(),
   name: z.string().min(1),
   category: searchCategorySchema,
   merchant: z.string(),
@@ -101,6 +103,7 @@ const roomObjectFields = z.object({
   name: z.string(),
   category: categorySchema,
   productId: idSchema.nullable(),
+  productSnapshot: productSchema.optional(),
   assetId: idSchema.nullable(),
   dimensions: dimensionsSchema,
   position: vectorSchema,
@@ -244,7 +247,10 @@ export const briefSchema = z.object({
   wants: z.array(wantSchema).max(MAX_PLAN_ZONES).default([]),
   // Explicit shopping exclusions override room-purpose defaults. They do not
   // authorize removal of existing furniture. Optional for older saved briefs.
-  excludedCategories: z.array(z.string().trim().min(1).max(80)).max(12).optional(),
+  excludedCategories: z
+    .array(z.string().trim().min(1).max(80))
+    .max(12)
+    .optional(),
   // Whether the user asked for accessories (art, rugs, lamps) or ruled them out.
   accessories: z
     .enum(["unspecified", "include", "skip"])

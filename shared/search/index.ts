@@ -1,3 +1,5 @@
+import { boundedBody } from "../network/policy";
+import { catalogKey, digest } from "../catalog/identity";
 import {
   searchTaskResultSchema,
   type ProductCandidate,
@@ -42,7 +44,10 @@ interface ExaContentsResponse {
   results?: ExaContentResult[];
 }
 
-type FetchLike = typeof fetch;
+type FetchLike = (
+  input: RequestInfo | URL,
+  init?: RequestInit,
+) => Promise<Response>;
 
 async function exaPost<T>(
   apiKey: string,
@@ -52,6 +57,7 @@ async function exaPost<T>(
 ): Promise<T> {
   const response = await fetchImpl(`${EXA_API}${path}`, {
     method: "POST",
+    signal: AbortSignal.timeout(20000),
     headers: {
       "content-type": "application/json",
       "x-api-key": apiKey,
@@ -60,7 +66,9 @@ async function exaPost<T>(
   });
   if (!response.ok)
     throw new Error(`Exa ${path} failed with status ${response.status}.`);
-  return (await response.json()) as T;
+  return JSON.parse(
+    new TextDecoder().decode(await boundedBody(response, 2 * 1024 * 1024)),
+  ) as T;
 }
 
 export async function exaSearch(
@@ -255,13 +263,7 @@ export function searchDomains(task: SearchTask): string[] {
 }
 
 export function productIdFor(sourceUrl: string, variant: string): string {
-  const input = `${sourceUrl}#${variant}`;
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < input.length; i++) {
-    hash ^= input.charCodeAt(i);
-    hash = Math.imul(hash, 0x01000193) >>> 0;
-  }
-  return `web-${hash.toString(16).padStart(8, "0")}`;
+  return `web-${digest(catalogKey(sourceUrl, variant))}`;
 }
 
 export function merchantFor(sourceUrl: string): string {

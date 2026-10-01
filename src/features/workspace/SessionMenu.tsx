@@ -13,12 +13,16 @@ const dateFormat = new Intl.DateTimeFormat("en-US", {
  * newest first, with "New chat" at the top.
  */
 export function SessionMenu({
+  cloud = false,
+  onDeleteAccount,
   sessions,
   activeId,
   onNew,
   onSelect,
   onRemove,
 }: {
+  cloud?: boolean;
+  onDeleteAccount?: () => void;
   sessions: Session[];
   activeId: string;
   onNew: () => void;
@@ -71,7 +75,7 @@ export function SessionMenu({
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label="Your sessions"
-        onClick={() => (open ? hide(0) : show())}
+        onClick={show}
       >
         <Brand />
         <ChevronDown
@@ -133,7 +137,7 @@ export function SessionMenu({
                           : "No room yet"}
                       </Muted>
                     </Button>
-                    {(sessions.length > 1 || session.workspace) && (
+                    {(cloud || sessions.length > 1 || session.workspace) && (
                       <Button
                         size="sm"
                         variant="quiet"
@@ -153,8 +157,9 @@ export function SessionMenu({
                     className="mx-1 my-1 rounded-ctrl bg-stone p-2.5 text-xs [&>button]:mt-2 [&>button]:mr-1"
                   >
                     <p>
-                      Delete this session and its room from this browser? Chat
-                      history stays on your account.
+                      {cloud
+                        ? "Delete this project, its conversation and saved files from your account?"
+                        : "Delete this session and its room from this browser? Chat history stays on your account."}
                     </p>
                     <Button size="sm" onClick={() => setConfirming(null)}>
                       Cancel
@@ -174,6 +179,33 @@ export function SessionMenu({
               </div>
             );
           })}
+          {onDeleteAccount &&
+            (confirming === "account" ? (
+              <div
+                className="p-3 text-xs"
+                role="group"
+                aria-label="Confirm account deletion"
+              >
+                <p>
+                  Permanently delete your account, every project, conversation,
+                  and scan?
+                </p>
+                <Button size="sm" onClick={() => setConfirming(null)}>
+                  Cancel
+                </Button>
+                <Button size="sm" variant="danger" onClick={onDeleteAccount}>
+                  Delete account permanently
+                </Button>
+              </div>
+            ) : (
+              <Button
+                role="menuitem"
+                variant="quiet"
+                onClick={() => setConfirming("account")}
+              >
+                Delete account
+              </Button>
+            ))}
           {active && !active.workspace && sessions.length === 1 && (
             <Muted className="px-3 pt-1 pb-2 text-xs">
               Bring in a room to start your first session.

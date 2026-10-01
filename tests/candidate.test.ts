@@ -25,6 +25,7 @@ const facts = (overrides: Partial<ListingFacts> = {}): ListingFacts =>
     {
       name: "Low oak cabinet",
       variant: "Natural Oak",
+      currency: "USD",
       priceCents: 24900,
       availability: "available",
       tags: ["Storage", "storage", " Oak "],

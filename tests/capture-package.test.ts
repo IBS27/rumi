@@ -61,7 +61,7 @@ describe("single-scan package", () => {
     const capture = readPackage(syntheticCaptureZip());
     capture.manifest.meshes[0].transform[12] = 10;
     capture.manifest.frames[0].cameraTransform[12] += 10;
-    const raw = capture.saved.original;
+    const raw = capture.saved.original!;
     for (const list of [
       raw.walls,
       raw.floors ?? [],
@@ -209,7 +209,7 @@ describe("single-scan package", () => {
   test("rejects edits whose original geometry belongs to another capture", () => {
     const bytes = syntheticCaptureZip();
     const saved = readPackage(bytes).saved;
-    saved.original.objects[0].dimensions[0] += 1;
+    saved.original!.objects[0].dimensions[0] += 1;
     expect(() => exportPackage(bytes, saved)).toThrow("another room");
   });
 });

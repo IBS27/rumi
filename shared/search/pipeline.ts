@@ -176,6 +176,7 @@ async function merchantLayer(
   facts: Partial<ListingFacts>;
   images: ImageRef[];
   bodyText: string;
+  dimensionsVary?: boolean;
 }> {
   const jsonUrl = productJsonUrl(page.url);
   if (!jsonUrl) return { facts: {}, images: [], bodyText: "" };
@@ -185,10 +186,29 @@ async function merchantLayer(
   try {
     const payload = await deps.fetchJson(jsonUrl);
     const product = mapShopifyProduct(payload);
-    return factsFromShopify(product, {
+    if (product && !product.currency) {
+      // Shopify product JSON omits currency; the cart endpoint supplies store currency.
+      const cart = await deps.fetchJson(
+        new URL("/cart.js", page.url).toString(),
+      );
+      if (
+        typeof cart === "object" &&
+        cart !== null &&
+        "currency" in cart &&
+        typeof cart.currency === "string"
+      )
+        product.currency = cart.currency;
+    }
+    const result = factsFromShopify(product, {
       maxPriceCents: task.maxPriceCents,
       palette: task.palette,
     });
+    if (result.facts.variantKey) {
+      const variantUrl = new URL(page.url);
+      variantUrl.searchParams.set("variant", result.facts.variantKey);
+      result.facts.sourceUrl = variantUrl.toString();
+    }
+    return result;
   } catch {
     return { facts: {}, images: [], bodyText: "" };
   }
@@ -272,7 +292,22 @@ export async function runSearch(
     const merchant = await merchantLayer(page, task, deps);
     const jsonLd = page.html ? parseProductJsonLd(page.html) : null;
     const structured = factsFromJsonLd(jsonLd);
-    const layers: Partial<ListingFacts>[] = [merchant.facts, structured];
+    // Never use another variant's JSON-LD price, stock or dimensions.
+    const variantMatches =
+      !merchant.facts.variantKey ||
+      structured.variant === merchant.facts.variantKey ||
+      structured.variant === merchant.facts.variant;
+    if (merchant.dimensionsVary && !variantMatches) {
+      failures.push({
+        stage: "extract",
+        detail: `Skipped ${page.url}: dimensions are not linked to the selected size variant.`,
+      });
+      return;
+    }
+    const layers: Partial<ListingFacts>[] = [
+      merchant.facts,
+      ...(variantMatches ? [structured] : []),
+    ];
     const missing =
       !(merchant.facts.name ?? structured.name) ||
       (merchant.facts.priceCents ?? structured.priceCents) === null ||
@@ -305,7 +340,7 @@ export async function runSearch(
     const resolved = await resolveDimensions({
       category: task.category,
       name: facts.name ?? null,
-      structuredText: jsonLd?.dimensionText ?? null,
+      structuredText: (variantMatches ? jsonLd?.dimensionText : null) ?? null,
       pageText,
       images,
     });
@@ -329,7 +364,7 @@ export async function runSearch(
     contexts.set(product.id, {
       productId: product.id,
       pageText,
-      structuredText: jsonLd?.dimensionText ?? null,
+      structuredText: (variantMatches ? jsonLd?.dimensionText : null) ?? null,
       images,
     });
   };

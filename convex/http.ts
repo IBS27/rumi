@@ -1,3 +1,4 @@
+import { receive as authWebhook } from "./authWebhook";
 import { httpRouter } from "convex/server";
 import { ConvexError } from "convex/values";
 import { z } from "zod";
@@ -13,9 +14,23 @@ import {
 } from "../shared/capture/pairing";
 import { importRoomPlan } from "../shared/capture/roomplan";
 
+import * as files from "./files";
 import { upload, uploadOptions } from "./images";
 
 const http = httpRouter();
+http.route({ path: "/auth/webhook", method: "POST", handler: authWebhook });
+http.route({ path: "/files/upload", method: "POST", handler: files.upload });
+http.route({
+  path: "/files/upload",
+  method: "OPTIONS",
+  handler: files.options,
+});
+http.route({ path: "/files/download", method: "GET", handler: files.download });
+http.route({
+  path: "/files/download",
+  method: "OPTIONS",
+  handler: files.options,
+});
 http.route({ path: "/chat/image", method: "POST", handler: upload });
 http.route({ path: "/chat/image", method: "OPTIONS", handler: uploadOptions });
 class RequestError extends Error {

@@ -11,6 +11,7 @@
     "tests/agent-integration.test.ts",
     "tests/design-integration.test.ts",
     "tests/chat.test.ts",
-    "tests/pairing.test.ts"
+    "tests/pairing.test.ts",
+    "tests/production.test.ts"
   ]
 }

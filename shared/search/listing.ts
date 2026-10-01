@@ -15,6 +15,7 @@ export function factsFromJsonLd(
     name: product.name,
     variant: product.sku,
     priceCents: product.priceCents,
+    currency: product.currency,
     availability: product.availability,
     colorText: product.color,
     imageUrl: product.images[0] ?? null,
@@ -34,7 +35,9 @@ export function chooseVariant(
 ): ShopifyVariant | null {
   if (product.variants.length === 0) return null;
   const affordable = product.variants.filter(
-    (variant) => variant.available && variant.priceCents <= maxPriceCents,
+    (variant) =>
+      variant.available &&
+      (maxPriceCents === 0 || variant.priceCents <= maxPriceCents),
   );
   const available = product.variants.filter((variant) => variant.available);
   const pool =
@@ -58,6 +61,7 @@ export interface ShopifyFacts {
   facts: Partial<ListingFacts>;
   images: ImageRef[];
   bodyText: string;
+  dimensionsVary?: boolean;
 }
 
 export function factsFromShopify(
@@ -70,12 +74,15 @@ export function factsFromShopify(
     facts: {
       name: product.title,
       variant: variant?.title ?? null,
+      variantKey: variant?.id ?? null,
+      currency: product.currency ?? null,
       priceCents: variant?.priceCents ?? null,
-      availability: variant
-        ? variant.available
-          ? "available"
-          : "unavailable"
-        : "unknown",
+      availability:
+        variant?.available !== null && variant
+          ? variant.available
+            ? "available"
+            : "unavailable"
+          : "unknown",
       colorText: variant?.title ?? null,
       tags: [...product.tags, product.productType ?? ""].filter(Boolean),
       imageUrl: product.images[0]?.url ?? null,
@@ -83,6 +90,7 @@ export function factsFromShopify(
     },
     images: product.images,
     bodyText: product.bodyText,
+    dimensionsVary: product.dimensionsVary,
   };
 }
 

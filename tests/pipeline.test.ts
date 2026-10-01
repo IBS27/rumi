@@ -91,6 +91,7 @@ function deps(
       return {
         name: page.title,
         variant: "Natural Oak",
+        currency: "USD",
         priceCents: price ? Math.round(Number(price[1]) * 100) : null,
         availability: "available",
         tags: ["minimalist"],
@@ -152,6 +153,7 @@ describe("the search pipeline", () => {
     let fetched = "";
     const context = deps(pagesFrom([page]), {
       fetchJson: async (url) => {
+        if (url.endsWith("/cart.js")) return { currency: "USD" };
         fetched = url;
         return {
           product: {
@@ -270,6 +272,7 @@ describe("the search pipeline", () => {
       extractListing: async (page) => ({
         name: page.title,
         variant: "Natural Oak",
+        currency: "USD",
         priceCents:
           page.url.includes("ikea") || page.url.includes("walmart")
             ? 90000
@@ -470,6 +473,7 @@ describe("a listing the model could not name", () => {
       extractListing: async () => ({
         name: null,
         variant: "Natural Oak",
+        currency: "USD",
         priceCents: 24900,
         availability: "available",
         tags: [],
@@ -497,6 +501,7 @@ describe("a tier whose every hit fails the ceiling", () => {
       extractListing: async (page) => ({
         name: page.title,
         variant: "Natural Oak",
+        currency: "USD",
         priceCents: page.url.includes("dwr") ? 679500 : 24900,
         availability: "available",
         tags: [],
@@ -596,4 +601,31 @@ describe("replacing products without dimensions", () => {
     expect(reads).toBe(1);
     expect(context.counters.searches.length).toBeLessThanOrEqual(3);
   });
+});
+
+it("does not borrow dimensions from a different Shopify size variant", async () => {
+  const page = specPage("https://merchant.test/products/cabinet");
+  const context = deps(pagesFrom([page]), {
+    fetchJson: async () => ({
+      product: {
+        title: "Cabinet",
+        currency: "USD",
+        options: [{ name: "Size", values: ["Small", "Large"] }],
+        body_html: '<p>43"W x 14"D x 28"H</p>',
+        images: [{ src: "https://merchant.test/cabinet.jpg" }],
+        variants: [
+          { id: 1, title: "Small", price: "100", available: true },
+          { id: 2, title: "Large", price: "200", available: true },
+        ],
+      },
+    }),
+  });
+  const result = await runSearch(makeTask(), context.deps, { minTierHits: 1 });
+  expect(result.candidates).toEqual([]);
+  expect(
+    result.failures.some((failure) =>
+      failure.detail.includes("selected size variant"),
+    ),
+  ).toBe(true);
+  expect(context.counters.diagrams).toBe(0);
 });

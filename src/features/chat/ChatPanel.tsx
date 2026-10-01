@@ -25,6 +25,8 @@ import { chatKey } from "../workspace/sessions";
 /** `sessionId` scopes the open conversation to the current session. */
 export type ChatContext = {
   room?: CapturedRoom;
+  projectId?: string;
+  onNavigate?: (id: string | null) => void;
   sessionId?: string;
   onCollapse: () => void;
   selectedObjectId?: string | null;
@@ -152,6 +154,8 @@ export function ChatUnavailable({
 
 export function ChatPanel({
   room,
+  projectId,
+  onNavigate,
   sessionId,
   onCollapse,
   identity,
@@ -169,6 +173,8 @@ export function ChatPanel({
     ? chatKey(identity, sessionId)
     : `rumi.chat.v1.${identity}`;
   const [activeId, setActiveId] = useState<Id<"projects"> | null>(() => {
+    if (projectId) return projectId as Id<"projects">;
+    if (onNavigate) return null;
     try {
       const id = localStorage.getItem(storageKey);
       return id && /^[a-z0-9]{32}$/.test(id) ? (id as Id<"projects">) : null;
@@ -189,6 +195,10 @@ export function ChatPanel({
   const create = useMutation(api.projects.create);
   const beginUpload = useMutation(api.images.beginUpload);
   function select(id: Id<"projects"> | null) {
+    if (onNavigate) {
+      onNavigate(id);
+      return;
+    }
     setActiveId(id);
     setHistory(false);
     setAttachmentError("");
@@ -557,6 +567,7 @@ function Conversation({
             );
           if (
             !message.content &&
+            !message.imageId &&
             !message.imageUrl &&
             !message.recommendation &&
             message.zoneCards.length === 0 &&

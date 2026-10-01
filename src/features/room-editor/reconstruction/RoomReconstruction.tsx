@@ -13,7 +13,9 @@ import { Button, FloatingPanel, Heading, Muted } from "../../../ui";
 export function RoomReconstruction({
   input,
   onReady,
+  projectId,
 }: {
+  projectId?: string;
   input: ReconstructionInput;
   /** `generation` orders scenes for this scan; see `planDiscoveredObjects`. */
   onReady: (scene: ReconstructedScene, generation: number) => void;
@@ -49,7 +51,10 @@ export function RoomReconstruction({
   }, [job, input]);
   useEffect(() => {
     let canceled = false;
-    void start({ inputJson: JSON.stringify(input) })
+    void start({
+      inputJson: JSON.stringify(input),
+      projectId: projectId as Id<"projects"> | undefined,
+    })
       .then((id) => {
         if (!canceled) setId(id);
       })
@@ -62,7 +67,7 @@ export function RoomReconstruction({
     return () => {
       canceled = true;
     };
-  }, [input, start, request]);
+  }, [input, start, request, projectId]);
   useEffect(() => {
     if (result?.scene) ready(result.scene, result.generation);
   }, [result]);

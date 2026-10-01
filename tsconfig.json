@@ -15,5 +15,5 @@
     "noUnusedParameters": true,
     "types": ["vite/client", "node", "bun"]
   },
-  "include": ["src", "shared", "convex", "tests", "*.ts"]
+  "include": ["src", "shared", "convex", "tests", "e2e", "scripts", "*.ts"]
 }

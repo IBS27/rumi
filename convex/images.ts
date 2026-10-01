@@ -10,7 +10,8 @@ import {
   internalQuery,
 } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { requireOwner } from "./ownership";
+import { currentAttempt } from "./turns";
+import { requireOwner, requireActiveOwner } from "./ownership";
 import { hashToken, randomToken } from "../shared/capture/pairing";
 import {
   MAX_IMAGE_BYTES,
@@ -80,6 +81,7 @@ export const uploadTicket = internalQuery({
   handler: async (ctx, { uploadId, tokenHash }) => {
     const ticket = await ctx.db.get(uploadId);
     if (!ticket || ticket.tokenHash !== tokenHash) return null;
+    await requireActiveOwner(ctx, ticket.ownerId);
     const project = await ctx.db.get(ticket.projectId);
     if (!project || project.ownerId !== ticket.ownerId) return null;
     const { _id: _id, _creationTime: _time, ...value } = ticket;
@@ -192,6 +194,7 @@ export const save = internalMutation({
     )
       throw new Error("Upload expired.");
     const { projectId, ownerId, contentType } = ticket;
+    await requireActiveOwner(ctx, ownerId);
     const project = await ctx.db.get(projectId);
     if (!project || project.ownerId !== ownerId)
       throw new Error("This project does not exist.");
@@ -265,11 +268,26 @@ export const complete = internalMutation({
   args: {
     imageId: v.id("images"),
     userMessageId: v.id("messages"),
+    // Analyses started before attempts existed omit their reply. They cannot
+    // prove which run they served, so they are accepted as calls and ignored.
+    assistantMessageId: v.optional(v.id("messages")),
+    attempt: v.optional(v.number()),
     status: v.union(v.literal("analyzed"), v.literal("error")),
     analysis: v.string(),
   },
-  handler: async (ctx, { imageId, userMessageId, status, analysis }) => {
-    if (!(await ctx.db.get(imageId)) || !(await ctx.db.get(userMessageId)))
+  handler: async (
+    ctx,
+    { imageId, userMessageId, assistantMessageId, attempt, status, analysis },
+  ) => {
+    const image = await ctx.db.get(imageId);
+    if (!image || !(await ctx.db.get(userMessageId))) return;
+    const reply = assistantMessageId && (await ctx.db.get(assistantMessageId));
+    if (
+      !reply ||
+      reply.projectId !== image.projectId ||
+      reply.status !== "pending" ||
+      !currentAttempt(reply, attempt)
+    )
       return;
     // The analysis stays on the image. The user's bubble keeps a short line;
     // the chat shows the analysis as a note, and the agent reads it from the
@@ -290,10 +308,11 @@ export const analyze = internalAction({
     imageId: v.id("images"),
     userMessageId: v.id("messages"),
     assistantMessageId: v.id("messages"),
+    attempt: v.optional(v.number()),
   },
   handler: async (
     ctx,
-    { imageId, userMessageId, assistantMessageId },
+    { imageId, userMessageId, assistantMessageId, attempt },
   ): Promise<void> => {
     try {
       const image = await ctx.runQuery(internal.images.get, { imageId });
@@ -335,11 +354,14 @@ export const analyze = internalAction({
       await ctx.runMutation(internal.images.complete, {
         imageId,
         userMessageId,
+        assistantMessageId,
+        attempt,
         status: "analyzed",
         analysis: result.text,
       });
       await ctx.runMutation(internal.messages.updateProgress, {
         messageId: assistantMessageId,
+        attempt,
         content: "",
         activity: [
           {
@@ -359,6 +381,7 @@ export const analyze = internalAction({
       await ctx.runAction(internal.agent.runForProject, {
         projectId: image.projectId,
         messageId: assistantMessageId,
+        attempt,
       });
     } catch (error) {
       const detail = error instanceof Error ? error.message : "unknown error";
@@ -366,11 +389,14 @@ export const analyze = internalAction({
       await ctx.runMutation(internal.images.complete, {
         imageId,
         userMessageId,
+        assistantMessageId,
+        attempt,
         status: "error",
         analysis: detail,
       });
       await ctx.runMutation(internal.messages.complete, {
         messageId: assistantMessageId,
+        attempt,
         content: "I couldn’t analyze that image. Please try again.",
         status: "error",
       });

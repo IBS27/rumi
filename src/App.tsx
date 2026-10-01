@@ -3,6 +3,7 @@ import { useConvexAuth } from "convex/react";
 import { Smartphone } from "lucide-react";
 import { ChatPanel, ChatUnavailable } from "./features/chat/ChatPanel";
 import { RoomReconstruction } from "./features/room-editor/reconstruction/RoomReconstruction";
+import { CloudWorkspace } from "./features/workspace/CloudWorkspace";
 import { SessionShell } from "./features/workspace/SessionShell";
 import { PhoneCapture } from "./features/room-import/PhoneCapture";
 import { ScanAction } from "./features/room-setup/StartScreen";
@@ -19,14 +20,33 @@ function SignedInWorkspace() {
         Loading your account…
       </div>
     );
+  if (user && !isAuthenticated)
+    return (
+      <div
+        role="status"
+        className="grid h-full place-content-center gap-3 p-8 text-mute"
+      >
+        {isLoading
+          ? "Connecting to your account…"
+          : "Your account could not connect. Reload to retry."}
+        {!isLoading && (
+          <Button onClick={() => location.reload()}>Reload</Button>
+        )}
+      </div>
+    );
+  const Workspace = isAuthenticated ? CloudWorkspace : SessionShell;
   return (
-    <SessionShell
+    <Workspace
       key={user?.id ?? "local"}
       identity={user?.id ?? "local"}
       reconstruct={
         isAuthenticated
-          ? (input, onReady) => (
-              <RoomReconstruction input={input} onReady={onReady} />
+          ? (input, onReady, projectId) => (
+              <RoomReconstruction
+                input={input}
+                onReady={onReady}
+                projectId={projectId}
+              />
             )
           : undefined
       }

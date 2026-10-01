@@ -69,7 +69,7 @@ bunx convex dev
 bun run dev
 ```
 
-`convex dev` syncs schema and function changes to your selected dev deployment and regenerates the bindings in `convex/_generated/`. Generated bindings are ignored by Git; do not edit them manually. `bun run convex:codegen` regenerates bindings when needed, but is not a substitute for pushing backend changes.
+`convex dev` syncs schema and function changes to your selected dev deployment and regenerates the bindings in `convex/_generated/`. Generated bindings are committed to Git; regenerate and include them with backend changes. Do not edit them manually. `bun run convex:codegen` regenerates bindings when needed, but is not a substitute for pushing backend changes.
 
 Stop the Convex watcher before switching branches. Restart it after the switch so you deliberately sync the new branch to your deployment. For simultaneous work in multiple checkouts, use separate deployments.
 

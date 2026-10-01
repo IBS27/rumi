@@ -18,7 +18,12 @@ export function DesignConnection({
   const retry = useMutation(api.design.retryAsset);
   const execute = useCallback(
     (commands: DesignCommand[], expectedRevision: number) =>
-      edit({ projectId, commands, expectedRevision }),
+      edit({
+        projectId,
+        commands,
+        expectedRevision,
+        operationKey: crypto.randomUUID(),
+      }),
     [edit, projectId],
   );
   const undo = useCallback(

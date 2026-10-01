@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import UIKit
+import Security
 
 @MainActor
 final class CaptureConnection: ObservableObject {
@@ -20,7 +21,73 @@ final class CaptureConnection: ObservableObject {
     private var operation: Task<Void, Never>?
     private var operationId: UUID?
 
-    init(client: CaptureClient = CaptureClient()) { self.client = client }
+    private let resumeTransfers: Bool
+    private let transferDirectory = URL.applicationSupportDirectory.appendingPathComponent("PendingTransfer", isDirectory: true)
+    private struct Record: Codable {
+        let pairing: CapturePairing?
+        let grant: CaptureGrant?
+        let claimId: UUID
+        let uploadKey: UUID?
+        let scanURL: URL?
+        let scanKey: UUID?
+        let storageId: String?
+        let sent: Bool
+    }
+    // Injected clients used by tests do not read or overwrite a real saved connection.
+    init(client: CaptureClient? = nil, resumeTransfers: Bool? = nil) {
+        self.client = client ?? CaptureClient()
+        self.resumeTransfers = resumeTransfers ?? (client == nil)
+        if self.resumeTransfers { restore() }
+    }
+    private var keychainQuery: [String: Any] {
+        [kSecClass as String: kSecClassGenericPassword,
+         kSecAttrService as String: "rumi.capture.transfer",
+         kSecAttrAccount as String: "pending"]
+    }
+    private func checkpoint() throws {
+        guard resumeTransfers else { return }
+        if pairing == nil {
+            SecItemDelete(keychainQuery as CFDictionary)
+            try? FileManager.default.removeItem(at: transferDirectory)
+            return
+        }
+        try FileManager.default.createDirectory(at: transferDirectory, withIntermediateDirectories: true)
+        var directory = transferDirectory
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        try directory.setResourceValues(values)
+        if let upload { try upload.bytes.write(to: transferDirectory.appendingPathComponent("room.json"), options: [.atomic, .completeFileProtectionUnlessOpen]) }
+        let record = Record(pairing: pairing, grant: grant, claimId: claimId, uploadKey: upload?.key,
+                            scanURL: scanUpload?.url, scanKey: scanUpload?.key, storageId: scanUpload?.storageId, sent: sent)
+        let data = try JSONEncoder().encode(record)
+        let attributes: [String: Any] = [kSecValueData as String: data, kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly]
+        let status = SecItemUpdate(keychainQuery as CFDictionary, attributes as CFDictionary)
+        if status == errSecItemNotFound {
+            let insert = keychainQuery.merging(attributes) { _, value in value }
+            guard SecItemAdd(insert as CFDictionary, nil) == errSecSuccess else { throw CaptureError.reconnect }
+        } else if status != errSecSuccess { throw CaptureError.reconnect }
+    }
+    private func restore() {
+        var query = keychainQuery
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        var result: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+              let data = result as? Data,
+              let record = try? JSONDecoder().decode(Record.self, from: data),
+              let savedPairing = record.pairing,
+              CapturePairing.allowedOrigins.contains(savedPairing.baseUrl),
+              let expiry = captureDate(record.grant?.expiresAt ?? savedPairing.expiresAt), expiry > Date() else { return }
+        pairing = record.pairing
+        grant = record.grant
+        claimId = record.claimId
+        sent = record.sent
+        if let key = record.uploadKey, let bytes = try? Data(contentsOf: transferDirectory.appendingPathComponent("room.json")) { upload = (bytes, key) }
+        if let url = record.scanURL, let key = record.scanKey, FileManager.default.fileExists(atPath: url.path) {
+            scanUpload = (url, key, nil, record.storageId)
+        }
+        message = sent ? "This scan was sent to Rumi." : "Previous connection restored. Retry to continue the saved transfer."
+    }
 
     var isConnected: Bool { grant != nil }
     var canSend: Bool {
@@ -42,6 +109,7 @@ final class CaptureConnection: ObservableObject {
                 scanUpload = nil
                 sent = false
             }
+            try checkpoint()
             message = nil
             return true
         } catch { message = error.localizedDescription; return false }
@@ -55,6 +123,7 @@ final class CaptureConnection: ObservableObject {
                 let result = try await client.claim(pairing, claimId: claimId)
                 guard operationId == id, !Task.isCancelled else { return }
                 grant = result
+                try checkpoint()
                 finish(id)
                 onConnected()
             } catch { failed(error, id: id) }
@@ -66,6 +135,7 @@ final class CaptureConnection: ObservableObject {
         do {
             // Retain exactly these bytes and this key after failure or cancellation.
             if upload == nil { upload = (try bytes(), UUID()) }
+            try checkpoint()
         } catch { message = error.localizedDescription; return }
         guard let upload else { return }
         let id = begin()
@@ -74,6 +144,7 @@ final class CaptureConnection: ObservableObject {
                 try await client.upload(upload.bytes, pairing: pairing, grant: grant, key: upload.key)
                 guard operationId == id, !Task.isCancelled else { return }
                 sent = true
+                try checkpoint()
                 message = "Sent to Rumi. Review the room in your browser. Your scan is still saved on this iPhone."
                 finish(id)
             } catch { failed(error, id: id) }
@@ -82,7 +153,7 @@ final class CaptureConnection: ObservableObject {
 
     func sendScan(file: () throws -> URL) {
         guard !isBusy, !sent, let pairing, let grant else { return }
-        do { if scanUpload == nil { scanUpload = (try file(), UUID(), nil, nil) } }
+        do { if scanUpload == nil { scanUpload = (try file(), UUID(), nil, nil) }; try checkpoint() }
         catch { message = error.localizedDescription; return }
         guard let pending = scanUpload else { return }
         let id = begin()
@@ -111,6 +182,7 @@ final class CaptureConnection: ObservableObject {
                     })
                 guard operationId == id, !Task.isCancelled else { return }
                 sent = true
+                try checkpoint()
                 message = "Complete scan sent to Rumi. Your surfaces, photos, and layout are ready to open in the browser."
                 finish(id)
             } catch { failed(error, id: id) }
@@ -118,7 +190,7 @@ final class CaptureConnection: ObservableObject {
     }
 
     private func rememberStorage(_ storageId: String, key: UUID) {
-        if scanUpload?.key == key { scanUpload?.storageId = storageId }
+        if scanUpload?.key == key { scanUpload?.storageId = storageId; try? checkpoint() }
     }
 
     func cancel() {
@@ -140,6 +212,7 @@ final class CaptureConnection: ObservableObject {
         sent = false
         message = nil
         claimId = UUID()
+        try? checkpoint()
     }
 
     func prepareForNewScan() {

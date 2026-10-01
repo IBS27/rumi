@@ -73,9 +73,9 @@ describe("RoomPlan import", () => {
     expect(JSON.stringify(restored.original)).toBe(
       JSON.stringify(imported.original),
     );
-    expect(restored.original.coreModel).toBe("opaque");
-    expect(restored.original.objects[0].dimensions[0]).toBe(2.15);
-    expect(restored.original.objects[0].attributes).toEqual({});
+    expect(restored.original!.coreModel).toBe("opaque");
+    expect(restored.original!.objects[0].dimensions[0]).toBe(2.15);
+    expect(restored.original!.objects[0].attributes).toEqual({});
   });
   it("reports missing floors and preserves unknown categories", () => {
     const scan = {
@@ -137,7 +137,7 @@ describe("RoomPlan import", () => {
 
 it("rejects saved files with corrupt originals or surface transforms before opening", () => {
   const saved = parseRoomFile(JSON.stringify(syntheticRoomPlan), "scan.json");
-  saved.original.objects[0].dimensions[0] = -1;
+  saved.original!.objects[0].dimensions[0] = -1;
   expect(() => parseRoomFile(JSON.stringify(saved), "saved.json")).toThrow(
     "original scan is invalid",
   );

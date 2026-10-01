@@ -86,3 +86,16 @@ describe("sessions", () => {
     expect(sessionTitle(activeSession(store))).toBe("The corner living room");
   });
 });
+
+it("recovers valid sessions when a neighboring browser record is corrupt", () => {
+  const storage = memoryStorage();
+  const first = updateActive(readSessions(storage, "repair"), workspace);
+  const corrupted = {
+    ...first,
+    sessions: [...first.sessions, { id: "bad", workspace: { broken: true } }],
+  };
+  storage.setItem("rumi.sessions.v1.repair", JSON.stringify(corrupted));
+  expect(JSON.stringify(readSessions(storage, "repair").sessions)).toBe(
+    JSON.stringify(first.sessions),
+  );
+});

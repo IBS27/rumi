@@ -1,3 +1,4 @@
+import { requireTurn } from "./turns";
 import { v } from "convex/values";
 import { zodToConvex } from "convex-helpers/server/zod4";
 import {
@@ -40,10 +41,32 @@ export const propose = internalMutation({
     projectId: v.id("projects"),
     roomId: v.id("rooms"),
     plan: zodToConvex(designPlanSchema),
+    messageId: v.id("messages"),
+    attempt: v.optional(v.number()),
+    operationKey: v.optional(v.string()),
   },
-  handler: async (ctx, { projectId, roomId, plan }) => {
-    if (!(await ctx.db.get(projectId)))
-      throw new Error("This project does not exist.");
+  handler: async (
+    ctx,
+    { projectId, roomId, plan, messageId, attempt, operationKey },
+  ) => {
+    const project = await requireTurn(ctx, projectId, messageId, attempt);
+    const room = await ctx.db.get(roomId);
+    if (
+      project.roomId !== roomId ||
+      !room ||
+      room.snapshot.revision !== plan.baseRevision ||
+      room.snapshot.id !== plan.roomId
+    )
+      throw new Error("The room changed. Request a new plan.");
+    if (operationKey) {
+      const previous = await ctx.db
+        .query("plans")
+        .withIndex("by_operation", (q) =>
+          q.eq("projectId", projectId).eq("operationKey", operationKey),
+        )
+        .unique();
+      if (previous) return previous._id;
+    }
     const open = await ctx.db
       .query("plans")
       .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
@@ -53,6 +76,7 @@ export const propose = internalMutation({
       await ctx.db.patch(previous._id, { status: "superseded" });
     const planId = await ctx.db.insert("plans", {
       projectId,
+      operationKey,
       roomId,
       plan: designPlanSchema.parse(plan),
       status: "proposed",
@@ -88,11 +112,10 @@ export const active = internalQuery({
       .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
       .order("desc")
       .take(10);
-    const activePlan = (
+    const activePlan =
       plans.find(
         (plan) => plan.status === "searching" || plan.status === "proposed",
-      ) ?? null
-    );
+      ) ?? null;
     if (activePlan) await requireCurrentRoom(ctx, activePlan);
     return activePlan;
   },
@@ -102,9 +125,15 @@ export const setStatus = internalMutation({
   returns: v.null(),
   args: {
     planId: v.id("plans"),
+    messageId: v.id("messages"),
+    attempt: v.optional(v.number()),
     status: v.union(v.literal("searching"), v.literal("searched")),
   },
-  handler: async (ctx, { planId, status }) => {
+  handler: async (ctx, { planId, status, messageId, attempt }) => {
+    const plan = await ctx.db.get(planId);
+    if (!plan) throw new Error("Plan not found.");
+    await requireTurn(ctx, plan.projectId, messageId, attempt);
+    await requireCurrentRoom(ctx, plan);
     await ctx.db.patch(planId, { status });
     return null;
   },

@@ -230,6 +230,7 @@ export function productObject(
   return {
     id,
     productId: product.id,
+    productSnapshot: product,
     assetId: product.assetId ?? `${product.id}-asset`,
     name: product.name,
     category,

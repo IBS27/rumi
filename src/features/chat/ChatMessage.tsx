@@ -1,3 +1,7 @@
+import { useEffect } from "react";
+import { useMutation } from "convex/react";
+import { api } from "../../../convex/_generated/api";
+import type { Id } from "../../../convex/_generated/dataModel";
 import { useState, type ReactNode } from "react";
 import { Check, ExternalLink, LoaderCircle, X } from "lucide-react";
 import { Button, MessageBubble, Pill } from "../../ui";
@@ -237,6 +241,8 @@ type ChatMessageData = {
   status?: "pending" | "done" | "error";
   content: string;
   imageUrl?: string | null;
+  imageId?: Id<"images">;
+  projectId?: Id<"projects">;
   imageAnalysis?: string | null;
   recommendation?: Recommendation | null;
   zoneCards?: ZoneCard[];
@@ -261,6 +267,9 @@ export function ChatMessage({
     <MessageBubble speaker={message.role} card={productReply}>
       {message.role === "assistant" && (
         <ActivityFeed activity={message.activity} pending={pending} />
+      )}
+      {message.imageId && message.projectId && (
+        <PrivateImage imageId={message.imageId} projectId={message.projectId} />
       )}
       {message.imageUrl && (
         <a href={message.imageUrl} target="_blank" rel="noreferrer">
@@ -321,5 +330,47 @@ export function ChatMessage({
         )}
       {children}
     </MessageBubble>
+  );
+}
+
+function PrivateImage({
+  imageId,
+  projectId,
+}: {
+  imageId: Id<"images">;
+  projectId: Id<"projects">;
+}) {
+  const ticket = useMutation(api.files.ticket);
+  const [url, setUrl] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let canceled = false;
+    const refresh = () => {
+      void ticket({ imageId, projectId })
+        .then((value) => {
+          if (!canceled) setUrl(value?.url ?? null);
+        })
+        .catch(() => {
+          if (!canceled) setFailed(true);
+        });
+    };
+    refresh();
+    const timer = setInterval(refresh, 240000);
+    return () => {
+      canceled = true;
+      clearInterval(timer);
+    };
+  }, [imageId, projectId, ticket]);
+  if (failed) return <p>Image unavailable. Reload to try again.</p>;
+  return url ? (
+    <a href={url} target="_blank" rel="noreferrer">
+      <img
+        className="mb-2 max-h-56 w-full rounded-ctrl object-contain"
+        src={url}
+        alt="Your inspiration image"
+      />
+    </a>
+  ) : (
+    <p>Loading image…</p>
   );
 }
