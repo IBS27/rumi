@@ -131,7 +131,8 @@ export const publish = mutation({
   args: {
     projectId: v.id("projects"),
     workspaceFileId: v.id("files"),
-    roomId: v.optional(v.string()),
+    // Every shipped client names the room its source belongs to.
+    roomId: v.string(),
     scan: v.optional(scanIntent),
     // Older clients name a replacement scan directly and omit everything else.
     scanFileId: v.optional(v.id("files")),
@@ -153,23 +154,20 @@ export const publish = mutation({
         "This project's saved source changed in another tab. Reload before saving.",
       );
     if (args.scan && args.scanFileId) throw new Error("Name the scan once.");
-    const roomId = args.room?.id ?? args.roomId;
+    const { roomId } = args;
     if (args.room) {
       if (args.expectedRevision === undefined)
         throw new Error("Replacing a room requires its expected revision.");
-      if (args.roomId !== undefined && args.roomId !== args.room.id)
+      if (roomId !== args.room.id)
         throw new Error("The source belongs to another room.");
       await replaceRoom(ctx, project, args.room, args.expectedRevision);
     } else if (
-      roomId &&
-      (!project.roomId ||
-        (await ctx.db.get(project.roomId))?.snapshot.id !== roomId)
+      !project.roomId ||
+      (await ctx.db.get(project.roomId))?.snapshot.id !== roomId
     )
       throw new Error(
         "The room changed during upload. Import the source again.",
       );
-    const sameRoom =
-      project.sourceRoomId === undefined || project.sourceRoomId === roomId;
     let scanFileId: Id<"files"> | undefined;
     let sourceScanId: string | undefined;
     if (args.scan?.action === "replace") {
@@ -187,8 +185,8 @@ export const publish = mutation({
         );
       scanFileId = project.scanFileId;
       sourceScanId = project.sourceScanId;
-    } else if (!args.scan && project.scanFileId && sameRoom)
-      // Missing local data must not downgrade a saved scan for this room.
+    } else if (!args.scan && project.scanFileId)
+      // Only an explicit remove may discard a saved scan, for any room.
       throw new ConvexError({
         code: "SCAN_WOULD_BE_LOST",
         message:

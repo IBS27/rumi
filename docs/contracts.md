@@ -31,7 +31,7 @@ New catalog IDs use SHA-256 over a canonical merchant URL and variant identity. 
 
 A selected `RoomObject.productSnapshot` pins the product facts used for placement and price. Budget totals prefer this snapshot; refreshing the catalog cannot change a saved selection. Older objects without a snapshot remain readable and are backfilled using the facts still available. Asset identity includes dimensions, image inputs, and generator version.
 
-`SavedRoom.original` is optional for historical projects whose source was never uploaded. Missing means unavailable, not a reconstructed original. Signed-in source metadata and ZIP chunks publish together after upload, bound to their room and scan. A replacement room publishes in the same transaction as its source. The database room remains authoritative for edits. See [production rollout](production-rollout.md) for migration and retention behavior.
+`SavedRoom.original` is optional for historical projects whose source was never uploaded. Missing means unavailable, not a reconstructed original. Signed-in source metadata and ZIP chunks publish together after upload, bound to their room and scan. A replacement room publishes in the same transaction as its source; direct attachment cannot replace a room that has a published source, and only an explicit removal discards a saved scan. The database room remains authoritative for edits. See [production rollout](production-rollout.md) for migration and retention behavior.
 
 ## Boundaries
 

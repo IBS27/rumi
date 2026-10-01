@@ -267,7 +267,7 @@ describe("durable project writes", () => {
 
 describe("private project files and deletion", () => {
   it("restores a file for its owner, rejects other users and revokes downloads on deletion", async () => {
-    const { t, owner, other, projectId } = await setup();
+    const { t, owner, other, room, projectId } = await setup();
     const upload = await owner.mutation(api.files.begin, {
       projectId,
       kind: "workspace",
@@ -284,6 +284,7 @@ describe("private project files and deletion", () => {
     });
     await owner.mutation(api.files.publish, {
       projectId,
+      roomId: room.id,
       workspaceFileId: upload.fileId,
     });
     await expect(
@@ -414,7 +415,7 @@ describe("private project files and deletion", () => {
 });
 
 it("revokes account downloads immediately and blocks new work while deletion runs", async () => {
-  const { t, owner, projectId } = await setup();
+  const { t, owner, room, projectId } = await setup();
   const upload = await owner.mutation(api.files.begin, {
     projectId,
     kind: "workspace",
@@ -429,6 +430,7 @@ it("revokes account downloads immediately and blocks new work while deletion run
   });
   await owner.mutation(api.files.publish, {
     projectId,
+    roomId: room.id,
     workspaceFileId: upload.fileId,
   });
   const ticket = await owner.mutation(api.files.ticket, {
@@ -586,7 +588,7 @@ it("keeps images private and rejects expired image tickets", async () => {
 });
 
 it("publishes a matching source pair atomically and cleans unpublished uploads", async () => {
-  const { t, owner, projectId } = await setup();
+  const { t, owner, room, projectId } = await setup();
   async function staged(kind: "workspace" | "scan", content: string) {
     const grant = await owner.mutation(api.files.begin, {
       projectId,
@@ -607,6 +609,7 @@ it("publishes a matching source pair atomically and cleans unpublished uploads",
   const old = await staged("workspace", "old");
   await owner.mutation(api.files.publish, {
     projectId,
+    roomId: room.id,
     workspaceFileId: old.fileId,
   });
   const next = await staged("workspace", "new");
@@ -618,6 +621,7 @@ it("publishes a matching source pair atomically and cleans unpublished uploads",
   await expect(
     owner.mutation(api.files.publish, {
       projectId,
+      roomId: room.id,
       workspaceFileId: next.fileId,
       scanFileId: scan.fileId,
     }),
@@ -635,6 +639,7 @@ it("publishes a matching source pair atomically and cleans unpublished uploads",
   });
   await owner.mutation(api.files.publish, {
     projectId,
+    roomId: room.id,
     workspaceFileId: next.fileId,
     scanFileId: scan.fileId,
   });

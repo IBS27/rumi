@@ -1,6 +1,6 @@
 import { specStatus } from "../shared/chat/spec";
 import { requireTurn } from "./turns";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import { postUserTurn } from "./messages";
 import { requireOwner } from "./ownership";
@@ -290,6 +290,20 @@ export const attachRoom = mutation({
     const project = await ctx.db.get(projectId);
     if (!project || project.ownerId !== ownerId)
       throw new Error("This project does not exist.");
+    // A published source belongs to its room. A different room must publish
+    // with its own source (files.publish), so an older client that attaches
+    // before uploading cannot leave the room and source mismatched.
+    if (project.workspaceFileId) {
+      const sourceRoomId =
+        project.sourceRoomId ??
+        (project.roomId && (await ctx.db.get(project.roomId))?.snapshot.id);
+      if (sourceRoomId && sourceRoomId !== room.id)
+        throw new ConvexError({
+          code: "SOURCE_ROOM_REQUIRES_PUBLISH",
+          message:
+            "This project's saved files belong to its current room. Reload Rumi to update it, then import the room again.",
+        });
+    }
     await replaceRoom(ctx, project, room, expectedRevision);
   },
 });
