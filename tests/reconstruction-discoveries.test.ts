@@ -473,4 +473,38 @@ describe("photo discovery cleanup", () => {
       mergeDiscoveredObjects(current, scene(), [], 300).removedObjectIds,
     ).toHaveLength(48);
   });
+
+  it("rejects a local result beyond the record limit without changing the room", () => {
+    const prior = (count: number) =>
+      Array.from({ length: count }, (_, index) => `photo-prior-${index}`);
+    const atLimit = (applied: string[]): Workspace => ({
+      ...initial,
+      room: {
+        ...room,
+        reconstruction: {
+          generation: 100,
+          applied,
+          retired: [{ id: "photo-prior-0", generation: 100 }],
+          deleted: ["photo-prior-1"],
+        },
+      },
+    });
+    // One below the limit: the addition fits and survives a browser reload.
+    const fits = accept(atLimit(prior(1999)), scene(lamp), 200);
+    expect(fits.room.reconstruction?.applied).toHaveLength(2000);
+    expect(ids(throughBrowser(fits))).toEqual(ids(fits));
+    // At the limit: nothing changes and no history is dropped.
+    const full = throughBrowser(atLimit(prior(2000)));
+    const before = structuredClone(full.room);
+    expect(() =>
+      mergeDiscoveredObjects(full.room, scene(lamp), [], 200),
+    ).toThrow("saved-data limit");
+    expect(full.room).toEqual(before);
+    // The account edit rejects the same overflow atomically.
+    expect(() =>
+      edit(full, [
+        { type: "discover", object: discoveredRoomObject(lamp, 200) },
+      ]),
+    ).toThrow();
+  });
 });

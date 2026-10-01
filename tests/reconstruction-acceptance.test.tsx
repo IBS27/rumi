@@ -505,3 +505,43 @@ it("resumes from the account room after a committed batch's response is lost", a
   expect(later.server().reconstruction?.deleted).toEqual([]);
   expect(later.server().reconstruction?.retired).toHaveLength(49);
 });
+
+it("keeps the saved room when a local scene would exceed the record limit", async () => {
+  const prior = (count: number) =>
+    Array.from({ length: count }, (_, index) => `photo-prior-${index}`);
+  const workspace = (applied: string[]): Workspace => ({
+    format: "rumi.room",
+    version: 1,
+    room: {
+      ...room,
+      reconstruction: { generation: 100, applied, retired: [], deleted: [] },
+    },
+    original,
+    scanId: "c".repeat(32),
+  });
+  // At the limit, one more discovery is not saved and the scene stays pending.
+  const full = throughBrowser(workspace(prior(2000)));
+  const app = await mount({ cloud: false, workspace: full });
+  await app.deliver(scene(fresh(1)), 200);
+  await flush();
+  expect(app.saved).toEqual([]);
+  expect(app.sceneShown()).toBe(false);
+  expect(dom.document.body.textContent).toContain("saved-data limit");
+  expect(button("Retry")).toBeDefined();
+  const reloaded = throughBrowser(app.latest());
+  expect(reloaded.room.reconstruction?.applied).toEqual(prior(2000));
+  await act(async () => root?.unmount());
+  root = undefined;
+
+  // One below the limit, the discovery is saved and survives a reload.
+  const fits = await mount({
+    cloud: false,
+    workspace: throughBrowser(workspace(prior(1999))),
+  });
+  await fits.deliver(scene(fresh(1)), 200);
+  await flush();
+  expect(fits.sceneShown()).toBe(true);
+  const restored = throughBrowser(fits.latest());
+  expect(restored.room.reconstruction?.applied).toHaveLength(2000);
+  expect(ids(restored.room)).toContain("photo-new-0");
+});

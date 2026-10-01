@@ -602,7 +602,10 @@ export function planDiscoveredObjects(
   return { stale: false, commands };
 }
 
-/** Applies a whole plan at once, for rooms edited only in this browser. */
+/**
+ * Applies a whole plan at once, for rooms edited only in this browser. Like a
+ * cloud edit, the complete result must be a valid room or nothing changes.
+ */
 export function mergeDiscoveredObjects(
   room: CapturedRoom,
   scene: ReconstructedScene,
@@ -621,9 +624,10 @@ export function mergeDiscoveredObjects(
   if (!commands.length) return { room, stale, removedObjectIds };
   const next = structuredClone(room);
   for (const command of commands) applyDiscoveryCommand(next, command);
-  return {
-    room: { ...next, revision: room.revision + 1 },
-    stale,
-    removedObjectIds,
-  };
+  next.revision = room.revision + 1;
+  if (!roomSchema.safeParse(next).success)
+    throw new Error(
+      "This room has reached its saved-data limit, so the simulated room's changes were not saved.",
+    );
+  return { room: next, stale, removedObjectIds };
 }
