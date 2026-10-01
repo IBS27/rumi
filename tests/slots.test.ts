@@ -335,6 +335,88 @@ describe("slot reservation", () => {
     expect(zones[0].footprint.width).toBe(1.1);
     expect(ringInside(bodyRing(zones[0]), [slotRing(slots[0])])).toBe(true);
   });
+
+  it("keeps a requested king whose front reaches only empty floor of a later slot", () => {
+    const kingBrief: DesignBrief = {
+      ...brief,
+      purpose: "bedroom",
+      wants: [
+        { category: "king bed", notes: "" },
+        { category: "desk", notes: "" },
+      ],
+    };
+    const model = buildSpaceModel(emptyRoom);
+    const slots = findSlots(model, { count: planScope(kingBrief).maxZones });
+    const zones = (bedPriority: number) => [
+      piece("bed", "king bed", bedPriority, {
+        slotId: slots[0].id,
+        desiredFootprint: { width: 2.05, depth: 2.2 },
+      }),
+      piece("desk", "desk", 3 - bedPriority, {
+        slotId: slots[1].id,
+        desiredFootprint: { width: 1.2, depth: 0.6 },
+      }),
+    ];
+    // The defining bed stays priority 1, as the planner requires.
+    const first = buildDesignPlan({
+      room: emptyRoom,
+      brief: kingBrief,
+      products: [],
+      request: request(zones(1)),
+    }).plan;
+    expect(first.rejected).toEqual([]);
+    // Reserving the desk first gives the same spots: order alone never
+    // shrinks a piece when both fit.
+    const reversed = reserveZones(emptyRoom, model, zones(2), "balanced", emptyRoom.dimensions.height, [], slots);
+    expect(reversed.rejected).toEqual([]);
+    const spots = (list: { id: string; category: string; position: unknown; footprint: unknown }[]) =>
+      list.map((zone) => JSON.stringify([zone.id, zone.category, zone.position, zone.footprint])).sort();
+    expect(spots(first.zones)).toEqual(spots(reversed.zones));
+    const bed = first.zones.find((zone) => zone.id === "bed")!;
+    const desk = first.zones.find((zone) => zone.id === "desk")!;
+    expect(bed.category).toBe("king bed");
+    expect(bed.footprint).toEqual({ width: 2.05, depth: 2.2 });
+    expect(desk.footprint).toEqual({ width: 1.2, depth: 0.6 });
+    expect(ringInside(bodyRing(bed), [slotRing(slots[0])])).toBe(true);
+    expect(ringInside(bodyRing(desk), [slotRing(slots[1])])).toBe(true);
+    // Each piece keeps a clear strip in front of it.
+    const frontStrip = (zone: typeof bed) => {
+      const reach = zone.footprint.depth / 2 + 0.15;
+      return rectangleRing(
+        {
+          x: zone.position.x + Math.sin(zone.rotationY) * reach,
+          z: zone.position.z + Math.cos(zone.rotationY) * reach,
+        },
+        zone.footprint.width,
+        0.3,
+        zone.rotationY,
+      );
+    };
+    expect(ringsOverlap(frontStrip(bed), bodyRing(desk))).toBe(false);
+    expect(ringsOverlap(frontStrip(desk), bodyRing(bed))).toBe(false);
+    // The exact plan places both catalog products in one atomic command.
+    const products: ProductCandidate[] = first.zones.map((zone) => ({
+      ...sampleProducts[0],
+      id: zone.id,
+      name: zone.category,
+      category: zone.category,
+      availability: "available",
+      measurement: {
+        ...sampleProducts[0].measurement,
+        source: "confirmed",
+        dimensions: { ...zone.footprint, height: zone.id === "bed" ? 0.6 : 0.75 },
+      },
+    }));
+    const placed = applyDesignCommands(
+      emptyRoom,
+      first.zones.map((zone) => ({ type: "add" as const, productId: zone.id, instanceId: zone.id, zone })),
+      products,
+      kingBrief,
+      "agent",
+    );
+    expect(placed.objects.map((object) => object.id).sort()).toEqual(["bed", "desk"]);
+    for (const object of placed.objects) expect(designPlacementIssue(placed, object)).toBeNull();
+  });
 });
 
 describe("planner slot and count rules", () => {
