@@ -20,7 +20,7 @@
     "@clerk/react": "^6.16.1",
     "@noble/hashes": "^2.4.0",
     "@react-three/drei": "^10.7.8",
-    "@react-three/fiber": "^9.7.0",
+    "@react-three/fiber": "^9.8.1",
     "ai": "5.0.256",
     "convex": "^1.46.0",
     "convex-helpers": "^0.1.124",
