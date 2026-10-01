@@ -11,6 +11,7 @@ import {
   type SearchTask,
   type ZoneFill,
   type ZonePlanRequest,
+  type ZoneRequest,
 } from "../contracts";
 import { selectionTotal } from "../budget";
 import { colorFromWords } from "../search/color";
@@ -25,10 +26,10 @@ import {
   planScope,
   sameCategory,
 } from "./scope";
+import { planSlots } from "./slots";
 import { mountFor, reserveZones } from "./zones";
 
 export { buildSpaceModel } from "./space";
-export { describeFreeFloorAreas, findFreeFloorAreas } from "./free-floor";
 export { marginsFor, mountFor, reserveZones, scaleMargins } from "./zones";
 export {
   MAX_ZONES,
@@ -39,6 +40,13 @@ export {
   matchesDefiningPiece,
   planScope,
 } from "./scope";
+export {
+  SLOT_RULES,
+  describeSlots,
+  findSlots,
+  planSlots,
+  type Slot,
+} from "./slots";
 export { ceilingFloorCents, splitBudget, typicalPriceCents } from "./budget";
 
 const RESTRICTION_TAGS: [RegExp, string[]][] = [
@@ -209,6 +217,23 @@ export function buildDesignPlan({
       `The user does not want accessories; drop ${accessories.map((zone) => zone.category).join(", ")}.`,
     );
   const model = buildSpaceModel(room);
+  // The same slots the planner prompt listed. A slot holds one floor piece;
+  // pieces beyond the listed slots go in with slotId null.
+  const slots = planSlots(room, model, scope);
+  const slotted = new Map<string, ZoneRequest>();
+  for (const zone of parsed.zones) {
+    if (mountFor(zone) !== "floor" || !zone.slotId) continue;
+    if (!slots.some((slot) => slot.id === zone.slotId))
+      throw new Error(
+        `The ${zone.category} names ${zone.slotId}, which is not a listed free-floor slot${slots.length ? ` (${slots.map((slot) => slot.id).join(", ")})` : ""}. Use a listed slot or set its slotId null so code places it in the remaining free floor.`,
+      );
+    const other = slotted.get(zone.slotId);
+    if (other)
+      throw new Error(
+        `The ${other.category} and the ${zone.category} both name ${zone.slotId}, and a slot holds one floor piece. Give one of them another free slot or set its slotId null so code places it in the remaining free floor.`,
+      );
+    slotted.set(zone.slotId, zone);
+  }
   const reserved = reserveZones(
     room,
     model,
@@ -216,7 +241,23 @@ export function buildDesignPlan({
     parsed.spacing,
     room.dimensions.height,
     placementHints,
+    slots,
   );
+  // A requested or defining piece that misses the slot the model chose may
+  // still fit elsewhere; ask for another slot rather than drop it.
+  const missedSlots = reserved.rejected.filter((item) => {
+    const zone = requestsById.get(item.zoneId);
+    return (
+      zone?.slotId &&
+      mountFor(zone) === "floor" &&
+      (zone.id === definingRequest?.id ||
+        scope.required.some((category) => sameCategory(category, zone.category)))
+    );
+  });
+  if (missedSlots.length)
+    throw new Error(
+      `${missedSlots.map((item) => item.reason).join(" ")} Choose a slot that holds it or set its slotId null so code places it in the remaining free floor.`,
+    );
   if (
     definingRequest &&
     reserved.rejected.some((item) => item.zoneId === definingRequest.id)

@@ -16,7 +16,7 @@ import { syntheticRoomPlan } from "../shared/fixtures/roomplan";
 import {
   buildDesignPlan,
   buildSpaceModel,
-  findFreeFloorAreas,
+  findSlots,
 } from "../shared/planner";
 import {
   rectangleRing,
@@ -75,7 +75,9 @@ const request = (zones: ZoneRequest[]) => ({
 
 describe("measured free-floor context", () => {
   it("leaves a large area available to multiple pieces and produces a placeable plan", () => {
-    expect(findFreeFloorAreas(buildSpaceModel(room))).toHaveLength(1);
+    // Open floor is offered as several slots; pieces without a slot share
+    // what is left.
+    expect(findSlots(buildSpaceModel(room), { count: 5 }).length).toBeGreaterThan(1);
     const { plan } = buildDesignPlan({
       room,
       brief,
@@ -138,7 +140,7 @@ describe("measured free-floor context", () => {
           .toArray();
       scan.objects = [];
       const model = buildSpaceModel(scan);
-      const areas = findFreeFloorAreas(model);
+      const areas = findSlots(model);
       expect(areas.length).toBeGreaterThan(0);
       for (const area of areas) {
         const ring = rectangleRing(
@@ -153,7 +155,7 @@ describe("measured free-floor context", () => {
       }
     }
     const model = buildSpaceModel(sampleRoom);
-    for (const area of findFreeFloorAreas(model)) {
+    for (const area of findSlots(model)) {
       const ring = rectangleRing(
         area.center,
         area.width,
@@ -167,7 +169,7 @@ describe("measured free-floor context", () => {
 
   it("does not treat rugs or high wall decor as occupied floor", () => {
     const model = buildSpaceModel(room);
-    const areas = findFreeFloorAreas(model);
+    const areas = findSlots(model);
     model.obstacles = [
       {
         id: "rug",
@@ -188,7 +190,7 @@ describe("measured free-floor context", () => {
         footprint: rectangleRing({ x: 3, z: 0.5 }, 2, 0.1),
       },
     ];
-    expect(findFreeFloorAreas(model)).toEqual(areas);
+    expect(findSlots(model)).toEqual(areas);
   });
 
   it("never calls a rectangle free when raster sampling misses a thin obstacle", () => {
@@ -204,7 +206,7 @@ describe("measured free-floor context", () => {
         footprint: rectangleRing({ x: 3.013, z: 2.013 }, 0.01, 0.01),
       },
     ];
-    for (const area of findFreeFloorAreas(model)) {
+    for (const area of findSlots(model)) {
       expect(
         ringsOverlap(
           rectangleRing(area.center, area.width, area.depth, area.rotationY),
