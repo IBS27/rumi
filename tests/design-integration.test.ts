@@ -167,8 +167,27 @@ describe("authoritative room editing", () => {
     await expect(
       edit(3, [{ type: "generation", generation: 100 }]),
     ).rejects.toThrow("newer reconstruction");
+    // Locking and unlocking through the account leaves a discovery unedited.
+    let unlocked = await edit(3, [
+      { type: "discover", object: found("photo-lamp", 200) },
+    ]);
+    for (const locked of [true, false])
+      unlocked = await edit(unlocked.revision, [
+        {
+          type: "lock",
+          objectId: "photo-lamp",
+          placementLocked: locked,
+          productLocked: locked,
+        },
+      ]);
+    const retired = await edit(unlocked.revision, [
+      { type: "retire", objectId: "photo-lamp", generation: 300 },
+    ]);
+    expect(retired.objects.some((item) => item.id === "photo-lamp")).toBe(
+      false,
+    );
     // Reattaching the same room keeps the account's bookkeeping.
-    const room = state!.room;
+    const room = (await owner.query(api.design.get, { projectId }))!.room;
     await owner.mutation(api.projects.attachRoom, {
       projectId,
       room: { ...room, reconstruction: undefined },

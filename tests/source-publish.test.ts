@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { convexTest } from "convex-test";
+import type { FunctionArgs } from "convex/server";
 import schema from "../convex/schema";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
@@ -7,6 +8,7 @@ import { importRoomPlan, roomPlanSchema } from "../shared/capture/roomplan";
 import { syntheticRoomPlan } from "../shared/fixtures/roomplan";
 import { FILE_CHUNK_BYTES } from "../shared/files";
 import {
+  downloadFile,
   saveWorkspaceFiles,
   uploadFile,
   type PublishedSource,
@@ -271,6 +273,113 @@ describe("publishing a source pair", () => {
       }),
     ).rejects.toThrow("not found");
     expect(await app.state()).toEqual(before);
+  });
+
+  it("rejects a publish that does not name its room", async () => {
+    const app = await savedProject();
+    const before = await app.state();
+    const blob = new Blob(["{}"]);
+    const upload = await app.begin({
+      projectId: app.projectId,
+      kind: "workspace",
+      size: blob.size,
+    });
+    await uploadFile(blob, upload);
+    // The exact two-field call the public validator used to accept.
+    const unnamed = {
+      projectId: app.projectId,
+      workspaceFileId: upload.fileId,
+    } as unknown as FunctionArgs<typeof api.files.publish>;
+    await expect(app.publish(unnamed)).rejects.toThrow(
+      "Missing required field `roomId`",
+    );
+    await app.settle();
+    expect(await app.state()).toEqual(before);
+    const ticket = await app.owner.mutation(api.files.ticket, {
+      projectId: app.projectId,
+      kind: "scan",
+    });
+    expect((await downloadFile(ticket!)).size).toBe(scanBlob().size);
+  });
+
+  it("discards a saved scan only when told to, even for a new room", async () => {
+    const app = await savedProject();
+    const before = await app.state();
+    const newRoom = { ...room, id: "json-room", name: "JSON room" };
+    const blob = new Blob(["{}"]);
+    const upload = await app.begin({
+      projectId: app.projectId,
+      kind: "workspace",
+      size: blob.size,
+    });
+    await uploadFile(blob, upload);
+    const replace = {
+      projectId: app.projectId,
+      workspaceFileId: upload.fileId,
+      roomId: newRoom.id,
+      room: newRoom,
+      expectedRevision: before.revision,
+      expectedGeneration: 1,
+    };
+    await expect(app.publish(replace)).rejects.toThrow("SCAN_WOULD_BE_LOST");
+    await app.settle();
+    expect(await app.state()).toEqual(before);
+    await app.publish({ ...replace, scan: { action: "remove" } });
+    await app.settle();
+    const after = await app.state();
+    expect(after.roomId).toBe("json-room");
+    expect(after.scanFileId).toBeUndefined();
+  });
+
+  describe("older clients that attach a room before uploading", () => {
+    it("cannot replace a room that has a published source", async () => {
+      const app = await savedProject();
+      const before = await app.state();
+      const replacement = { ...room, id: "old-client-room", name: "Old" };
+      await expect(
+        app.owner.mutation(api.projects.attachRoom, {
+          projectId: app.projectId,
+          room: replacement,
+          expectedRevision: before.revision,
+        }),
+      ).rejects.toThrow("SOURCE_ROOM_REQUIRES_PUBLISH");
+      await app.settle();
+      expect(await app.state()).toEqual(before);
+      // After reloading, the current client publishes the room with its source.
+      await app.save(workspace({ room: replacement, scanId: "f".repeat(32) }), {
+        published: await app.published(),
+        room: { expectedRevision: before.revision },
+      });
+      const after = await app.state();
+      expect(after.roomId).toBe("old-client-room");
+      expect(after.source.roomId).toBe("old-client-room");
+    });
+
+    it("can still update the same room or attach to a project without a source", async () => {
+      const app = await savedProject();
+      const before = await app.state();
+      await app.owner.mutation(api.projects.attachRoom, {
+        projectId: app.projectId,
+        room: { ...room, name: "Remeasured" },
+        expectedRevision: before.revision,
+      });
+      const updated = await app.state();
+      expect(updated.revision).toBe(before.revision + 1);
+      expect({ ...updated, revision: before.revision }).toEqual(before);
+      const chatOnly = await app.owner.mutation(api.projects.create, {
+        title: "Chat only",
+        room,
+      });
+      await app.owner.mutation(api.projects.attachRoom, {
+        projectId: chatOnly,
+        room: { ...room, id: "another-room" },
+        expectedRevision: room.revision,
+      });
+      expect(
+        (await app.owner.query(api.projects.context, { projectId: chatOnly }))
+          ?.room?.id,
+      ).toBe("another-room");
+    });
   });
 
   describe("replacing the room", () => {

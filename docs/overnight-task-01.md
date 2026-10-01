@@ -79,6 +79,20 @@ The independent #37 review at `e9fa319` (`/tmp/pr-babysit-20260930/reviews/rumi-
   - With `TMPDIR` on disk, `b503d35` passed 5 of 5 in each of 3 runs. This is a Fedora environment condition, not a code change; CI is authoritative.
 - Not run: native tests (no Swift on Fedora), production build, deployment, live staging, physical iPhone and a backup drill.
 
+## PR #37 residual repairs
+
+The final #37 recheck at `88b1d35` (`/tmp/pr-babysit-20260930/reviews/rumi-37/three-p1-final-recheck.md`) found two remaining public paths. Both reproduced on `1b93659`. That commit merges the approved #36 `8cc0490` unchanged into `88b1d35`.
+
+- R37-R1: `files.publish({ projectId, workspaceFileId })` was accepted and deleted the saved scan. `roomId` is now required; every shipped client already sends it. Only an explicit `remove` may discard a saved scan, for any room.
+- R37-R2: an older open tab's `projects.attachRoom` replaced the room before uploading its source. Different-room attachment is now rejected with `SOURCE_ROOM_REQUIRES_PUBLISH` once a project has a published source, leaving the full pair unchanged. The current client's atomic publish then completes. Same-room updates and source-less projects still attach.
+
+Evidence, with scratch output in `/home/srinivasib/.local/state/pr-babysit-20260930/review-scratch/rumi37-author-residuals`:
+
+- The reviewer's `boundaries.test.ts` against `1b93659` fails 2 of 7, matching both reports.
+- Against the repair, a copy whose expectations are adapted to the new contract passes 7 of 7. It checks rejection, an unchanged pair and retained scan bytes.
+- Four new `tests/source-publish.test.ts` cases cover these paths. Three fail against the `1b93659` server files; the same-room and source-less attach case passes on both by design.
+- Typecheck, Convex typecheck, shared typecheck, lint, audit and diff check pass. `bun test` passes 507 of 507. With `TMPDIR` on disk, browser tests passed 5 of 5 in each of 3 runs.
+
 ## Convex build integration (`56c481d`)
 
 The Convex CLI typechecks functions with `convex/tsconfig.json`. That file was missing, so codegen skipped the check or exited 1, as in the independent non-deploying analysis at `/home/srinivasib/.local/state/rumi-evidence/codegen-dry-run-20260930/`.
