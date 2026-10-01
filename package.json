@@ -19,7 +19,7 @@
     "@ai-sdk/openai": "2.0.127",
     "@clerk/react": "^6.16.1",
     "@noble/hashes": "^2.4.0",
-    "@react-three/drei": "^10.7.8",
+    "@react-three/drei": "^10.7.9",
     "@react-three/fiber": "^9.7.0",
     "ai": "5.0.256",
     "convex": "^1.46.0",
